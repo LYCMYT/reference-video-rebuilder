@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1.0",
+  "template_id": "outfit-reel-001",
+  "privacy_profile": "local-only",
+  "assets": [
+    {"slot_id": "model.identity", "path": "assets/model/identity.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "identity-reference"},
+    {"slot_id": "outfit.01", "path": "assets/outfits/01.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.02", "path": "assets/outfits/02.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.03", "path": "assets/outfits/03.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.04", "path": "assets/outfits/04.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.05", "path": "assets/outfits/05.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.06", "path": "assets/outfits/06.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.07", "path": "assets/outfits/07.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.08", "path": "assets/outfits/08.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.09", "path": "assets/outfits/09.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.10", "path": "assets/outfits/10.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.11", "path": "assets/outfits/11.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "outfit.12", "path": "assets/outfits/12.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "auto"},
+    {"slot_id": "product.01", "path": "assets/products/01.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.02", "path": "assets/products/02.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.03", "path": "assets/products/03.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.04", "path": "assets/products/04.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.05", "path": "assets/products/05.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.06", "path": "assets/products/06.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.07", "path": "assets/products/07.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.08", "path": "assets/products/08.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.09", "path": "assets/products/09.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.10", "path": "assets/products/10.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.11", "path": "assets/products/11.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "product.12", "path": "assets/products/12.png", "media_type": "image/png", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"},
+    {"slot_id": "audio", "path": "assets/audio/source.m4a", "media_type": "audio/mp4", "rights_confirmed": true, "cloud_upload_allowed": false, "processor": "direct"}
+  ]
+}

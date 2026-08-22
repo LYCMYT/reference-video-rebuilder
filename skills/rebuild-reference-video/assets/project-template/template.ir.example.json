@@ -1,0 +1,449 @@
+{
+  "schema_version": "0.2.0",
+  "template_id": "outfit-reel-001",
+  "coordinate_space": "canvas-pixels",
+  "canvas": {
+    "width": 576,
+    "height": 1024,
+    "background": "#FFFFFF",
+    "source_rect": {"x": 0, "y": 128, "width": 576, "height": 1024}
+  },
+  "source": {
+    "duration_frames": 347,
+    "fps": 30,
+    "width": 576,
+    "height": 1280,
+    "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "support": {
+    "level": "S1",
+    "confidence": 0.96,
+    "warnings": [
+      "source_sha256 is a 64-zero placeholder and must be replaced with the measured source hash before freezing this template.",
+      "Example switch frames and carousel motion must be confirmed against measured reference evidence before approval."
+    ]
+  },
+  "tracks": [
+    {"id": "background", "type": "background", "z_index": 0, "overlap_policy": "forbid"},
+    {"id": "model", "type": "subject", "z_index": 10, "overlap_policy": "forbid"},
+    {
+      "id": "product-carousel",
+      "type": "carousel",
+      "z_index": 30,
+      "overlap_policy": "allow",
+      "group_layout": {
+        "type": "carousel",
+        "origin": {"x": 8, "y": 20},
+        "item_slots": [
+          "product.01", "product.02", "product.03", "product.04", "product.05", "product.06",
+          "product.07", "product.08", "product.09", "product.10", "product.11", "product.12"
+        ],
+        "item_width": 72,
+        "item_height": 160,
+        "gap": 8,
+        "direction": "horizontal",
+        "repeat": "none"
+      },
+      "group_transform": {
+        "anchor": {"x": 0, "y": 0},
+        "keyframes": [
+          {"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "cubic-bezier", "control_points": [0.25, 0.1, 0.25, 1]}},
+          {"frame": 346, "translate_x": -384, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}
+        ]
+      },
+      "clip_mask": {
+        "type": "rect",
+        "space": "canvas",
+        "rect": {"x": 0, "y": 0, "width": 576, "height": 200},
+        "feather_px": 0,
+        "invert": false
+      }
+    }
+  ],
+  "slots": [
+    {"id": "model.identity", "type": "identity", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "outfit.01", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.02", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.03", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.04", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.05", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.06", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.07", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.08", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.09", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.10", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.11", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "outfit.12", "type": "garment", "required": true, "accepted_media": ["image/png", "image/webp"]},
+    {"id": "product.01", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.02", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.03", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.04", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.05", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.06", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.07", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.08", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.09", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.10", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.11", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "product.12", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "background", "type": "background", "required": false, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
+    {"id": "audio", "type": "audio", "required": true, "accepted_media": ["audio/wav", "audio/mpeg", "audio/mp4"]}
+  ],
+  "layers": [
+    {
+      "id": "background-fill",
+      "track_id": "background",
+      "source": {"slot_id": "background", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 0, "y": 0, "width": 576, "height": 1024}, "fit": "cover", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 512}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.01",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.01", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 29}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.02",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.02", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 29, "end_frame": 58}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 29, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.03",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.03", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 58, "end_frame": 87}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 58, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.04",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.04", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 87, "end_frame": 116}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 87, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.05",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.05", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 116, "end_frame": 145}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 116, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.06",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.06", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 145, "end_frame": 174}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 145, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.07",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.07", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 174, "end_frame": 203}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 174, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.08",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.08", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 203, "end_frame": 232}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 203, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.09",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.09", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 232, "end_frame": 261}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 232, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.10",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.10", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 261, "end_frame": 290}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 261, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.11",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.11", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 290, "end_frame": 319}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 290, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "outfit-render.12",
+      "track_id": "model",
+      "source": {"slot_id": "outfit.12", "representation": "render-ready"},
+      "active_ranges": [{"start_frame": 319, "end_frame": 347}],
+      "layout": {"box": {"x": 0, "y": 200, "width": 576, "height": 824}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 288, "y": 612}, "keyframes": [{"frame": 319, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "product-item.01",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.01", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 8, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 44, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 0
+    },
+    {
+      "id": "product-item.02",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.02", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 88, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 124, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 1
+    },
+    {
+      "id": "product-item.03",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.03", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 168, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 204, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 2
+    },
+    {
+      "id": "product-item.04",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.04", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 248, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 284, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 3
+    },
+    {
+      "id": "product-item.05",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.05", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 328, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 364, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 4
+    },
+    {
+      "id": "product-item.06",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.06", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 408, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 444, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 5
+    },
+    {
+      "id": "product-item.07",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.07", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 488, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 524, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 6
+    },
+    {
+      "id": "product-item.08",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.08", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 568, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 604, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 7
+    },
+    {
+      "id": "product-item.09",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.09", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 648, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 684, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 8
+    },
+    {
+      "id": "product-item.10",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.10", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 728, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 764, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 9
+    },
+    {
+      "id": "product-item.11",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.11", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 808, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 844, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 10
+    },
+    {
+      "id": "product-item.12",
+      "track_id": "product-carousel",
+      "source": {"slot_id": "product.12", "representation": "raw"},
+      "active_ranges": [{"start_frame": 0, "end_frame": 347}],
+      "layout": {"box": {"x": 888, "y": 20, "width": 72, "height": 160}, "fit": "contain", "object_position": {"x": 0.5, "y": 0.5}},
+      "transform": {"anchor": {"x": 924, "y": 100}, "keyframes": [{"frame": 0, "translate_x": 0, "translate_y": 0, "scale_x": 1, "scale_y": 1, "rotation_deg": 0, "opacity": 1, "easing": {"type": "hold"}}]},
+      "mask": null,
+      "blend": {"mode": "normal", "opacity": 1},
+      "z_offset": 11
+    }
+  ],
+  "remove_layers": [
+    {
+      "id": "platform-top",
+      "policy": "exclude-from-reconstruction",
+      "regions": [{"active_range": {"start_frame": 0, "end_frame": 347}, "operation": "remove", "geometry": {"type": "rect", "space": "source", "rect": {"x": 0, "y": 0, "width": 576, "height": 140}}}]
+    },
+    {
+      "id": "platform-right",
+      "policy": "exclude-from-reconstruction",
+      "regions": [{"active_range": {"start_frame": 0, "end_frame": 347}, "operation": "remove", "geometry": {"type": "rect", "space": "source", "rect": {"x": 490, "y": 441, "width": 86, "height": 537}}}]
+    },
+    {
+      "id": "platform-bottom",
+      "policy": "exclude-from-reconstruction",
+      "regions": [{"active_range": {"start_frame": 0, "end_frame": 347}, "operation": "remove", "geometry": {"type": "rect", "space": "source", "rect": {"x": 0, "y": 992, "width": 576, "height": 288}}}]
+    },
+    {
+      "id": "danmaku",
+      "policy": "mask-and-rebuild",
+      "regions": [{"active_range": {"start_frame": 0, "end_frame": 347}, "operation": "remove", "geometry": {"type": "rect", "space": "source", "rect": {"x": 16, "y": 776, "width": 216, "height": 110}}}]
+    },
+    {
+      "id": "account-text",
+      "policy": "mask-and-rebuild",
+      "regions": [{"active_range": {"start_frame": 0, "end_frame": 347}, "operation": "remove", "geometry": {"type": "rect", "space": "source", "rect": {"x": 18, "y": 898, "width": 542, "height": 93}}}]
+    },
+    {
+      "id": "mobile-chrome",
+      "policy": "crop-source-before-analysis",
+      "regions": [{"active_range": {"start_frame": 0, "end_frame": 347}, "operation": "keep", "geometry": {"type": "rect", "space": "source", "rect": {"x": 0, "y": 128, "width": 576, "height": 1024}}}]
+    }
+  ],
+  "events": [
+    {"id": "outfit-switch.01", "frame": 0, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.01", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.02", "frame": 29, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.02", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.03", "frame": 58, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.03", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.04", "frame": 87, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.04", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.05", "frame": 116, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.05", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.06", "frame": 145, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.06", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.07", "frame": 174, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.07", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.08", "frame": 203, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.08", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.09", "frame": 232, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.09", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.10", "frame": 261, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.10", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.11", "frame": 290, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.11", "transition": {"type": "cut", "duration_frames": 0}},
+    {"id": "outfit-switch.12", "frame": 319, "type": "slot-switch", "track_id": "model", "slot_id": "outfit.12", "transition": {"type": "cut", "duration_frames": 0}}
+  ],
+  "audio": {
+    "slot_id": "audio",
+    "timeline_start_frame": 0,
+    "timeline_end_frame": 347,
+    "source_in_ms": 0,
+    "source_out_ms": 11567,
+    "playback_rate": 1,
+    "loop": false,
+    "gain_db": 0,
+    "fade_in_frames": 6,
+    "fade_out_frames": 6
+  },
+  "outputs": [
+    {
+      "id": "vertical-720",
+      "width": 720,
+      "height": 1280,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "audio_codec": "aac",
+      "filename": "outfit-reel-001.720x1280.mp4",
+      "reframe": {"mode": "contain", "object_position": {"x": 0.5, "y": 0.5}, "background": "#FFFFFF"}
+    },
+    {
+      "id": "vertical-1080",
+      "width": 1080,
+      "height": 1920,
+      "codec": "h264",
+      "pixel_format": "yuv420p",
+      "audio_codec": "aac",
+      "filename": "outfit-reel-001.1080x1920.mp4",
+      "reframe": {"mode": "contain", "object_position": {"x": 0.5, "y": 0.5}, "background": "#FFFFFF"}
+    }
+  ]
+}

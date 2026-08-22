@@ -1,0 +1,64 @@
+# Operating systems and editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node and Remotion
+node_modules/
+.npm/
+.cache/
+dist/
+build/
+out/
+
+# Runtime projects and generated media
+workspaces/
+runs/
+cache/
+tmp/
+temp/
+renders/
+previews/
+derived-assets/
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.m4a
+
+# Models and checkpoints
+models/
+checkpoints/
+*.ckpt
+*.safetensors
+*.pth
+*.pt
+*.onnx
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+config.local.json
+secrets.json
+*.key
+*.pem
+
+# Logs and databases
+*.log
+*.sqlite
+*.sqlite3
+*.db

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/rebuild-reference-video/asset-manifest.schema.json",
+  "title": "Reference Video Replacement Asset Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "template_id", "privacy_profile", "assets"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
+    "template_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "privacy_profile": {"enum": ["local-only", "cloud-assisted", "gpu-worker"]},
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slot_id", "media_type", "rights_confirmed", "cloud_upload_allowed", "processor"],
+        "oneOf": [
+          {"required": ["path"], "not": {"required": ["provider_asset_id"]}},
+          {"required": ["provider_asset_id"], "not": {"required": ["path"]}}
+        ],
+        "allOf": [
+          {
+            "if": {"required": ["provider_asset_id"]},
+            "then": {"properties": {"cloud_upload_allowed": {"const": true}}}
+          }
+        ],
+        "properties": {
+          "slot_id": {"type": "string"},
+          "path": {"type": "string", "minLength": 1},
+          "provider_asset_id": {"type": "string", "minLength": 1},
+          "media_type": {
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "video/mp4",
+              "video/quicktime",
+              "video/webm",
+              "audio/wav",
+              "audio/mpeg",
+              "audio/mp4"
+            ]
+          },
+          "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},
+          "rights_confirmed": {"const": true},
+          "cloud_upload_allowed": {"type": "boolean"},
+          "processor": {"type": "string", "minLength": 1},
+          "notes": {"type": "string"}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"privacy_profile": {"const": "local-only"}}},
+      "then": {
+        "properties": {
+          "assets": {
+            "items": {
+              "properties": {"cloud_upload_allowed": {"const": false}},
+              "not": {"required": ["provider_asset_id"]}
+            }
+          }
+        }
+      }
+    }
+  ]
+}
