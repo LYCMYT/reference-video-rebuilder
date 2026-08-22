@@ -1,9 +1,11 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.1.0-design  
+版本：0.2.0-alpha
 日期：2026-08-22  
-目标仓库：`LYCMYT/codex-reference-video-rebuilder`  
+目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`rebuild-reference-video`
+
+当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Template IR/资产合同校验、S1 确定性合成和逐输出技术 QA。参考视频的语义槽位判定、换装/模特图生成、残留平台元素的人眼审查仍由 Codex/人工完成；本版本不承诺任意视频或被遮挡像素的复原。
 
 ## 目录
 
@@ -470,37 +472,31 @@ NEW
 -> PACKAGED
 ```
 
-失败状态保留已完成阶段，允许从最近成功点恢复。
+目标状态机应在失败时保留已完成阶段，并允许从最近成功点恢复；当前 Alpha 尚未实现该项目控制器和断点恢复。
 
 ## 10. 命令行和工具接口
 
-第一版提供稳定 CLI，Codex 不应依赖自然语言日志：
+`0.2.0-alpha` 已提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志：
 
 ```text
-video-remix doctor --json
-video-remix init <project-dir>
-video-remix analyze <project-dir> --reference <video>
-video-remix classify <project-dir>
-video-remix propose-slots <project-dir>
-video-remix freeze-template <project-dir>
-video-remix validate-assets <project-dir>
-video-remix prepare-assets <project-dir> [--slot outfit.03]
-video-remix preview <project-dir> [--debug]
-video-remix render <project-dir> --profile 1080x1920
-video-remix qc <project-dir>
-video-remix package <project-dir>
-video-remix status <project-dir> --json
+video-remix doctor [--ffmpeg <path>] [--ffprobe <path>] --json
+video-remix probe <reference> [--ffmpeg <path>] [--ffprobe <path>] --json
+video-remix survey <reference> --project-root <project-dir> [--output-dir reference-survey] [--frame <n> ...] [--samples <n>] [--ffmpeg <path>] --json
+video-remix validate-template <template.ir.json> --json
+video-remix validate-assets <template.ir.json> <assets.json> --project-root <project-dir> --json
+video-remix render <template.ir.json> <assets.json> --project-root <project-dir> [--frame-directory render/master-frames] [--debug-bounds] [--summary <root-contained.json>] [--ffmpeg <path>] --json
+video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
 
-通用规则：
+Alpha 通用规则：
 
-- 标准输出只返回摘要；详细日志写文件；
-- 错误返回固定错误码、阶段、槽位、可重试性和建议动作；
-- 支持 `--dry-run`、`--resume`、`--force-slot` 和 `--offline`；
+- 标准输出返回稳定 JSON 摘要；`survey` 和可选 `render --summary` 才写受 project root 约束的工件；
+- 运行错误返回有界错误码；技术 QA 不通过返回码为 `1`，运行错误为 `2`；
+- `render` 写入任何帧前必须完成模板与文件资产校验，之后必须对每个输出执行 QA；
 - 禁止 shell 字符串拼接执行 FFmpeg，使用参数数组；
-- 长任务支持进度文件和取消标记。
+- 不自动分类语义槽位、不自动生成换装资产，也不把技术解码 QA 误称为视觉/权利验收。
 
-稳定后可增加本地 MCP：`doctor`、`analyze_video`、`create_template`、`generate_assets`、`render_preview`、`render_final`、`run_qc`、`get_job` 和 `cancel_job`。
+后续可增加 `init`、`classify`、`propose-slots`、`freeze-template`、`prepare-assets`、`preview`、`package`、`status`、断点恢复和本地 MCP；这些不是当前 Alpha 命令。
 
 ## 11. 目录与项目状态
 
@@ -641,16 +637,16 @@ workspaces/<project-id>/
 
 ## 17. 本机能力与部署配置
 
-当前已审计机器约为 AMD Ryzen 5 5500U、14GB 可用内存、AMD 集成显卡约 2GB 显存、无 NVIDIA CUDA。
+当前 Alpha 已在一台 Windows 11、CPU-only、无 NVIDIA CUDA 的中等配置测试机上完成端到端验证。公开文档只记录匿名能力档位，不记录用户设备的精确型号、内存或显存。
 
-可稳定本地执行：
+当前 Alpha 已稳定本地执行：
 
 - FFmpeg/ffprobe；
-- 抽帧、联系表、OCR 的轻量配置；
-- OpenCV/Pillow 分析；
-- Remotion/Node 渲染；
-- 音频分析；
+- Pillow 逐帧合成、抽帧和联系表；
+- 音频抽取、裁切、变速、增益和淡入淡出；
 - 720p/1080p 视频编码。
+
+OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alpha 未集成，也不作为本地运行时依赖。
 
 不适合本机高质量执行：
 
@@ -710,13 +706,14 @@ workspaces/<project-id>/
 
 ## 19. 开发路线图
 
-### Phase 0：设计仓库
+### Phase 0：设计仓库与 Alpha 执行底座（已完成）
 
 - 完成 Skill、设计、schema、示例 manifest、许可证和 GitHub 元信息；
-- 建立最小 validator；
-- 不实现生成和最终渲染。
+- 建立 Template IR/资产校验、路径/哈希约束与公开 CLI；
+- 实现本地 probe/survey、S1 Pillow/FFmpeg 确定性渲染和逐输出技术 QA；
+- 不实现语义模板编译、换装资产生成或视觉语义验收。
 
-### Phase 1：当前视频专用金标准
+### Phase 1：当前视频专用金标准（已完成本地验收）
 
 - 精确提取 11.58 秒、30fps、12套切点和顶部滚轮；
 - 完成 clean-room 模板；
@@ -725,10 +722,10 @@ workspaces/<project-id>/
 - 清除全部平台和弹幕元素；
 - 保存 run manifest 和 QA。
 
-### Phase 2：真正可复用模板
+### Phase 2：真正可复用模板（Manifest 复用已验证，其余继续建设）
 
-- 使用第二组完整素材；
-- 不改代码，只改 manifest；
+- 已使用第二组完整素材完成双分辨率端到端回归；
+- 已验证模板字节不变、只改 manifest 即可重新渲染；
 - 支持背景和音频替换；
 - 支持局部重试；
 - 完成失败恢复。

@@ -5,6 +5,8 @@ import math
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -59,6 +61,9 @@ class TemplateIRValidationTests(unittest.TestCase):
         broken["slots"][0]["accepted_media"] = ["text/plain"]
         errors = self.validate(broken)
         self.assertTrue(any("is not one of" in error for error in errors), errors)
+
+    def test_matroska_audio_is_a_supported_manifest_media_type(self):
+        self.assertIn("audio/x-matroska", video_remix.MEDIA_TYPES)
 
     def test_range_overlap_and_out_of_bounds_fail(self):
         broken = copy.deepcopy(self.template)
@@ -266,12 +271,49 @@ class TemplateIRValidationTests(unittest.TestCase):
         self.assertIn("required slot is not mapped: outfit.12", errors)
 
     def test_doctor_does_not_claim_unimplemented_stages(self):
-        capabilities = video_remix.doctor_payload()["capabilities"]
+        payload = video_remix.doctor_payload()
+        capabilities = payload["capabilities"]
         self.assertTrue(capabilities["template_validation"])
         self.assertTrue(capabilities["asset_manifest_structure_validation"])
         self.assertFalse(capabilities["reference_analysis"])
         self.assertFalse(capabilities["asset_generation"])
-        self.assertFalse(capabilities["timeline_render"])
+        self.assertIsInstance(payload["runtime"]["jsonschema_version"], str)
+        self.assertIsInstance(payload["runtime"]["pillow_version"], str)
+        # Deterministic S1 rendering is implemented; availability truthfully
+        # depends on FFmpeg, Pillow, and both JSON Schema validators.
+        self.assertIsInstance(capabilities["timeline_render"], bool)
+
+    def test_doctor_disables_timeline_render_when_jsonschema_is_unavailable(self):
+        def tool(path: str) -> SimpleNamespace:
+            return SimpleNamespace(path=path, to_dict=lambda: {"path": path})
+
+        tools = SimpleNamespace(
+            ffmpeg=tool("fake-ffmpeg"),
+            ffprobe=tool("fake-ffprobe"),
+            to_dict=lambda: {"ffmpeg": {"path": "fake-ffmpeg"}, "ffprobe": {"path": "fake-ffprobe"}},
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=tools))
+        try:
+            with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+                video_remix, "_pillow_available", return_value=True
+            ), mock.patch.object(video_remix, "Draft202012Validator", None):
+                video_remix._schema_validators.clear()
+                video_remix._schema_validator_errors.clear()
+                payload = video_remix.doctor_payload()
+                self.assertFalse(payload["runtime"]["jsonschema"])
+                self.assertIsNone(payload["runtime"]["jsonschema_version"])
+                self.assertTrue(payload["runtime"]["pillow"])
+                self.assertFalse(payload["capabilities"]["template_validation"])
+                self.assertFalse(payload["capabilities"]["asset_manifest_structure_validation"])
+                self.assertFalse(payload["capabilities"]["timeline_render"])
+                errors = video_remix.validate_template_data(self.template)
+                self.assertTrue(any("requirements-runtime.txt" in error for error in errors), errors)
+                error_text = "\n".join(errors)
+                self.assertIn("python -m pip install -r requirements-runtime.txt", error_text)
+                self.assertNotIn(str(video_remix.SKILL_ROOT), error_text)
+        finally:
+            video_remix._schema_validators.clear()
+            video_remix._schema_validator_errors.clear()
 
 
 if __name__ == "__main__":

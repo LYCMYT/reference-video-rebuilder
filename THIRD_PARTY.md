@@ -2,17 +2,32 @@
 
 This repository does not vendor third-party model weights, FFmpeg binaries, Remotion source, fonts, music, or sample reference videos. Each runtime adapter must record the exact dependency version and license in the run manifest.
 
-> Review status: design inventory reviewed on 2026-08-22. Runtime versions and
-> commit hashes are intentionally not pinned yet because those adapters are not
-> implemented. A public runtime release is blocked until every enabled
-> dependency has an exact version/commit, source URL, license URL, checksum when
-> applicable, and a recorded review date.
+> Review status: the `0.2.0-alpha` local runtime inventory was reviewed on
+> 2026-08-23. Python dependency ranges are declared in the installable Skill;
+> resolved versions are reported by `doctor`. FFmpeg/ffprobe remain external
+> user-selected executables and are never redistributed by this repository.
+> Optional analyzers, generators, and GPU adapters remain disabled until their
+> code, weights, source, license, and checksum have been reviewed.
+
+## Enabled direct dependencies
+
+| Component | Declared range | License | Use and distribution policy |
+|---|---:|---|---|
+| [jsonschema](https://github.com/python-jsonschema/jsonschema) | `>=4.23,<5` | MIT | Required at runtime for Draft 2020-12 structural validation; installed from the user's Python package index |
+| [Pillow](https://python-pillow.github.io/) | `>=10,<12` | MIT-CMU | Required at runtime for deterministic raster composition and contact sheets; installed from the user's Python package index |
+| [PyYAML](https://github.com/yaml/pyyaml) | `>=6,<7` | MIT | Development/metadata validation only; not required by the installed Skill runtime |
+| [FFmpeg / ffprobe](https://ffmpeg.org/) | external executable | LGPL/GPL depending on build flags | Required for media operations; detected from an explicit path, environment, or `PATH`; never vendored or silently redistributed |
+
+The repository records supported ranges rather than claiming that every future
+release inside those ranges is byte-identical. Reproducible runs must retain the
+resolved Python package versions, FFmpeg/ffprobe version strings, Template IR,
+asset hashes, and output hashes. Release artifacts must never bundle a third-
+party binary merely because it was used during development.
 
 ## Recommended external building blocks
 
 | Component | Intended role | License note | Distribution policy |
 |---|---|---|---|
-| [FFmpeg / ffprobe](https://ffmpeg.org/) | Decode, encode, mux, audio, frame extraction | License depends on build flags; some binaries are GPL | Detect a user-installed binary or download only after showing its license; do not silently redistribute |
 | [Remotion](https://github.com/remotion-dev/remotion) and [official Remotion Skills](https://github.com/remotion-dev/skills) | Deterministic React-based timeline and rendering | Remotion uses its own license; company use may require a commercial license | Keep as an external dependency and pin a tested version |
 | [PySceneDetect](https://github.com/Breakthrough/PySceneDetect) | Scene and cut detection | BSD-3-Clause | Optional direct dependency |
 | [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) | Text, account, comment, and overlay detection | Apache-2.0 | Optional direct dependency |

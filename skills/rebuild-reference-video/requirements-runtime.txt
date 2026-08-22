@@ -1,0 +1,3 @@
+# Runtime dependencies bundled with the installable Codex Skill.
+jsonschema>=4.23,<5
+Pillow>=10,<12

@@ -39,7 +39,8 @@
               "video/webm",
               "audio/wav",
               "audio/mpeg",
-              "audio/mp4"
+              "audio/mp4",
+              "audio/x-matroska"
             ]
           },
           "sha256": {"type": "string", "pattern": "^[0-9a-fA-F]{64}$"},

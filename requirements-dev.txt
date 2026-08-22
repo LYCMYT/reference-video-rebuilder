@@ -1,2 +1,2 @@
-jsonschema>=4.23,<5
+-r skills/rebuild-reference-video/requirements-runtime.txt
 PyYAML>=6,<7

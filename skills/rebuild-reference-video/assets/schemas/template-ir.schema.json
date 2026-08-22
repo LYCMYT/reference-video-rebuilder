@@ -71,7 +71,8 @@
         "video/webm",
         "audio/wav",
         "audio/mpeg",
-        "audio/mp4"
+        "audio/mp4",
+        "audio/x-matroska"
       ]
     },
     "color": {

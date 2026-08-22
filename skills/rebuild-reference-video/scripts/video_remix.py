@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Design-stage CLI for the rebuild-reference-video Skill.
+"""Public alpha CLI for the ``rebuild-reference-video`` Skill.
 
-Template IR validation is intentionally limited to a renderer contract. It does
-not analyze source media, generate assets, or render a timeline.
+The CLI keeps Template IR validation self-contained, then lazily loads the
+local media runtime only for commands that need it.  The alpha deliberately
+renders only the deterministic S1 subset: semantic interpretation and
+generation of render-ready assets remain agent-assisted stages.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
+from importlib import metadata as importlib_metadata
 import json
 import math
 import platform
@@ -17,6 +21,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Any, Iterable
 
 try:
@@ -25,7 +30,8 @@ except ImportError:  # The CLI must not silently downgrade structural validation
     Draft202012Validator = None  # type: ignore[assignment,misc]
 
 
-SCHEMA_DIRECTORY = Path(__file__).resolve().parents[1] / "assets" / "schemas"
+SKILL_ROOT = Path(__file__).resolve().parents[1]
+SCHEMA_DIRECTORY = SKILL_ROOT / "assets" / "schemas"
 TEMPLATE_SCHEMA_PATH = SCHEMA_DIRECTORY / "template-ir.schema.json"
 ASSET_MANIFEST_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-manifest.schema.json"
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -41,11 +47,55 @@ MEDIA_TYPES = {
     "audio/wav",
     "audio/mpeg",
     "audio/mp4",
+    "audio/x-matroska",
 }
 SHA256_CHUNK_SIZE = 1024 * 1024
 
 _schema_validators: dict[Path, Any] = {}
 _schema_validator_errors: dict[Path, str] = {}
+
+
+class CliArgumentError(ValueError):
+    """A command-line error that can be returned as bounded JSON."""
+
+
+class _BoundedArgumentParser(argparse.ArgumentParser):
+    """Avoid ``argparse`` usage text and a process exit for malformed input."""
+
+    def error(self, message: str) -> None:  # pragma: no cover - wording differs by Python version.
+        raise CliArgumentError(message)
+
+
+def _lazy_module(name: str) -> Any:
+    """Import a media module only when the corresponding command is used."""
+
+    script_directory = str(Path(__file__).resolve().parent)
+    if script_directory not in sys.path:
+        sys.path.insert(0, script_directory)
+    return importlib.import_module(name)
+
+
+def _runtime_module() -> Any:
+    return _lazy_module("rrv_runtime")
+
+
+def _analyze_module() -> Any:
+    return _lazy_module("rrv_analyze")
+
+
+def _render_module() -> Any:
+    return _lazy_module("rrv_render")
+
+
+def _qa_module() -> Any:
+    return _lazy_module("rrv_qa")
+
+
+def _compact_error_text(value: object, *, limit: int = 480) -> str:
+    text = " ".join(str(value).strip().split())
+    if not text:
+        return "operation failed"
+    return text if len(text) <= limit else f"{text[: limit - 1]}…"
 
 
 def _reject_nonfinite_json(value: str) -> None:
@@ -90,16 +140,51 @@ def command_version(command: str, args: list[str]) -> str | None:
     return output[0] if output else "detected (version unavailable)"
 
 
-def doctor_payload() -> dict[str, Any]:
-    ffmpeg = command_version("ffmpeg", ["-version"])
-    ffprobe = command_version("ffprobe", ["-version"])
-    template_schema_available = _get_schema_validator(TEMPLATE_SCHEMA_PATH, "Template IR") is not None
-    asset_manifest_schema_available = (
+def _pillow_available() -> bool:
+    """Return whether the deterministic image compositor can be imported."""
+
+    try:
+        from PIL import Image  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _distribution_version(distribution: str) -> str | None:
+    """Return an installed distribution version without making doctor fail."""
+
+    try:
+        return importlib_metadata.version(distribution)
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+
+def doctor_payload(
+    *,
+    ffmpeg: str | Path | None = None,
+    ffprobe: str | Path | None = None,
+) -> dict[str, Any]:
+    """Report only local alpha capabilities that are truly available.
+
+    Explicit executable paths intentionally go through the shared runtime
+    discovery path so a portable FFmpeg installation is reflected accurately.
+    """
+
+    runtime = _runtime_module()
+    tools = runtime.discover_tools(ffmpeg=ffmpeg, ffprobe=ffprobe, probe_versions=True)
+    has_jsonschema = Draft202012Validator is not None
+    template_schema_available = has_jsonschema and (
+        _get_schema_validator(TEMPLATE_SCHEMA_PATH, "Template IR") is not None
+    )
+    asset_manifest_schema_available = has_jsonschema and (
         _get_schema_validator(ASSET_MANIFEST_SCHEMA_PATH, "asset manifest") is not None
     )
+    has_ffmpeg = bool(tools.ffmpeg.path)
+    has_ffprobe = bool(tools.ffprobe.path)
+    has_pillow = _pillow_available()
     return {
         "status": "ok",
-        "stage": "design",
+        "stage": "alpha",
         "platform": {
             "system": platform.system(),
             "release": platform.release(),
@@ -107,14 +192,20 @@ def doctor_payload() -> dict[str, Any]:
             "python": platform.python_version(),
         },
         "runtime": {
-            "ffmpeg": ffmpeg,
-            "ffprobe": ffprobe,
+            "media_tools": tools.to_dict(),
+            "ffmpeg": tools.ffmpeg.to_dict(),
+            "ffprobe": tools.ffprobe.to_dict(),
             "node": command_version("node", ["--version"]),
             "npx": command_version("npx", ["--version"]),
             "nvidia_gpu": command_version(
                 "nvidia-smi", ["--query-gpu=name,memory.total", "--format=csv,noheader"]
             ),
-            "jsonschema": Draft202012Validator is not None,
+            "jsonschema": has_jsonschema,
+            "jsonschema_version": (
+                _distribution_version("jsonschema") if has_jsonschema else None
+            ),
+            "pillow": has_pillow,
+            "pillow_version": _distribution_version("Pillow") if has_pillow else None,
         },
         "capabilities": {
             "doctor": True,
@@ -122,15 +213,22 @@ def doctor_payload() -> dict[str, Any]:
             "asset_manifest_structure_validation": asset_manifest_schema_available,
             "asset_path_policy_validation": True,
             "asset_media_probe_validation": False,
-            "media_probe": bool(ffprobe),
+            "media_probe": has_ffprobe or has_ffmpeg,
+            "reference_survey": has_ffmpeg,
             "reference_analysis": False,
             "asset_generation": False,
-            "timeline_render": False,
-            "video_qa": False,
+            "timeline_render": (
+                has_ffmpeg
+                and has_pillow
+                and template_schema_available
+                and asset_manifest_schema_available
+            ),
+            "video_qa": has_ffmpeg,
         },
         "notes": [
-            "This is a design-stage scaffold.",
-            "Do not claim analysis, generation, rendering, or video QA until the capability is true.",
+            "S1 survey, deterministic local render, and technical video QA are available only when their reported tools are present.",
+            "Semantic slot analysis remains agent-assisted; render-ready replacement looks must be supplied or generated before this CLI renders.",
+            "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
         ],
     }
 
@@ -164,7 +262,8 @@ def _get_schema_validator(schema_path: Path, contract_name: str) -> Any | None:
     if Draft202012Validator is None:
         _schema_validator_errors[schema_path] = (
             f"jsonschema dependency is required for complete {contract_name} validation; "
-            "install requirements-dev.txt (jsonschema>=4.23,<5)."
+            "run `python -m pip install -r requirements-runtime.txt` from the installed Skill "
+            "directory (jsonschema>=4.23,<5)."
         )
         return None
     try:
@@ -723,7 +822,9 @@ def validate_assets_data(
     return errors
 
 
-def emit(payload: dict[str, Any], as_json: bool) -> None:
+def emit(payload: Mapping[str, Any], as_json: bool) -> None:
+    """Preserve the original validator command output contract."""
+
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False))
         return
@@ -732,10 +833,378 @@ def emit(payload: dict[str, Any], as_json: bool) -> None:
         print(f"- {error}")
 
 
+def _stable_json(payload: Mapping[str, Any]) -> str:
+    """Use the shared serializer when the runtime is importable."""
+
+    try:
+        return _runtime_module().stable_json_dumps(payload)
+    except Exception:
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)
+
+
+def _emit_stable_json(payload: Mapping[str, Any]) -> None:
+    print(_stable_json(payload))
+
+
+def _error_payload(exception: BaseException, *, invalid_argument: bool = False) -> dict[str, Any]:
+    """Return a bounded public error envelope without a traceback."""
+
+    message = _compact_error_text(exception)
+    try:
+        runtime = _runtime_module()
+    except Exception:
+        return {
+            "schema_version": "1.0",
+            "status": "error",
+            "error": {
+                "code": "invalid_argument" if invalid_argument else "operation_failed",
+                "message": message,
+            },
+        }
+    if isinstance(exception, runtime.RRVError):
+        return runtime.error_payload(exception)
+    code = runtime.ERR_INVALID_ARGUMENT if invalid_argument else runtime.ERR_TOOL_EXECUTION
+    return runtime.error_payload(runtime.RRVError(code, message))
+
+
+def _deduplicate_errors(errors: Iterable[str]) -> list[str]:
+    """Keep validation failures stable without repeating template errors."""
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for error in errors:
+        if error not in seen:
+            seen.add(error)
+            result.append(error)
+    return result
+
+
+def _render_hashes(
+    template_path: Path,
+    manifest_path: Path,
+    template: Mapping[str, Any],
+    manifest: Mapping[str, Any],
+    project_root: Path,
+    runtime: Any,
+) -> dict[str, Any]:
+    """Record the immutable inputs that produced a deterministic delivery."""
+
+    source = template.get("source") if isinstance(template.get("source"), Mapping) else {}
+    asset_rows: list[dict[str, Any]] = []
+    raw_assets = manifest.get("assets") if isinstance(manifest.get("assets"), list) else []
+    for asset in sorted(
+        (item for item in raw_assets if isinstance(item, Mapping)),
+        key=lambda item: str(item.get("slot_id", "")),
+    ):
+        path_value = asset.get("path")
+        if not isinstance(path_value, str):
+            # Provider-only assets are not accepted by the local renderer, but
+            # keeping this branch makes the provenance function total.
+            continue
+        raw_path = Path(path_value)
+        resolved = raw_path.resolve() if raw_path.is_absolute() else (project_root / raw_path).resolve()
+        asset_rows.append(
+            {
+                "slot_id": asset.get("slot_id"),
+                "path": runtime.relative_output_path(project_root, resolved),
+                "sha256": sha256_file(resolved),
+            }
+        )
+    return {
+        "template_sha256": sha256_file(template_path),
+        "manifest_sha256": sha256_file(manifest_path),
+        "source_sha256": source.get("source_sha256"),
+        "assets": asset_rows,
+    }
+
+
+def _provenance_source_type(value: object) -> str | None:
+    """Keep a stable discovery category without leaking a configured path."""
+
+    if value in {"explicit", "PATH"}:
+        return str(value)
+    if isinstance(value, str) and re.fullmatch(r"env:[A-Z][A-Z0-9_]*", value):
+        return value
+    return None
+
+
+def _tool_runtime_provenance(tool: Any) -> dict[str, Any]:
+    """Return reproducible tool facts while intentionally omitting ``tool.path``."""
+
+    return {
+        "available": bool(getattr(tool, "path", None)),
+        "source": _provenance_source_type(getattr(tool, "source", None)),
+        "version": getattr(tool, "version", None),
+    }
+
+
+def _render_runtime_provenance(tools: Any) -> dict[str, Any]:
+    """Record only non-sensitive runtime facts for a completed render."""
+
+    has_pillow = _pillow_available()
+    has_jsonschema = Draft202012Validator is not None
+    return {
+        "python_version": platform.python_version(),
+        "pillow": {
+            "available": has_pillow,
+            "version": _distribution_version("Pillow") if has_pillow else None,
+        },
+        "jsonschema": {
+            "available": has_jsonschema,
+            "version": _distribution_version("jsonschema") if has_jsonschema else None,
+        },
+        "ffmpeg": _tool_runtime_provenance(tools.ffmpeg),
+        "ffprobe": _tool_runtime_provenance(tools.ffprobe),
+    }
+
+
+def _write_summary(
+    runtime: Any,
+    project_root: Path,
+    requested_path: Path,
+    payload: Mapping[str, Any],
+) -> str:
+    """Write a stable optional run summary once, never replacing a prior run."""
+
+    output = runtime.resolve_output_path(
+        project_root, requested_path, create_parent=True, must_not_exist=True
+    )
+    try:
+        with output.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(runtime.stable_json_dumps(payload))
+            handle.write("\n")
+    except FileExistsError as exc:
+        raise runtime.RRVError(
+            runtime.ERR_OUTPUT_EXISTS, "refusing to overwrite an existing summary"
+        ) from exc
+    except OSError as exc:
+        raise runtime.RRVError(
+            runtime.ERR_TOOL_EXECUTION,
+            "could not write render summary",
+            {"reason": _compact_error_text(exc)},
+        ) from exc
+    return runtime.relative_output_path(project_root, output)
+
+
+def _require_render_inputs(
+    args: argparse.Namespace,
+    runtime: Any,
+) -> tuple[Path, dict[str, Any], dict[str, Any], list[str]]:
+    """Load and fully validate a render request before creating output files."""
+
+    project_root = runtime.require_project_root(args.project_root)
+    # Reject an unsafe or existing optional summary before inspecting a project
+    # further.  This is read-only and ensures a bad path can never be reached
+    # after a costly render.
+    if args.summary is not None:
+        runtime.resolve_output_path(project_root, args.summary, must_not_exist=True)
+    template = load_json(args.template)
+    manifest = load_json(args.manifest)
+    if not isinstance(template, dict) or not isinstance(manifest, dict):
+        return project_root, {}, {}, ["template and manifest must be JSON objects"]
+    template_errors = validate_template_data(template)
+    asset_errors = validate_assets_data(
+        template,
+        manifest,
+        args.manifest,
+        check_files=True,
+        project_root=project_root,
+    )
+    errors = _deduplicate_errors([*template_errors, *asset_errors])
+    if not errors:
+        runtime.validate_timeout(args.timeout)
+    return project_root, template, manifest, errors
+
+
+def _render_qa(
+    renderer_summary: Mapping[str, Any],
+    *,
+    project_root: Path,
+    runtime: Any,
+    qa: Any,
+    tools: Any,
+    timeout_seconds: float,
+) -> dict[str, Any]:
+    """Run mandatory technical QA for every encoded output profile."""
+
+    master = renderer_summary.get("master")
+    outputs = renderer_summary.get("outputs")
+    if not isinstance(master, Mapping) or not isinstance(outputs, list):
+        raise runtime.RRVError(
+            runtime.ERR_TOOL_EXECUTION, "renderer returned an invalid run summary"
+        )
+    frame_count = master.get("frame_count")
+    fps = master.get("fps")
+    if isinstance(frame_count, bool) or not isinstance(frame_count, int):
+        raise runtime.RRVError(runtime.ERR_TOOL_EXECUTION, "renderer summary has no integer frame count")
+    if isinstance(fps, bool) or not isinstance(fps, (int, float)):
+        raise runtime.RRVError(runtime.ERR_TOOL_EXECUTION, "renderer summary has no numeric frame rate")
+    result_rows: list[dict[str, Any]] = []
+    for output in outputs:
+        if not isinstance(output, Mapping):
+            raise runtime.RRVError(runtime.ERR_TOOL_EXECUTION, "renderer summary contains an invalid output")
+        path = output.get("path")
+        width = output.get("width")
+        height = output.get("height")
+        if not isinstance(path, str) or isinstance(width, bool) or isinstance(height, bool):
+            raise runtime.RRVError(runtime.ERR_TOOL_EXECUTION, "renderer summary output is incomplete")
+        delivery_path = runtime.resolve_output_path(project_root, path)
+        verification = qa.verify_delivery(
+            delivery_path,
+            expected_width=width,
+            expected_height=height,
+            expected_fps=float(fps),
+            expected_frames=frame_count,
+            expect_audio=bool(output.get("audio_muxed")),
+            tools=tools,
+            timeout_seconds=timeout_seconds,
+        )
+        result_rows.append(
+            {
+                "output_id": output.get("id"),
+                "path": path,
+                "result": verification,
+            }
+        )
+    return {
+        "passed": all(bool(item["result"].get("passed")) for item in result_rows),
+        "outputs": result_rows,
+    }
+
+
+def run_render(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Validate, render, hash, and technically verify a local S1 project."""
+
+    runtime = _runtime_module()
+    project_root, template, manifest, errors = _require_render_inputs(args, runtime)
+    if errors:
+        return {"status": "fail", "errors": errors}, 2
+    tools = runtime.discover_tools(
+        ffmpeg=args.ffmpeg,
+        ffprobe=args.ffprobe,
+        probe_versions=True,
+    )
+    if not tools.ffmpeg.path:
+        raise runtime.RRVError(
+            runtime.ERR_CAPABILITY_UNAVAILABLE,
+            "deterministic rendering requires a local ffmpeg executable",
+            {"capability": "timeline_render", "missing_tool": "ffmpeg"},
+        )
+    render = _render_module()
+    qa = _qa_module()
+    try:
+        renderer_summary = render.render_project(
+            template,
+            manifest,
+            project_root,
+            frame_directory=args.frame_directory,
+            debug_bounds=args.debug_bounds,
+            ffmpeg_bin=tools.ffmpeg.path,
+            timeout_seconds=args.timeout,
+        )
+    except runtime.RRVError:
+        raise
+    except render.RenderError as exc:
+        raise runtime.RRVError(
+            runtime.ERR_TOOL_EXECUTION,
+            "deterministic render failed",
+            {"reason": _compact_error_text(exc)},
+        ) from exc
+    qa_summary = _render_qa(
+        renderer_summary,
+        project_root=project_root,
+        runtime=runtime,
+        qa=qa,
+        tools=tools,
+        timeout_seconds=args.timeout,
+    )
+    summary: dict[str, Any] = {
+        "schema_version": "1.0",
+        "status": "pass" if qa_summary["passed"] else "fail",
+        "renderer": renderer_summary,
+        "qa": qa_summary,
+        "hashes": _render_hashes(
+            args.template, args.manifest, template, manifest, project_root, runtime
+        ),
+        "provenance": {"runtime": _render_runtime_provenance(tools)},
+    }
+    if args.summary is not None:
+        # Put the future relative path inside the file too; opening is still
+        # exclusive and remains after all render/QA results have been collected.
+        summary["artifacts"] = {
+            "summary": runtime.relative_output_path(project_root, project_root / args.summary)
+        }
+        _write_summary(runtime, project_root, args.summary, summary)
+    return runtime.success_payload(summary), 0 if qa_summary["passed"] else 1
+
+
+def run_qa(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Expose the local technical delivery verifier through the public CLI."""
+
+    runtime = _runtime_module()
+    qa = _qa_module()
+    result = qa.verify_delivery(
+        args.source,
+        expected_width=args.expected_width,
+        expected_height=args.expected_height,
+        expected_fps=args.expected_fps,
+        expected_frames=args.expected_frames,
+        expect_audio=args.expect_audio,
+        ffmpeg=args.ffmpeg,
+        ffprobe=args.ffprobe,
+        timeout_seconds=args.timeout,
+    )
+    return runtime.success_payload(result), 0 if result.get("passed") else 1
+
+
+def run_probe(args: argparse.Namespace) -> dict[str, Any]:
+    runtime = _runtime_module()
+    return runtime.success_payload(
+        runtime.probe_media(
+            args.source,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+    )
+
+
+def run_survey(args: argparse.Namespace) -> dict[str, Any]:
+    runtime = _runtime_module()
+    analyze = _analyze_module()
+    result = analyze.survey_reference(
+        args.source,
+        args.project_root,
+        output_dir=args.output_dir,
+        frame_numbers=args.frame_numbers,
+        sample_count=args.sample_count,
+        include_contact_sheet=args.include_contact_sheet,
+        include_audio=args.include_audio,
+        contact_sheet_columns=args.contact_sheet_columns,
+        ffmpeg=args.ffmpeg,
+        ffprobe=args.ffprobe,
+        timeout_seconds=args.timeout,
+    )
+    return runtime.success_payload(result)
+
+
+def _add_runtime_arguments(
+    parser: argparse.ArgumentParser,
+    *,
+    include_timeout: bool = True,
+    timeout_default: float = 30.0,
+) -> None:
+    parser.add_argument("--ffmpeg", type=Path, help="Explicit local ffmpeg executable")
+    parser.add_argument("--ffprobe", type=Path, help="Explicit local ffprobe executable")
+    if include_timeout:
+        parser.add_argument("--timeout", type=float, default=timeout_default)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="video-remix")
+    parser = _BoundedArgumentParser(prog="video-remix")
     subparsers = parser.add_subparsers(dest="command", required=True)
-    doctor = subparsers.add_parser("doctor", help="Inspect lightweight local runtime capabilities")
+    doctor = subparsers.add_parser("doctor", help="Inspect local alpha runtime capabilities")
+    _add_runtime_arguments(doctor, include_timeout=False)
     doctor.add_argument("--json", action="store_true", dest="as_json")
     validate_template = subparsers.add_parser("validate-template", help="Validate a Template IR JSON file")
     validate_template.add_argument("template", type=Path)
@@ -746,22 +1215,94 @@ def build_parser() -> argparse.ArgumentParser:
     validate_assets.add_argument("--project-root", type=Path, help="Allowed project directory; defaults to the manifest directory")
     validate_assets.add_argument("--allow-missing-files", action="store_true", help="Validate structure and path containment without requiring files to exist")
     validate_assets.add_argument("--json", action="store_true", dest="as_json")
+
+    probe = subparsers.add_parser("probe", help="Probe one local media source")
+    probe.add_argument("source", type=Path)
+    _add_runtime_arguments(probe)
+    probe.add_argument("--json", action="store_true", dest="as_json")
+
+    survey = subparsers.add_parser("survey", help="Create a bounded local reference survey")
+    survey.add_argument("source", type=Path)
+    survey.add_argument("--project-root", type=Path, required=True)
+    survey.add_argument("--output-dir", type=Path, default=Path("reference-survey"))
+    survey.add_argument("--frame", dest="frame_numbers", type=int, action="append")
+    survey.add_argument("--samples", dest="sample_count", type=int, default=12)
+    survey.add_argument("--no-contact-sheet", dest="include_contact_sheet", action="store_false")
+    survey.add_argument("--no-audio", dest="include_audio", action="store_false")
+    survey.add_argument("--contact-sheet-columns", type=int, default=4)
+    survey.set_defaults(include_contact_sheet=True, include_audio=True)
+    _add_runtime_arguments(survey)
+    survey.add_argument("--json", action="store_true", dest="as_json")
+
+    render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
+    render.add_argument("template", type=Path)
+    render.add_argument("manifest", type=Path)
+    render.add_argument("--project-root", type=Path, required=True)
+    render.add_argument("--frame-directory", type=Path, default=Path("render") / "master-frames")
+    render.add_argument("--debug-bounds", action="store_true")
+    render.add_argument("--summary", type=Path, help="New root-contained JSON summary path; never overwrites")
+    _add_runtime_arguments(render, timeout_default=300.0)
+    render.add_argument("--json", action="store_true", dest="as_json")
+
+    qa = subparsers.add_parser("qa", help="Technically verify one encoded delivery")
+    qa.add_argument("source", type=Path)
+    qa.add_argument("--width", dest="expected_width", type=int)
+    qa.add_argument("--height", dest="expected_height", type=int)
+    qa.add_argument("--fps", dest="expected_fps", type=float)
+    qa.add_argument("--frames", dest="expected_frames", type=int)
+    audio_group = qa.add_mutually_exclusive_group()
+    audio_group.add_argument("--expect-audio", dest="expect_audio", action="store_true")
+    audio_group.add_argument("--expect-no-audio", dest="expect_audio", action="store_false")
+    qa.set_defaults(expect_audio=None)
+    _add_runtime_arguments(qa)
+    qa.add_argument("--json", action="store_true", dest="as_json")
     return parser
 
 
-def main() -> int:
-    args = build_parser().parse_args()
-    if args.command == "doctor":
-        emit(doctor_payload(), args.as_json)
-        return 0
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run one public command with bounded, machine-readable failures."""
+
     try:
-        template = load_json(args.template)
+        args = build_parser().parse_args(argv)
+    except CliArgumentError as exc:
+        _emit_stable_json(_error_payload(exc, invalid_argument=True))
+        return 2
+    try:
+        if args.command == "doctor":
+            emit(doctor_payload(ffmpeg=args.ffmpeg, ffprobe=args.ffprobe), args.as_json)
+            return 0
+        if args.command == "probe":
+            _emit_stable_json(run_probe(args))
+            return 0
+        if args.command == "survey":
+            _emit_stable_json(run_survey(args))
+            return 0
+        if args.command == "render":
+            payload, status = run_render(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "qa":
+            payload, status = run_qa(args)
+            _emit_stable_json(payload)
+            return status
+
         if args.command == "validate-template":
+            template = load_json(args.template)
             errors = validate_template_data(template)
         else:
-            errors = validate_assets_data(template, load_json(args.manifest), args.manifest, check_files=not args.allow_missing_files, project_root=args.project_root)
-    except ValueError as exc:
+            template = load_json(args.template)
+            errors = validate_assets_data(
+                template,
+                load_json(args.manifest),
+                args.manifest,
+                check_files=not args.allow_missing_files,
+                project_root=args.project_root,
+            )
+    except (ValueError, OSError, TypeError) as exc:
         errors = [str(exc)]
+    except Exception as exc:
+        _emit_stable_json(_error_payload(exc))
+        return 2
     payload = {"status": "pass" if not errors else "fail", "errors": errors}
     emit(payload, args.as_json)
     return 0 if not errors else 2

@@ -87,7 +87,7 @@
     {"id": "product.11", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
     {"id": "product.12", "type": "product-image", "required": true, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
     {"id": "background", "type": "background", "required": false, "accepted_media": ["image/jpeg", "image/png", "image/webp"]},
-    {"id": "audio", "type": "audio", "required": true, "accepted_media": ["audio/wav", "audio/mpeg", "audio/mp4"]}
+    {"id": "audio", "type": "audio", "required": true, "accepted_media": ["audio/wav", "audio/mpeg", "audio/mp4", "audio/x-matroska"]}
   ],
   "layers": [
     {

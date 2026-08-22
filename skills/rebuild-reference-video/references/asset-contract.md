@@ -60,6 +60,14 @@ Require exact user-approved strings and source artwork. Detect accidental reuse 
 
 Record whether to preserve, replace, loop, trim, duck, normalize, or mute. Validate rights and duration. Avoid discontinuous cuts through a continuous musical phrase unless approved.
 
+When preserving a source stream locally, extract only the selected audio stream with
+FFmpeg stream copy into `audio-original.mka`. Declare this artifact as
+`media_type: audio/x-matroska` and `container: matroska`; it is a generic
+lossless-container wrapper and does not imply a particular audio codec. Strip
+container metadata and chapters during extraction (`-map_metadata -1` and
+`-map_chapters -1`) so source titles, artists, comments, and account identifiers
+do not enter the reusable project.
+
 ## Validation failures
 
 Fail before generation when:

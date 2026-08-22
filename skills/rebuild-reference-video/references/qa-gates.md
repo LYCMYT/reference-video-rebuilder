@@ -1,5 +1,14 @@
 # QA gates
 
+## 0.2.0-alpha coverage
+
+The bundled local CLI automates Template IR/asset validation and the technical
+parts of Gate 5. `render` runs the technical verifier for every encoded output
+and returns exit code `1` when an encoded delivery fails a check. Gates 3, 4,
+and 6 are not automatically established by this verifier: require an agent or
+human review before claiming identity consistency, garment fidelity, timing
+intent, or complete removal of platform elements.
+
 ## Gate 1 — template structure
 
 - media geometry and duration are valid;
@@ -35,15 +44,17 @@
 
 ## Gate 5 — final media
 
-- output opens and decodes;
-- frame rate, frame count, duration, dimensions, pixel format, and codecs match the profile;
-- audio/video synchronization is within one frame;
-- faststart and mobile playback requirements pass where configured;
+- output opens and fully decodes;
+- expected frame rate, exact decoded frame count, dimensions, audio-stream presence, and container/video duration agreement pass;
 - all requested output profiles derive from the same master timeline.
+
+The alpha verifier does not yet establish pixel format, codec policy,
+faststart/mobile behavior, subjective audio sync, or visual quality. Add an
+explicit check before relying on any of those conditions.
 
 ## Gate 6 — prohibited overlay removal
 
-Use OCR, known UI-region checks, contact sheets, and a human full-playback review. Require no residual platform logo, account text, comments, engagement rail, status/navigation bars, or visible reconstruction smear.
+Use OCR, known UI-region checks, contact sheets, and a human full-playback review. Require no residual platform logo, account text, comments, engagement rail, status/navigation bars, or visible reconstruction smear. In alpha, this is a required review gate rather than an automated pass claim.
 
 ## Result model
 

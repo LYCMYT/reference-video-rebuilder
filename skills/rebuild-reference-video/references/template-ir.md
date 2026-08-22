@@ -1,8 +1,24 @@
 # Template IR renderer contract
 
-Template IR 0.2.0 is a design-stage, minimum executable renderer contract. It
-defines what a future renderer must compose; it does not implement source
-analysis, asset generation, rendering, or video QA.
+Template IR 0.2.0 is the minimum executable renderer contract. The bundled
+`0.2.0-alpha` runtime implements a deterministic S1 subset plus technical video
+QA. Semantic source analysis and asset generation remain agent-assisted, and
+the schema intentionally describes some features that the current renderer
+will reject rather than approximate.
+
+## Alpha renderer subset
+
+The bundled renderer accepts reviewed S1 templates with local JPEG, PNG, or
+WebP render-ready layers; `contain`, `cover`, or `stretch` layout; hold, linear,
+or cubic-bezier transforms; normal blending; rect/polygon masks; and a finite
+horizontal non-repeating carousel. It emits H.264/yuv420p at 720x1280 and/or
+1080x1920 and can mux the supported local audio types.
+
+The broader schema also preserves forward-compatible authoring intent. A
+schema-valid feature outside the subset (for example HEVC, 10-bit output,
+rounded/alpha masks, non-normal blend modes, or a non-horizontal/repeating
+carousel) must fail during zero-write render preflight. It must never be
+silently approximated or discovered only after master frames are written.
 
 ## Validation boundary
 
