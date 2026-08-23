@@ -311,10 +311,12 @@ class ProposalTestCase(unittest.TestCase):
         result, _ = self.propose(source, root)
         proposal_path = root / result["artifacts"]["proposal"]["path"]
         review_path = root / result["artifacts"]["review_template"]["path"]
+        proposal_relative = Path(result["artifacts"]["proposal"]["path"])
+        review_relative = Path(result["artifacts"]["review_template"]["path"])
         review = self.review_data(root, result)
 
         with self.assertRaises(rrv_runtime.RRVError):
-            rrv_propose.freeze_plan(proposal_path, review_path, project_root=root, output_dir="pending")
+            rrv_propose.freeze_plan(proposal_relative, review_relative, project_root=root, output_dir="pending")
         self.assertFalse((root / "pending").exists())
 
         review.update({"decision": "approved", "reviewer_confirmed": True})
@@ -323,14 +325,14 @@ class ProposalTestCase(unittest.TestCase):
         review["confirmations"]["audio"] = False
         review_path.write_text(rrv_runtime.stable_json_dumps(review) + "\n", encoding="utf-8")
         with self.assertRaises(rrv_runtime.RRVError):
-            rrv_propose.freeze_plan(proposal_path, review_path, project_root=root, output_dir="missing-confirmation")
+            rrv_propose.freeze_plan(proposal_relative, review_relative, project_root=root, output_dir="missing-confirmation")
         self.assertFalse((root / "missing-confirmation").exists())
 
         review["confirmations"]["audio"] = True
         review["proposal_sha256"] = "0" * 64
         review_path.write_text(rrv_runtime.stable_json_dumps(review) + "\n", encoding="utf-8")
         with self.assertRaises(rrv_runtime.RRVError):
-            rrv_propose.freeze_plan(proposal_path, review_path, project_root=root, output_dir="bad-hash")
+            rrv_propose.freeze_plan(proposal_relative, review_relative, project_root=root, output_dir="bad-hash")
         self.assertFalse((root / "bad-hash").exists())
 
     def test_freeze_accepts_reviewer_override_and_reports_json_pointer_diff(self):
@@ -338,6 +340,8 @@ class ProposalTestCase(unittest.TestCase):
         result, _ = self.propose(source, root)
         proposal_path = root / result["artifacts"]["proposal"]["path"]
         review_path = root / result["artifacts"]["review_template"]["path"]
+        proposal_relative = Path(result["artifacts"]["proposal"]["path"])
+        review_relative = Path(result["artifacts"]["review_template"]["path"])
         review = self.review_data(root, result)
         review["decision"] = "approved"
         review["reviewer_confirmed"] = True
@@ -345,7 +349,7 @@ class ProposalTestCase(unittest.TestCase):
         review["approved_plan"]["background"]["color"] = "#FDFDFD"
         review_path.write_text(rrv_runtime.stable_json_dumps(review) + "\n", encoding="utf-8")
 
-        frozen = rrv_propose.freeze_plan(proposal_path, review_path, project_root=root)
+        frozen = rrv_propose.freeze_plan(proposal_relative, review_relative, project_root=root)
         self.assertIn("/background/color", frozen["reviewer_override_paths"])
         report = json.loads((root / frozen["artifacts"]["freeze_report"]["path"]).read_text(encoding="utf-8"))
         self.assertIn("/background/color", report["changed_json_pointer_paths"])
@@ -380,6 +384,52 @@ class ProposalTestCase(unittest.TestCase):
             st_ino=value.st_ino,
             st_file_attributes=rrv_propose._FILE_ATTRIBUTE_REPARSE_POINT,
         )
+
+    def test_absolute_packet_paths_are_rejected_before_candidate_lstat(self):
+        """Freeze packet paths are strictly project-root relative, never probed remotely."""
+
+        _, root = self.make_workspace()
+        candidates = (
+            root / "packets" / "proposal.json",
+            r"\\server\share\packets\review.json",
+        )
+        for candidate in candidates:
+            with self.subTest(candidate=str(candidate)), mock.patch.object(
+                rrv_propose.os,
+                "lstat",
+                side_effect=AssertionError("absolute packet path must not be lstat'd"),
+            ) as lstat:
+                with self.assertRaises(rrv_runtime.RRVError) as raised:
+                    rrv_propose._project_file_path(root, candidate, "packet")
+            self.assertEqual(raised.exception.code, rrv_runtime.ERR_INVALID_ARGUMENT)
+            lstat.assert_not_called()
+
+    def test_freeze_rejects_absolute_local_and_unc_packet_arguments(self):
+        source, root = self.make_workspace()
+        result, _ = self.propose(source, root)
+        proposal_path = root / result["artifacts"]["proposal"]["path"]
+        proposal_relative = Path(result["artifacts"]["proposal"]["path"])
+        review_path = root / result["artifacts"]["review_template"]["path"]
+        review_relative = Path(result["artifacts"]["review_template"]["path"])
+        candidates = (
+            (proposal_path, review_relative),
+            (proposal_relative, review_path),
+            (r"\\server\share\proposal.json", review_relative),
+            (proposal_relative, r"\\server\share\review.json"),
+        )
+        for index, (proposal, review) in enumerate(candidates):
+            output_dir = f"absolute-packet-{index}"
+            with self.subTest(proposal=str(proposal), review=str(review)), self.assertRaises(
+                rrv_runtime.RRVError
+            ) as raised:
+                rrv_propose.freeze_plan(
+                    proposal,
+                    review,
+                    project_root=root,
+                    output_dir=output_dir,
+                )
+            self.assertEqual(raised.exception.code, rrv_runtime.ERR_INVALID_ARGUMENT)
+            self.assertFalse((root / output_dir).exists())
 
     def _approved_review(self, root, result):
         review = self.review_data(root, result)
@@ -497,8 +547,8 @@ class ProposalTestCase(unittest.TestCase):
         review_path = self._approved_review(root, result)
         with self.assertRaises(rrv_runtime.RRVError):
             rrv_propose.freeze_plan(
-                root / result["artifacts"]["proposal"]["path"],
-                review_path,
+                Path(result["artifacts"]["proposal"]["path"]),
+                review_path.relative_to(root),
                 project_root=root,
                 output_dir="nested/frozen",
             )
@@ -543,7 +593,9 @@ class ProposalTestCase(unittest.TestCase):
             return snapshot
 
         with mock.patch.object(rrv_propose, "_load_json_snapshot", side_effect=swap_after_snapshot):
-            frozen = rrv_propose.freeze_plan(proposal_path, review_path, project_root=root)
+            frozen = rrv_propose.freeze_plan(
+                proposal_path.relative_to(root), review_path.relative_to(root), project_root=root
+            )
         frozen_plan = json.loads((root / frozen["artifacts"]["compiler_plan"]["path"]).read_text(encoding="utf-8"))
         self.assertEqual(frozen_plan["background"]["color"], original_proposal["candidate_plan"]["background"]["color"])
         self.assertEqual(
@@ -561,13 +613,23 @@ class ProposalTestCase(unittest.TestCase):
 
         proposal_path.write_text('{"packet":{"value":1,"value":2}}', encoding="utf-8")
         with self.assertRaises(rrv_runtime.RRVError):
-            rrv_propose.freeze_plan(proposal_path, review_path, project_root=root, output_dir="duplicate-proposal")
+            rrv_propose.freeze_plan(
+                proposal_path.relative_to(root),
+                review_path.relative_to(root),
+                project_root=root,
+                output_dir="duplicate-proposal",
+            )
         self.assertFalse((root / "duplicate-proposal").exists())
 
         proposal_path.write_bytes(original_proposal)
         review_path.write_text('{"packet":{"value":1,"value":2}}', encoding="utf-8")
         with self.assertRaises(rrv_runtime.RRVError):
-            rrv_propose.freeze_plan(proposal_path, review_path, project_root=root, output_dir="duplicate-review")
+            rrv_propose.freeze_plan(
+                proposal_path.relative_to(root),
+                review_path.relative_to(root),
+                project_root=root,
+                output_dir="duplicate-review",
+            )
         self.assertFalse((root / "duplicate-review").exists())
 
         review_path.write_bytes(original_review)
@@ -584,7 +646,12 @@ class ProposalTestCase(unittest.TestCase):
 
         with mock.patch.object(rrv_propose.os, "lstat", side_effect=reparse_evidence):
             with self.assertRaises(rrv_runtime.RRVError):
-                rrv_propose.freeze_plan(proposal_path, approved_review, project_root=root, output_dir="reparse-evidence")
+                rrv_propose.freeze_plan(
+                    proposal_path.relative_to(root),
+                    approved_review.relative_to(root),
+                    project_root=root,
+                    output_dir="reparse-evidence",
+                )
         self.assertFalse((root / "reparse-evidence").exists())
 
 

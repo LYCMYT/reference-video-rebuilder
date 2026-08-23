@@ -38,6 +38,10 @@ elements.
 - freeze-plan validates the hash binding, all confirmations, approved_plan,
   local path rules, and authorization before writing a canonical Compiler Plan
   schema version `0.3.0`.
+- freeze-plan Proposal and Review inputs are normalized paths relative to
+  project-root. Absolute local, drive-rooted, and UNC packet paths fail before
+  candidate packet inspection; this freeze-only rule does not restrict the
+  standalone validate-proposal or validate-review commands.
 - Proposal/review/freeze outputs are project-contained and atomic. Any
   validation or freeze failure returns exit code 2 and writes no partial frozen
   plan.

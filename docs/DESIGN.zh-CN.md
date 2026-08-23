@@ -418,6 +418,9 @@ review_required 固定为 true；置信度不是批准。审核者可在 approve
 Proposal 的精确 SHA-256 绑定、approved Review、reviewer_confirmed、全部八项
 确认、approved_plan、权利和本地路径/工件边界。任一失败返回 exit 2，且冻结
 输出不得写入部分文件。成功时只生成 schema 0.3.0 的 Frozen Compiler Plan。
+freeze-plan 的 Proposal 与 Review 参数必须是相对 project-root 的规范路径；
+绝对本地路径、盘符根路径和 UNC 路径会在检查候选文件前拒绝。该限制只适用于
+冻结；独立的 validate-proposal 与 validate-review 仍可检查用户指定的文件。
 
 ### 8.5 Compile
 
@@ -535,7 +538,7 @@ video-remix survey <reference> --project-root <project-dir> [--output-dir refere
 video-remix validate-proposal <proposal.json> --json
 video-remix validate-review <review.json> --json
 video-remix propose <source> --project-root <project-dir> --output-dir <output-dir> --template-id <template-id> [--slot-count-hint] --reference-rights-confirmed [--audio-rights-confirmed] [--audio-mode] [--output-profile] --ffmpeg <path> --ffprobe <path> --json
-video-remix freeze-plan <proposal.json> <review.json> --project-root <project-dir> --output-dir <output-dir> --json
+video-remix freeze-plan <project-relative-proposal.json> <project-relative-review.json> --project-root <project-dir> --output-dir <output-dir> --json
 video-remix validate-compiler-plan <compiler-plan.json> --json
 video-remix compile <reference> <compiler-plan.json> --project-root <project-dir> [--output-dir template-compile] [--ffmpeg <path>] [--ffprobe <path>] [--timeout <seconds>] --json
 video-remix validate-template <template.ir.json> --json
@@ -548,6 +551,9 @@ v0.4 的 `propose` 与 `freeze-plan` 要求 `--output-dir` 是
 `project-root` 下一个尚不存在的一级子目录名称，例如 `proposal` 或
 `frozen-plan`。绝对路径、嵌套路径、`.`、`..` 和已存在目标会在媒体处理或
 任何工件写入前被拒绝；该限制用于保证 Windows 本地原子发布和路径边界。
+另外，freeze-plan 的两个 packet 参数必须是相对 `project-root` 的规范路径；
+绝对本地、盘符根和 UNC 路径在候选 packet 检查前拒绝。此规则不限制独立的
+validate-proposal 或 validate-review。
 
 Alpha 通用规则：
 

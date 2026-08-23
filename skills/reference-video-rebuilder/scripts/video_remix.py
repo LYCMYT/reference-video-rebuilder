@@ -2335,10 +2335,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     freeze_plan = subparsers.add_parser(
         "freeze-plan",
-        help="Freeze an explicitly approved local Compiler Plan review packet",
+        help="Freeze approved packets named by normalized project-root-relative paths",
     )
-    freeze_plan.add_argument("proposal", type=Path)
-    freeze_plan.add_argument("review", type=Path)
+    freeze_plan.add_argument(
+        "proposal",
+        type=Path,
+        help="Normalized project-root-relative Proposal path; absolute and UNC paths are rejected",
+    )
+    freeze_plan.add_argument(
+        "review",
+        type=Path,
+        help="Normalized project-root-relative Review path; absolute and UNC paths are rejected",
+    )
     freeze_plan.add_argument("--project-root", type=Path, required=True)
     freeze_plan.add_argument("--output-dir", type=Path, default=Path("frozen-plan"))
     freeze_plan.add_argument("--json", action="store_true", dest="as_json")

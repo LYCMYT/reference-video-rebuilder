@@ -1022,10 +1022,18 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 output_dir=Path("frozen-plan"),
             )
             original_lstat = os.lstat
+            packets_stat = original_lstat(packets)
 
             def reparse_packet_directory(path):
                 stat_result = original_lstat(path)
-                if Path(path) == packets:
+                # ``require_project_root`` may yield a Windows 8.3 spelling,
+                # whereas this fixture was created through the long spelling.
+                # Match the actual directory identity so the test continues to
+                # exercise the reparse guard under either lexical alias.
+                if (
+                    stat_result.st_dev == packets_stat.st_dev
+                    and stat_result.st_ino == packets_stat.st_ino
+                ):
                     return SimpleNamespace(
                         st_mode=stat_result.st_mode,
                         st_dev=stat_result.st_dev,

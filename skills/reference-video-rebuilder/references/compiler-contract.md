@@ -111,6 +111,11 @@ the relationship between the approved_plan and Proposal.
 freeze-plan receives Proposal and Review plus a project root and output
 directory. Before it writes a final artifact, it must validate:
 
+- Proposal and Review are named by normalized paths relative to project-root;
+  absolute local, drive-rooted, and UNC packet paths are rejected before any
+  candidate packet inspection. This freeze-only containment contract does not
+  change the independent validate-proposal or validate-review commands;
+
 - the output directory is one new direct child of project-root, using the same
   absolute/nested/dot/existing-target rejection as propose;
 

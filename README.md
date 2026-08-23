@@ -123,6 +123,13 @@ publication contract. Use a neutral directory name: project-relative artifact
 paths record this caller-supplied name, so it must not contain a source filename,
 person name, account ID, or other private identifier.
 
+For `freeze-plan`, its two positional packet arguments must also be normalized
+paths relative to `--project-root`, for example
+`proposal/compiler-plan-proposal.json`. Absolute local paths, drive-rooted
+paths, and UNC paths are rejected before the packet path is inspected. This
+restriction applies only to freezing: `validate-proposal` and `validate-review`
+may independently inspect a user-specified file.
+
 For the output directory used above, propose writes the following
 project-relative artifacts. Before approval, inspect the contact sheet,
 geometry preview, and timing profile locally. Correct the review template or
@@ -130,15 +137,17 @@ its approved_plan where needed; do not treat a generated candidate as an
 approval.
 
 ~~~powershell
-$proposal = Join-Path $project 'proposal\compiler-plan-proposal.json'
-$review = Join-Path $project 'proposal\review-decision.template.json'
+$proposalFile = Join-Path $project 'proposal\compiler-plan-proposal.json'
+$reviewFile = Join-Path $project 'proposal\review-decision.template.json'
+$proposalPacket = 'proposal/compiler-plan-proposal.json'
+$reviewPacket = 'proposal/review-decision.template.json'
 
-python scripts/video_remix.py validate-proposal "$proposal" --json
+python scripts/video_remix.py validate-proposal "$proposalFile" --json
 
-# Edit $review to explicitly approve the proposal hash and all required
+# Edit $reviewFile to explicitly approve the proposal hash and all required
 # confirmations, including any corrected approved_plan.
-python scripts/video_remix.py validate-review "$review" --json
-python scripts/video_remix.py freeze-plan "$proposal" "$review" --project-root $project --output-dir frozen-plan --json
+python scripts/video_remix.py validate-review "$reviewFile" --json
+python scripts/video_remix.py freeze-plan "$proposalPacket" "$reviewPacket" --project-root $project --output-dir frozen-plan --json
 ~~~
 
 freeze-plan reports the project-relative frozen Compiler Plan path. Validate

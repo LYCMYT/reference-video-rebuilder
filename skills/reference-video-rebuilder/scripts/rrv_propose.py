@@ -718,7 +718,10 @@ def _relative_parts(value: str, label: str) -> tuple[str, ...]:
     if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
         raise _invalid(f"{label} must be a normalized relative path")
     candidate = Path(value)
-    if candidate.is_absolute() or candidate.drive:
+    # A Windows drive-rooted spelling such as ``\\packet.json`` is not
+    # ``Path.is_absolute()`` (it has no drive) but would reset ``root / path``.
+    # Treat every rooted spelling as non-relative before composing it below.
+    if candidate.is_absolute() or candidate.drive or candidate.root:
         raise _invalid(f"{label} must be a normalized relative path")
     parts = candidate.parts
     if not parts or any(part in {"", ".", ".."} for part in parts):
@@ -2314,12 +2317,20 @@ class _JsonSnapshot:
 
 
 def _project_file_path(root: Path, value: str | os.PathLike[str], label: str) -> Path:
-    """Build a lexical root-contained path without resolving reparse points."""
+    """Build a strictly relative packet path without touching an absolute candidate.
+
+    Freezing consumes only packets named by normalized paths relative to the
+    already-bound ``project_root``.  In particular, absolute local paths and
+    UNC paths are rejected before any candidate ``lstat``/network traversal;
+    the subsequent descriptor snapshot performs the no-reparse containment
+    checks on the rebuilt local path.
+    """
 
     try:
         requested = Path(value)
-        relative = requested.relative_to(root) if requested.is_absolute() else requested
-        parts = _relative_parts(relative.as_posix(), label)
+        if requested.is_absolute() or requested.drive or requested.root:
+            raise _invalid(f"{label} must name an existing file within project_root")
+        parts = _relative_parts(requested.as_posix(), label)
     except (TypeError, ValueError, OSError, RuntimeError, rrv_runtime.RRVError) as exc:
         if isinstance(exc, rrv_runtime.RRVError):
             raise _invalid(f"{label} must name an existing file within project_root") from exc

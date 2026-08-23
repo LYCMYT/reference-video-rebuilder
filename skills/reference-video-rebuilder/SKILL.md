@@ -62,6 +62,13 @@ For propose and freeze-plan, output-dir must be the name of one new direct
 child of project-root. Reject absolute paths, nested paths, `.`, `..`, and
 existing targets before any media operation or artifact write.
 
+For freeze-plan only, proposal and review must be normalized paths relative to
+project-root (for example, `proposal/compiler-plan-proposal.json` and
+`proposal/review-decision.template.json`). Reject absolute local, drive-rooted,
+and UNC packet paths before inspecting them. This does not constrain the
+independent validate-proposal and validate-review commands, which may inspect a
+user-specified file.
+
 Propose returns exit code 0 only when it publishes a bounded local packet with
 review_required true. That is a mandatory stop, never approval.
 
@@ -97,7 +104,7 @@ account identity, raw probe, raw media, or private evidence payload.
 6. Freeze only the matching approved pair:
 
 ~~~text
-python scripts/video_remix.py freeze-plan <proposal> <review> --project-root <project-root> --output-dir <output-dir> --json
+python scripts/video_remix.py freeze-plan <project-relative-proposal> <project-relative-review> --project-root <project-root> --output-dir <output-dir> --json
 ~~~
 
 Validation and freeze errors exit code 2. Freeze must fail before final output
