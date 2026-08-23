@@ -1,9 +1,9 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.2.0-alpha
+版本：0.2.0-alpha.1
 日期：2026-08-22  
 目标仓库：`LYCMYT/reference-video-rebuilder`
-Skill 名称：`rebuild-reference-video`
+Skill 名称：`reference-video-rebuilder`
 
 当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Template IR/资产合同校验、S1 确定性合成和逐输出技术 QA。参考视频的语义槽位判定、换装/模特图生成、残留平台元素的人眼审查仍由 Codex/人工完成；本版本不承诺任意视频或被遮挡像素的复原。
 
@@ -476,7 +476,7 @@ NEW
 
 ## 10. 命令行和工具接口
 
-`0.2.0-alpha` 已提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志：
+`0.2.0-alpha.1` 已提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志：
 
 ```text
 video-remix doctor [--ffmpeg <path>] [--ffprobe <path>] --json
@@ -926,6 +926,6 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
 
 ## 24. 最终决策
 
-项目应以自研 `rebuild-reference-video` Skill 为核心，而不是 fork 某一个现有视频仓库。官方 Remotion Skills 和 FFmpeg 作为外部基础层；分析、Template IR、槽位映射、生成路由、平台元素排除、身份/服装 QA、运行状态和可重复模板必须自行实现。
+项目应以自研 `reference-video-rebuilder` Skill 为核心，而不是 fork 某一个现有视频仓库。官方 Remotion Skills 和 FFmpeg 作为外部基础层；分析、Template IR、槽位映射、生成路由、平台元素排除、身份/服装 QA、运行状态和可重复模板必须自行实现。
 
 产品战略必须坚持“先模板、后编译器、再通用化”：先让当前视频和第二组素材达到可靠复用，再扩展同类型模板族，最后进入 S2 跟踪和生成式视频。这样第一阶段能产出真实可用结果，同时保留向通用 Skill 扩展的架构。

@@ -12,7 +12,7 @@ except ImportError:  # The production dependency is declared in requirements-run
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = REPO_ROOT / "skills" / "rebuild-reference-video" / "scripts"
+SCRIPTS = REPO_ROOT / "skills" / "reference-video-rebuilder" / "scripts"
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/rebuild-reference-video/template-ir.schema.json",
+  "$id": "https://example.invalid/reference-video-rebuilder/template-ir.schema.json",
   "title": "Reference Video Template IR executable renderer contract",
   "description": "Structural contract for Template IR 0.2.0. Cross-field timeline and reference checks are performed by video_remix.py.",
   "type": "object",

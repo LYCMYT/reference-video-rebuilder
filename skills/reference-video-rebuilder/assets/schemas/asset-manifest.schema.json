@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/rebuild-reference-video/asset-manifest.schema.json",
+  "$id": "https://example.invalid/reference-video-rebuilder/asset-manifest.schema.json",
   "title": "Reference Video Replacement Asset Manifest",
   "type": "object",
   "additionalProperties": false,

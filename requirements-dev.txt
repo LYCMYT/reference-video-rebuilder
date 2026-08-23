@@ -1,2 +1,2 @@
--r skills/rebuild-reference-video/requirements-runtime.txt
+-r skills/reference-video-rebuilder/requirements-runtime.txt
 PyYAML>=6,<7

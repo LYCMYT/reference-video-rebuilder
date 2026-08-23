@@ -1,15 +1,15 @@
 ---
-name: rebuild-reference-video
+name: reference-video-rebuilder
 description: Analyze an authorized reference video, convert its timing, layout, motion, cuts, overlays, and audio structure into a reusable template, and rebuild it with user-supplied models, clothing, products, backgrounds, text, logos, props, or audio. Use when Codex is asked to recreate, remix, template, clean, or replace content in MP4, MOV, MKV, or WebM reference videos; build repeatable short-video workflows; remove selected platform UI, comments, account text, or other overlays from owned or licensed media by clean reconstruction; or render an approved template with new assets.
 ---
 
-# Rebuild Reference Video
+# Reference Video Rebuilder
 
 Treat the reference video as a structure and timing specification. Rebuild authorized content with explicit replacement assets. Exclude platform UI, comments, account information, and watermarks from the clean reconstruction. Never claim recovery of pixels that an overlay fully obscures.
 
 ## Alpha capability boundary
 
-Version `0.2.0-alpha` provides local media probing, bounded reference surveys, deterministic S1 rendering from a reviewed Template IR, and technical delivery QA. It does **not** autonomously decide semantic slots or generate a wearable look from a garment input. Use Codex/agent review to turn survey evidence into a template, and require user-provided or already-approved `render-ready` assets for every rendered outfit. Do not promise arbitrary-video or pixel-level replication.
+Version `0.2.0-alpha.1` provides local media probing, bounded reference surveys, deterministic S1 rendering from a reviewed Template IR, and technical delivery QA. It does **not** autonomously decide semantic slots or generate a wearable look from a garment input. Use Codex/agent review to turn survey evidence into a template, and require user-provided or already-approved `render-ready` assets for every rendered outfit. Do not promise arbitrary-video or pixel-level replication.
 
 ## Route the request
 

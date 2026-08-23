@@ -29,10 +29,10 @@ jobs:
           ffmpeg -version
           ffprobe -version
       - name: Compile Python
-        run: python -m compileall skills/rebuild-reference-video/scripts tests
+        run: python -m compileall skills/reference-video-rebuilder/scripts tests
       - name: Run tests
         run: python -m unittest discover -s tests -v
       - name: Validate example Template IR
-        run: python skills/rebuild-reference-video/scripts/video_remix.py validate-template skills/rebuild-reference-video/assets/project-template/template.ir.example.json --json
+        run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-template skills/reference-video-rebuilder/assets/project-template/template.ir.example.json --json
       - name: Validate example asset manifest
-        run: python skills/rebuild-reference-video/scripts/video_remix.py validate-assets skills/rebuild-reference-video/assets/project-template/template.ir.example.json skills/rebuild-reference-video/assets/project-template/assets.example.json --allow-missing-files --json
+        run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-assets skills/reference-video-rebuilder/assets/project-template/template.ir.example.json skills/reference-video-rebuilder/assets/project-template/assets.example.json --allow-missing-files --json

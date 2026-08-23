@@ -1,7 +1,7 @@
 # Template IR renderer contract
 
 Template IR 0.2.0 is the minimum executable renderer contract. The bundled
-`0.2.0-alpha` runtime implements a deterministic S1 subset plus technical video
+`0.2.0-alpha.1` runtime implements a deterministic S1 subset plus technical video
 QA. Semantic source analysis and asset generation remain agent-assisted, and
 the schema intentionally describes some features that the current renderer
 will reject rather than approximate.

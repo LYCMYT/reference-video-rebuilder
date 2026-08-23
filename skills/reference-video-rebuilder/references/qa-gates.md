@@ -1,6 +1,6 @@
 # QA gates
 
-## 0.2.0-alpha coverage
+## 0.2.0-alpha.1 coverage
 
 The bundled local CLI automates Template IR/asset validation and the technical
 parts of Gate 5. `render` runs the technical verifier for every encoded output

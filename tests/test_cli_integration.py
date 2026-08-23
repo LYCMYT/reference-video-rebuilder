@@ -10,7 +10,7 @@ from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SKILL_ROOT = REPO_ROOT / "skills" / "rebuild-reference-video"
+SKILL_ROOT = REPO_ROOT / "skills" / "reference-video-rebuilder"
 SCRIPTS = SKILL_ROOT / "scripts"
 TEMPLATE_PATH = SKILL_ROOT / "assets" / "project-template" / "template.ir.example.json"
 ASSETS_PATH = SKILL_ROOT / "assets" / "project-template" / "assets.example.json"

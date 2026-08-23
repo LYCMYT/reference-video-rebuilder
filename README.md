@@ -1,10 +1,10 @@
 # Codex Reference Video Rebuilder
 
-`rebuild-reference-video` is a Codex Skill design for turning a reference video into a clean, reusable video template. It analyzes timing, layout, motion, cuts, replaceable content, and removable overlays, then rebuilds the video with user-supplied models, clothing, products, backgrounds, text, logos, props, and audio.
+`reference-video-rebuilder` is a Codex Skill design for turning a reference video into a clean, reusable video template. It analyzes timing, layout, motion, cuts, replaceable content, and removable overlays, then rebuilds the video with user-supplied models, clothing, products, backgrounds, text, logos, props, and audio.
 
 The project treats a reference video as a **structure and timing specification**, not as a source of pixels to copy. Platform UI, comments, account information, and watermarks are excluded from the rebuilt result.
 
-> Status: **0.2.0-alpha**. The local S1 path can probe/survey reference media, validate a frozen Template IR and local asset manifest, deterministically render supported timelines, and technically verify every encoded output. Semantic slot decisions and generation of replacement looks remain agent-assisted.
+> Status: **0.2.0-alpha.1**. The local S1 path can probe/survey reference media, validate a frozen Template IR and local asset manifest, deterministically render supported timelines, and technically verify every encoded output. Semantic slot decisions and generation of replacement looks remain agent-assisted.
 
 ## Core idea
 
@@ -30,7 +30,7 @@ reference video + user assets
 docs/DESIGN.zh-CN.md                 Complete product and technical design
 docs/GITHUB_SETUP.zh-CN.md           Recommended GitHub repository settings
 THIRD_PARTY.md                       Dependency and license policy
-skills/rebuild-reference-video/      Installable Codex Skill
+skills/reference-video-rebuilder/      Installable Codex Skill
 ```
 
 ## Supported direction
@@ -44,7 +44,7 @@ The system must classify the reference before promising a result. It does not cl
 ## Install the Skill and runtime dependencies
 
 This repository is the source project; the installable Skill is the nested
-`skills/rebuild-reference-video` directory. Install that directory with the
+`skills/reference-video-rebuilder` directory. Install that directory with the
 Codex GitHub-skill installation flow, or copy/link it into the skills directory
 configured by your Codex runtime. Do not copy the repository root as though it
 were a single Skill, and do not describe this design release as a Plugin.
@@ -52,7 +52,7 @@ were a single Skill, and do not describe this design release as a Plugin.
 Install runtime dependencies from the repository root:
 
 ```powershell
-python -m pip install -r .\skills\rebuild-reference-video\requirements-runtime.txt
+python -m pip install -r .\skills\reference-video-rebuilder\requirements-runtime.txt
 
 # Contributors: runtime dependencies plus development-only tooling.
 python -m pip install -r .\requirements-dev.txt
@@ -72,10 +72,10 @@ Only the reported capabilities are available. In particular, this alpha does
 not infer semantic slots by itself, generate a new outfit/model image during
 `render`, or promise pixel-identical replacement for arbitrary video.
 
-## 0.2.0-alpha quick start
+## 0.2.0-alpha.1 quick start
 
 ```powershell
-cd skills/rebuild-reference-video
+cd skills/reference-video-rebuilder
 $ffmpeg = 'C:\tools\ffmpeg.exe' # Or omit when ffmpeg is on PATH.
 python scripts/video_remix.py doctor --ffmpeg $ffmpeg --json
 python scripts/video_remix.py validate-template assets/project-template/template.ir.example.json --json

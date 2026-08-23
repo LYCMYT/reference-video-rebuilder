@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Public alpha CLI for the ``rebuild-reference-video`` Skill.
+"""Public alpha CLI for the ``reference-video-rebuilder`` Skill.
 
 The CLI keeps Template IR validation self-contained, then lazily loads the
 local media runtime only for commands that need it.  The alpha deliberately

@@ -10,7 +10,7 @@ from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS_DIRECTORY = REPO_ROOT / "skills" / "rebuild-reference-video" / "scripts"
+SCRIPTS_DIRECTORY = REPO_ROOT / "skills" / "reference-video-rebuilder" / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIRECTORY))
 
 import rrv_analyze  # noqa: E402

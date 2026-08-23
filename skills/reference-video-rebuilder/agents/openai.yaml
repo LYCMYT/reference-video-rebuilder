@@ -1,0 +1,4 @@
+interface:
+  display_name: "Reference Video Rebuilder"
+  short_description: "Rebuild reference videos as reusable replaceable templates"
+  default_prompt: "Use $reference-video-rebuilder to turn this reference video into a clean reusable template with my replacement assets."

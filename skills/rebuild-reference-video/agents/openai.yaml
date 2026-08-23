@@ -1,4 +1,0 @@
-interface:
-  display_name: "参考视频重建器"
-  short_description: "分析参考视频并重建为可替换模特、服装、商品与背景的干净模板"
-  default_prompt: "使用 $rebuild-reference-video 分析这条参考视频，建立可替换槽位，并用我的素材生成干净的重建版本。"
