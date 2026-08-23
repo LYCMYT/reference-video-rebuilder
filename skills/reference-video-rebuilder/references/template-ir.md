@@ -1,7 +1,7 @@
 # Template IR renderer contract
 
 Template IR 0.2.0 is the minimum executable renderer contract. The bundled
-`0.3.0-alpha` product continues to execute this `0.2.0` contract through a
+`0.4.0-alpha` product continues to execute this `0.2.0` contract through a
 deterministic S1 renderer plus technical video QA. Semantic slot decisions and
 asset generation remain outside the bundled runtime, and the schema
 intentionally describes some features that the current renderer will reject

@@ -1,4 +1,4 @@
 interface:
   display_name: "Reference Video Rebuilder"
-  short_description: "Rebuild reference videos as reusable replaceable templates"
-  default_prompt: "Use $reference-video-rebuilder to turn this reference video into a clean reusable template with my replacement assets."
+  short_description: "Propose, review, freeze, and render bounded local S1 templates"
+  default_prompt: "Use $reference-video-rebuilder to propose a bounded local fixed-subject-carousel S1 plan, review it explicitly, freeze the approved plan, then compile and render it with my approved assets."

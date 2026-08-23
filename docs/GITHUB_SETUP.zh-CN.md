@@ -7,7 +7,7 @@
 | Owner | `LYCMYT` |
 | Repository name | `reference-video-rebuilder` |
 | Description | `一个注重授权与合规的 Codex Skill，可将参考视频重建为干净、可复用的模板，并替换模特、服装、商品、背景、文字和音频。` |
-| Visibility | 开发阶段选 `Private`；通过公开发布清单并打当前 Alpha 标签后再改 `Public`（当前目标为 `v0.3.0-alpha`） |
+| Visibility | 开发阶段选 `Private`；通过公开发布清单并打当前 Alpha 标签后再改 `Public`（当前目标为 `v0.4.0-alpha`） |
 | Add README | `Off` |
 | Add .gitignore | `No .gitignore` |
 | Add license | `No license` |

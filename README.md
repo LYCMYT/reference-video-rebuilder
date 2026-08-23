@@ -1,135 +1,200 @@
 # Codex Reference Video Rebuilder
 
-`reference-video-rebuilder` is a Codex Skill design for turning a reference video into a clean, reusable video template. It analyzes timing, layout, motion, cuts, replaceable content, and removable overlays, then rebuilds the video with user-supplied models, clothing, products, backgrounds, text, logos, props, and audio.
+reference-video-rebuilder is a Codex Skill and local CLI for rebuilding one
+authorized, bounded reference-video family as a reusable template. It treats a
+reference as a structure and timing specification, never as pixels to copy.
+Platform UI, comments, account information, and watermarks are excluded from
+the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-The project treats a reference video as a **structure and timing specification**, not as a source of pixels to copy. Platform UI, comments, account information, and watermarks are excluded from the rebuilt result.
+> Status: 0.4.0-alpha. The supported new-reference path is local and bounded:
+> propose -> review -> freeze-plan -> compile -> render. It is limited to an
+> authorized fixed-subject-carousel S1 reference. It is not an arbitrary-video
+> family-discovery, semantic-classification, OCR, cloud, or asset-generation
+> product.
 
-> Status: **0.3.0-alpha**. The local compiler accepts only an authorized,
-> `local-only` `fixed-subject-carousel` S1 reference with reviewer-confirmed
-> geometry and `slot_count`. It validates a frozen Compiler Plan, creates a
-> Template IR that remains schema version **0.2.0**, and can flag timing for
-> review. It does not provide OCR, arbitrary semantic understanding, cloud
-> execution, or asset generation.
+## What 0.4 adds
 
-## Core idea
+For an authorized local fixed-subject-carousel S1 source, propose produces a
+strict 0.4.0 Proposal JSON and a pending review template. It also writes local,
+bounded artifacts:
 
-The system has two operating modes:
+- an overview contact sheet;
+- a geometry preview;
+- a timing profile;
+- candidate source crop, top carousel boundary, subject region, slot count,
+  switch timing, proportional carousel layout, and background color.
 
-1. **Bounded compile mode** — compile a confirmed fixed-subject-carousel S1 plan into a reviewable Template IR.
-2. **Remix mode** — reuse an approved template with a new asset mapping and render a new video.
+The proposed source rectangle is a maximal centered crop matching the supported
+9:16 output aspect. It is the whole source frame only when the source already
+has that aspect. This is a composition heuristic, not semantic platform-UI
+detection or removal. A reviewer must correct it when platform chrome,
+non-centered content, or a nonuniform crop makes it wrong.
 
-```text
-authorized local reference + confirmed Compiler Plan
-        -> validate plan and media preflight
-        -> bounded fixed-subject-carousel compilation
-        -> Template IR + compact review report
-        -> resolve review_required when present
-        -> map user-supplied render-ready assets
-        -> deterministic render
-        -> automated and human QA
-        -> final videos + reusable project
-```
+A proposal is never approval: its review_required value is always true. Full
+geometry, carousel proportions, timing, and every semantic interpretation
+remain subject to explicit review. Propose does not infer a person, garment,
+product, UI element, watermark, or hidden content.
 
-## Repository layout
+Review is explicit and bound to the exact proposal hash. An approved review
+confirms the family, geometry, slot_count, timing, carousel, background,
+audio, and authorization; the reviewer may edit the approved_plan before
+freezing. freeze-plan validates the binding and every confirmation, then emits
+the canonical frozen Compiler Plan.
 
-```text
-docs/DESIGN.zh-CN.md                 Complete product and technical design
-docs/GITHUB_SETUP.zh-CN.md           Recommended GitHub repository settings
-THIRD_PARTY.md                       Dependency and license policy
-skills/reference-video-rebuilder/      Installable Codex Skill
-```
+## Version compatibility
 
-## Supported direction
+| Artifact or surface | Version |
+| --- | --- |
+| Product and CLI | 0.4.0-alpha |
+| Proposal JSON | 0.4.0 |
+| Frozen Compiler Plan | 0.3.0 |
+| Template IR | 0.2.0 |
 
-The current compiler is intentionally narrower than a general video analyzer:
-one authorized local `fixed-subject-carousel` S1 family. A human or Codex
-reviewer must confirm source geometry and `slot_count` before compilation. It
-does not classify arbitrary footage, infer semantic slots, read text with OCR,
-use cloud services, or generate replacement assets. It does not claim
-pixel-perfect arbitrary-video replacement.
+The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
+consumers remain compatible. Deterministic compilation, rendering, Template
+IR, and technical QA retain their existing contracts.
+
+## Supported boundary
+
+The alpha accepts only local, authorized fixed-subject-carousel S1 work. It
+does not provide:
+
+- OCR or arbitrary-video semantic classification;
+- identity, garment, product, UI, watermark, or text meaning inference;
+- cloud execution, uploads, or generated replacement assets;
+- automatic approval or recovery of concealed pixels;
+- automatic family discovery beyond the bounded S1 workflow.
+
+Windows is the audited release platform for v0.4.0-alpha. Other operating
+systems retain fail-closed identity and reparse-point checks, but this release
+does not claim the same directory-handle race guarantees outside Windows.
+
+Raw source and evidence remain local. Proposal artifacts must not contain source
+or tool absolute paths, filenames, container tags, title/artist/comments,
+account identity, raw probes, raw media, or private evidence payloads. The only
+allowed technical source fingerprint is SHA-256, width, height, exact frame
+count, fps, and audio presence. Bounded evidence references are for local
+review only.
 
 ## Install the Skill and runtime dependencies
 
-This repository is the source project; the installable Skill is the nested
-`skills/reference-video-rebuilder` directory. Install that directory with the
-Codex GitHub-skill installation flow, or copy/link it into the skills directory
-configured by your Codex runtime. Do not copy the repository root as though it
-were a single Skill, and do not describe this design release as a Plugin.
+This repository is the source project. Its installable Skill is the nested
+skills/reference-video-rebuilder directory. Install that directory with the
+Codex GitHub-skill installation flow, or copy/link it into the configured Skill
+directory. Do not install the repository root as a single Skill or describe
+this release as a Plugin.
 
-Install runtime dependencies from the repository root:
+From the repository root:
 
-```powershell
+~~~powershell
 python -m pip install -r .\skills\reference-video-rebuilder\requirements-runtime.txt
 
-# Contributors: runtime dependencies plus development-only tooling.
+# Contributors: runtime dependencies plus development tooling.
 python -m pip install -r .\requirements-dev.txt
-```
+~~~
 
-After installing or copying the Skill on its own, run this from the installed
-Skill directory (the directory that contains `SKILL.md`):
+After installing the Skill by itself, run the same runtime install command from
+the installed directory that contains SKILL.md. FFmpeg and ffprobe are external
+local executables.
 
-```powershell
-python -m pip install -r .\requirements-runtime.txt
-```
+## 0.4.0-alpha quick start
 
-FFmpeg/ffprobe remain external local executables. Run `doctor` with explicit
-executable paths when using a portable installation. Only the reported
-capabilities are available. In particular, this alpha has no OCR, no arbitrary
-semantic-slot inference, no cloud route, and no image/video asset generation;
-replacement looks must be supplied as reviewed `render-ready` assets.
+Run these commands from the repository checkout. The proposal command is the
+only new-reference entry point; do not hand-author a Compiler Plan in place of
+review.
 
-## 0.3.0-alpha quick start
+~~~powershell
+Set-Location .\skills\reference-video-rebuilder
 
-```powershell
-cd skills/reference-video-rebuilder
-$ffmpeg = 'C:\tools\ffmpeg.exe' # Or omit when ffmpeg is on PATH.
-$ffprobe = 'C:\tools\ffprobe.exe' # Required for bounded compilation.
-python scripts/video_remix.py doctor --ffmpeg $ffmpeg --ffprobe $ffprobe --json
-python scripts/video_remix.py validate-compiler-plan assets/project-template/compiler.plan.example.json --json
-python scripts/video_remix.py validate-template assets/project-template/template.ir.example.json --json
-python scripts/video_remix.py validate-assets assets/project-template/template.ir.example.json assets/project-template/assets.example.json --allow-missing-files --json
-
-# A new authorized fixed-subject-carousel S1 reference, after a reviewer has
-# confirmed its geometry and slot_count in the frozen Compiler Plan.
 $project = 'D:\video-projects\outfit-reel'
-python scripts/video_remix.py compile "$project\reference.mp4" assets/project-template/compiler.plan.example.json --project-root $project --output-dir template-compile --ffmpeg $ffmpeg --ffprobe $ffprobe --json
+$source = Join-Path $project 'reference.mp4'
+$ffmpeg = 'C:\tools\ffmpeg.exe'
+$ffprobe = 'C:\tools\ffprobe.exe'
 
-# An approved S1 template with user-provided or pre-generated render-ready looks.
-python scripts/video_remix.py render "$project\template.ir.json" "$project\assets.json" --project-root $project --ffmpeg $ffmpeg --summary run-summary.json --json
-```
+python scripts/video_remix.py doctor --ffmpeg $ffmpeg --ffprobe $ffprobe --json
+python scripts/video_remix.py propose "$source" --project-root $project --output-dir proposal --template-id outfit-reel-001 --reference-rights-confirmed --ffmpeg $ffmpeg --ffprobe $ffprobe --json
+~~~
+
+For `propose` and `freeze-plan`, `--output-dir` must name one new direct child
+of `--project-root`, such as `proposal` or `frozen-plan`. Absolute paths,
+nested paths, `.`, `..`, and existing targets are rejected before media work or
+artifact writes. This v0.4 restriction is part of the Windows-safe atomic
+publication contract. Use a neutral directory name: project-relative artifact
+paths record this caller-supplied name, so it must not contain a source filename,
+person name, account ID, or other private identifier.
+
+For the output directory used above, propose writes the following
+project-relative artifacts. Before approval, inspect the contact sheet,
+geometry preview, and timing profile locally. Correct the review template or
+its approved_plan where needed; do not treat a generated candidate as an
+approval.
+
+~~~powershell
+$proposal = Join-Path $project 'proposal\compiler-plan-proposal.json'
+$review = Join-Path $project 'proposal\review-decision.template.json'
+
+python scripts/video_remix.py validate-proposal "$proposal" --json
+
+# Edit $review to explicitly approve the proposal hash and all required
+# confirmations, including any corrected approved_plan.
+python scripts/video_remix.py validate-review "$review" --json
+python scripts/video_remix.py freeze-plan "$proposal" "$review" --project-root $project --output-dir frozen-plan --json
+~~~
+
+freeze-plan reports the project-relative frozen Compiler Plan path. Validate
+that frozen plan, compile it, and then render only with a reviewed Template IR
+and explicit render-ready asset mapping.
+
+~~~powershell
+$plan = Join-Path $project 'frozen-plan\compiler-plan.json'
+
+python scripts/video_remix.py validate-compiler-plan "$plan" --json
+python scripts/video_remix.py compile "$source" "$plan" --project-root $project --output-dir template-compile --ffmpeg $ffmpeg --ffprobe $ffprobe --json
+
+$template = Join-Path $project 'template-compile\template.ir.json'
+$assets = Join-Path $project 'assets.json'
+python scripts/video_remix.py validate-template "$template" --json
+python scripts/video_remix.py validate-assets "$template" "$assets" --json
+python scripts/video_remix.py render "$template" "$assets" --project-root $project --ffmpeg $ffmpeg --summary run-summary.json --json
+~~~
+
+Optional propose inputs are slot-count hint, confirmed audio rights, audio
+mode, and output profile. Supply them only when the user has selected those
+values and the local CLI help confirms the applicable form.
+
+`doctor --json` is a local diagnostic and reports resolved executable paths.
+Do not paste its raw output into a public issue; proposal, freeze, compile, and
+render summaries use the narrower public-output contracts instead.
+
+Propose succeeds with exit code 0 and status review_required; that status is a
+mandatory stop, not an approval. Proposal/review validation failures and
+freeze-plan failures exit 2. Compile retains its existing exits: 0 when no
+review is required, 1 when artifacts exist but review is required, and 2 for
+validation or operational errors.
 
 Run the lightweight test suite from the repository root:
 
-```powershell
+~~~powershell
 python -m unittest discover -s tests -v
-```
+~~~
 
-The example uses `--allow-missing-files` because it contains placeholder paths.
-`compile` first validates the Compiler Plan and performs media-dependent
-semantic preflight before publishing its output directory. Its exit code is
-`0` when `review_required` is false, `1` when artifacts exist but review is
-required, and `2` for validation or operational errors. CLI JSON remains
-compact: it reports paths and review facts, never a full Template IR or a
-per-frame score dump. See the [Compiler Plan contract](skills/reference-video-rebuilder/references/compiler-contract.md).
+## Review, QA, privacy, and rights
 
-Production `render` always validates the Template IR and Asset Manifest with
-file checks and rejects `support.review_required: true` before it writes
-frames, then performs a complete FFmpeg decode
-plus dimensions, cadence, exact frame count, audio-presence, and duration
-checks for every requested output. A technical QA failure returns a non-zero
-result and is included in the optional run summary.
+Validate the local technical gates, then perform human visual and rights
+review. A successful media decode does not establish identity consistency,
+garment/product fidelity, correct carousel semantics, absence of residual
+platform elements, or commercial rights.
 
-Before rendering, an agent must turn the survey into a reviewed Template IR and provide a render-ready model/look image for each garment layer (or the user must supply it). The CLI does not decide what is a model, garment, product, background, platform UI, comment, or watermark, and it cannot recover pixels hidden behind an overlay. Human/agent visual review remains required for identity, garment fidelity, residual platform elements, and commercial rights.
+Confirm permission for the reference video, likenesses, products, logos, and
+audio before proposal. This alpha is local-only: it does not upload media,
+evidence, proposal artifacts, or derived data.
 
-## Privacy and rights
-
-The workflow must obtain confirmation that the user has permission to use the
-reference video, likenesses, products, logos, and audio. This alpha is
-`local-only`; it has no cloud-assisted execution profile and never uploads
-media or derived evidence.
+See the [Compiler Plan contract](skills/reference-video-rebuilder/references/compiler-contract.md),
+[QA gates](skills/reference-video-rebuilder/references/qa-gates.md), and the
+complete Chinese [design](docs/DESIGN.zh-CN.md).
 
 ## License
 
-Original code and documentation in this repository are licensed under Apache License 2.0. Third-party tools, models, checkpoints, fonts, codecs, and generated media retain their own licenses. See [THIRD_PARTY.md](THIRD_PARTY.md).
-
-For the complete Chinese design, see [docs/DESIGN.zh-CN.md](docs/DESIGN.zh-CN.md).
+Original code and documentation in this repository are licensed under Apache
+License 2.0. Third-party tools, models, checkpoints, fonts, codecs, and media
+retain their own licenses. See [THIRD_PARTY.md](THIRD_PARTY.md).

@@ -1,19 +1,54 @@
 # QA gates
 
-## 0.3.0-alpha coverage
+## 0.4.0-alpha coverage
 
-The bundled local CLI validates the Compiler Plan, Template IR, and asset
-mapping, and automates the technical parts of Gate 5. `compile` returns exit
-code `1` when timing evidence still requires review. `render` runs the
-technical verifier for every encoded output and returns exit code `1` when an
-encoded delivery fails a check. Gates 3, 4, and 6 are not automatically
-established: require an agent or human review before claiming identity
+The bundled local CLI now adds validate-proposal, validate-review, propose,
+and freeze-plan before its existing Compiler Plan, Template IR, asset mapping,
+compile, render, and technical media checks. A successful propose returns exit
+code 0 with review_required true; it is never approval. Proposal/review
+validation and freeze-plan errors return exit code 2. `compile` retains exit
+code `1` when its existing timing evidence requires review, and `render`
+retains its technical verifier behavior.
+
+The new planning workflow does not automate semantic acceptance. Gates 3, 4,
+and 6 still require an agent or human review before claiming identity
 consistency, garment fidelity, timing intent, or complete removal of platform
 elements.
 
+## Gate 0 — bounded Proposal, Review, and freeze
+
+- Proposal schema version is exactly `0.4.0`, its nested candidate plan is
+  valid, and `review_required: true` is mandatory.
+- Source is exact CFR, has zero rotation, is no more than 60 seconds long, and
+  uses the required local FFmpeg/ffprobe tools.
+- Proposal emits an overview contact sheet, geometry preview, timing profile,
+  strict Proposal JSON, and pending Review template with bounded evidence.
+- Proposal may contain only the safe technical source fingerprint: SHA-256,
+  width, height, exact frame_count, fps, and has_audio. It must not contain a
+  source filename/path, tool path, container tags, title, artist, comments,
+  account identity, raw probe, raw media, or private evidence payload.
+- The proposed source_rect is a maximal centered crop for the supported 9:16
+  aspect, using the full source only when it already matches. It is a
+  composition heuristic, not semantic platform-UI detection/removal; chrome,
+  non-centered content, nonuniform crop, semantics, and ambiguous timing
+  require reviewer correction.
+- Review binds the exact Proposal SHA-256 and explicitly confirms family,
+  geometry, slot_count, timing, carousel, background, audio, and authorization.
+  The reviewer may correct approved_plan.
+- freeze-plan validates the hash binding, all confirmations, approved_plan,
+  local path rules, and authorization before writing a canonical Compiler Plan
+  schema version `0.3.0`.
+- Proposal/review/freeze outputs are project-contained and atomic. Any
+  validation or freeze failure returns exit code 2 and writes no partial frozen
+  plan.
+- propose and freeze-plan output directories are new direct children of
+  project-root. Absolute, nested, dot-segment, and existing targets fail before
+  media processing or writes.
+
 ## Gate 1 — template structure
 
-- the authorized local Compiler Plan has confirmed geometry and `slot_count`;
+- the authorized local Compiler Plan is a canonical schema `0.3.0` frozen
+  result with reviewed geometry and `slot_count`;
 - any `compile` result with `review_required: true` has been resolved, and the
   frozen Template IR has `support.review_required: false` before rendering;
 - media geometry and duration are valid;
@@ -29,7 +64,7 @@ elements.
 - every required slot is mapped exactly as intended;
 - input hashes and rights are recorded;
 - file types, resolution, transparency, and duration are valid;
-- cloud policy matches the selected adapter;
+- the local-only policy is maintained; this alpha has no cloud adapter route;
 - no source or output path escapes the project allowlist.
 
 ## Gate 3 — look approval
@@ -59,12 +94,12 @@ explicit check before relying on any of those conditions.
 
 ## Gate 6 — prohibited overlay removal
 
-Use known UI-region checks, contact sheets, and a human full-playback review.
-External OCR may assist a separately authorized review workflow, but the
-bundled `0.3.0-alpha` Skill does not include OCR. Require no residual platform
-logo, account text, comments, engagement rail, status/navigation bars, or
-visible reconstruction smear. This remains a required review gate rather than
-an automated pass claim.
+Use known UI-region checks, contact sheets, the geometry/timing proposal
+artifacts, and a human full-playback review. The bundled `0.4.0-alpha` Skill
+does not include OCR or automatic platform-UI semantic detection. Require no
+residual platform logo, account text, comments, engagement rail,
+status/navigation bars, or visible reconstruction smear. This remains a
+required review gate rather than an automated pass claim.
 
 ## Result model
 

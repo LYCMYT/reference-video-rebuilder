@@ -12,6 +12,8 @@ except ImportError:  # Contract tests still collect in a minimal development env
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = REPO_ROOT / "skills" / "reference-video-rebuilder"
 SCHEMA_PATH = SKILL_ROOT / "assets" / "schemas" / "compiler-plan.schema.json"
+PROPOSAL_SCHEMA_PATH = SKILL_ROOT / "assets" / "schemas" / "compiler-plan-proposal.schema.json"
+REVIEW_SCHEMA_PATH = SKILL_ROOT / "assets" / "schemas" / "review-decision.schema.json"
 EXAMPLE_PATH = SKILL_ROOT / "assets" / "project-template" / "compiler.plan.example.json"
 
 
@@ -126,6 +128,119 @@ class CompilerPlanContractTests(unittest.TestCase):
                 plan = copy.deepcopy(self.example)
                 mutate(plan)
                 self.assert_invalid(plan)
+
+
+@unittest.skipUnless(Draft202012Validator is not None, "jsonschema is required for contract validation")
+class ProposalReviewSchemaContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.plan = json.loads(EXAMPLE_PATH.read_text(encoding="utf-8"))
+        cls.proposal_schema = json.loads(PROPOSAL_SCHEMA_PATH.read_text(encoding="utf-8"))
+        cls.review_schema = json.loads(REVIEW_SCHEMA_PATH.read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(cls.proposal_schema)
+        Draft202012Validator.check_schema(cls.review_schema)
+        cls.proposal_validator = Draft202012Validator(cls.proposal_schema)
+        cls.review_validator = Draft202012Validator(cls.review_schema)
+
+    def proposal(self):
+        return {
+            "schema_version": "0.4.0",
+            "template_id": self.plan["template_id"],
+            "family": "fixed-subject-carousel",
+            "privacy": "local-only",
+            "review_required": True,
+            "source_fingerprint": {
+                "sha256": "a" * 64,
+                "width": 576,
+                "height": 1280,
+                "frame_count": 347,
+                "fps": 30.0,
+                "has_audio": True,
+            },
+            "candidate_plan": copy.deepcopy(self.plan),
+            "confidence": {
+                "overall": 0.5,
+                "source_rect": 0.5,
+                "carousel_boundary": 0.5,
+                "slot_count": 0.5,
+                "timing": 0.5,
+                "carousel_layout": 0.5,
+                "background_color": 0.5,
+            },
+            "candidates": {
+                "carousel_boundaries": [{"y": 200, "score": 0.5, "method": "local"}],
+                "slot_counts": [{"value": 12, "score": 0.5, "method": "local"}],
+                "switch_frames": [{"frame": 0, "score": 1.0, "prominence": 1.0}],
+            },
+            "evidence": {
+                "representative_frames": [0, 100],
+                "artifacts": {
+                    "overview_contact_sheet": {"path": "plan-proposal/overview.png", "sha256": "b" * 64},
+                    "geometry_preview": {"path": "plan-proposal/geometry.png", "sha256": "c" * 64},
+                    "timing_profile": {"path": "plan-proposal/timing.json", "sha256": "d" * 64},
+                },
+            },
+            "limitations": ["Review confirms measured local geometry."],
+        }
+
+    def review(self):
+        return {
+            "schema_version": "0.4.0",
+            "proposal_sha256": "e" * 64,
+            "decision": "pending",
+            "reviewer_confirmed": False,
+            "confirmations": {
+                "family": False,
+                "geometry": False,
+                "slot_count": False,
+                "timing": False,
+                "carousel": False,
+                "background": False,
+                "audio": False,
+                "authorization": False,
+            },
+            "approved_plan": copy.deepcopy(self.plan),
+            "notes": "Awaiting review.",
+        }
+
+    def assert_valid(self, validator, value):
+        errors = sorted(validator.iter_errors(value), key=lambda error: list(error.path))
+        self.assertEqual([], errors, "\n".join(error.message for error in errors))
+
+    def assert_invalid(self, validator, value):
+        self.assertTrue(list(validator.iter_errors(value)), "packet unexpectedly passed schema validation")
+
+    def test_proposal_and_pending_review_validate(self):
+        self.assert_valid(self.proposal_validator, self.proposal())
+        self.assert_valid(self.review_validator, self.review())
+
+    def test_strict_unknown_properties_and_portable_artifacts(self):
+        proposal = self.proposal()
+        proposal["unexpected"] = True
+        self.assert_invalid(self.proposal_validator, proposal)
+
+        proposal = self.proposal()
+        proposal["evidence"]["artifacts"]["overview_contact_sheet"]["path"] = "../escape.png"
+        self.assert_invalid(self.proposal_validator, proposal)
+
+        review = self.review()
+        review["confirmations"]["extra"] = True
+        self.assert_invalid(self.review_validator, review)
+
+    def test_approved_review_requires_every_confirmation_and_reviewer(self):
+        review = self.review()
+        review["decision"] = "approved"
+        review["reviewer_confirmed"] = True
+        review["confirmations"] = {name: True for name in review["confirmations"]}
+        self.assert_valid(self.review_validator, review)
+
+        review["confirmations"]["timing"] = False
+        self.assert_invalid(self.review_validator, review)
+
+        review = self.review()
+        review["decision"] = "approved"
+        review["confirmations"] = {name: True for name in review["confirmations"]}
+        self.assert_invalid(self.review_validator, review)
 
 
 if __name__ == "__main__":

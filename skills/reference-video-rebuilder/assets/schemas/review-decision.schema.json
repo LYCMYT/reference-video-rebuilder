@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/review-decision.schema.json",
+  "title": "Reference Video Rebuilder Compiler Plan Review Decision contract",
+  "description": "Strict local review decision for freezing a candidate Compiler Plan. The approved plan is structurally and semantically validated by the public validator against the frozen Compiler Plan contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "proposal_sha256",
+    "decision",
+    "reviewer_confirmed",
+    "confirmations",
+    "approved_plan",
+    "notes"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.4.0"},
+    "proposal_sha256": {"$ref": "#/$defs/sha256"},
+    "decision": {"enum": ["pending", "approved", "rejected"]},
+    "reviewer_confirmed": {"type": "boolean"},
+    "confirmations": {"$ref": "#/$defs/confirmations"},
+    "approved_plan": {"$ref": "#/$defs/approvedPlan"},
+    "notes": {"type": "string", "maxLength": 4096}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["decision"],
+        "properties": {"decision": {"const": "approved"}}
+      },
+      "then": {
+        "properties": {
+          "reviewer_confirmed": {"const": true},
+          "confirmations": {"$ref": "#/$defs/allConfirmations"}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "confirmations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "geometry",
+        "slot_count",
+        "timing",
+        "carousel",
+        "background",
+        "audio",
+        "authorization"
+      ],
+      "properties": {
+        "family": {"type": "boolean"},
+        "geometry": {"type": "boolean"},
+        "slot_count": {"type": "boolean"},
+        "timing": {"type": "boolean"},
+        "carousel": {"type": "boolean"},
+        "background": {"type": "boolean"},
+        "audio": {"type": "boolean"},
+        "authorization": {"type": "boolean"}
+      }
+    },
+    "approvedPlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "template_id",
+        "family",
+        "authorization",
+        "privacy",
+        "geometry",
+        "timing",
+        "carousel",
+        "background",
+        "audio",
+        "output_profiles",
+        "analysis"
+      ],
+      "properties": {
+        "schema_version": {},
+        "template_id": {},
+        "family": {},
+        "authorization": {},
+        "privacy": {},
+        "geometry": {},
+        "timing": {},
+        "carousel": {},
+        "background": {},
+        "audio": {},
+        "output_profiles": {},
+        "analysis": {}
+      }
+    },
+    "allConfirmations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family",
+        "geometry",
+        "slot_count",
+        "timing",
+        "carousel",
+        "background",
+        "audio",
+        "authorization"
+      ],
+      "properties": {
+        "family": {"const": true},
+        "geometry": {"const": true},
+        "slot_count": {"const": true},
+        "timing": {"const": true},
+        "carousel": {"const": true},
+        "background": {"const": true},
+        "audio": {"const": true},
+        "authorization": {"const": true}
+      }
+    }
+  }
+}

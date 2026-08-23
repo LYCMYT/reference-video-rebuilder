@@ -1,81 +1,183 @@
-# Compiler Plan contract
+# Proposal, Review, and Compiler Plan contract
 
-The frozen Compiler Plan is the compact, local-only input to the v0.3
-`fixed-subject-carousel` compiler. Its machine-readable source of truth is
-[`../assets/schemas/compiler-plan.schema.json`](../assets/schemas/compiler-plan.schema.json).
-The plan deliberately contains no source path, media, hash, or private
-evidence payload.
+## Version boundary
+
+The 0.4.0-alpha workflow has three distinct documents:
+
+| Document | Schema version | Role |
+| --- | --- | --- |
+| Proposal | 0.4.0 | Strict, bounded candidate for local review |
+| Review decision | 0.4.0 | Explicit decision bound to one Proposal hash |
+| Frozen Compiler Plan | 0.3.0 | Canonical input to the existing compiler |
+
+The machine-readable contracts are
+[Proposal](../assets/schemas/compiler-plan-proposal.schema.json),
+[Review](../assets/schemas/review-decision.schema.json), and the existing
+[Compiler Plan](../assets/schemas/compiler-plan.schema.json). The Template IR
+remains schema version 0.2.0.
+
+Proposal is not an alternate Compiler Plan. It always has review_required set
+to true, and no Proposal can be compiled directly. Only freeze-plan may emit
+the canonical 0.3.0 Frozen Compiler Plan.
+
+## Local-only boundary and safe technical fingerprint
+
+Raw media and visual evidence stay local. Proposal, Review, CLI JSON, and
+frozen-plan artifacts must not expose:
+
+- source filenames or absolute paths;
+- FFmpeg, ffprobe, or other tool paths;
+- container tags, title, artist, comments, account identity, or other
+  identifying source metadata;
+- raw probe payloads, raw media, image frames, or unbounded evidence data.
+
+The strict Proposal may contain the required technical source fingerprint:
+SHA-256, width, height, exact frame_count, fps, and has_audio. These facts
+bind the local proposal to the media without disclosing a source filename,
+path, tag, identity, or raw probe. Do not add other source metadata.
+
+The caller-selected direct-child output name becomes the prefix of relative
+artifact references. It must therefore be a neutral project label and must not
+reuse a source filename, person name, account identifier, or other private
+input label.
+
+Evidence artifacts are project-relative, bounded local references. They support
+review but do not transfer evidence content through JSON. Their paths must not
+escape the project root or encode an absolute path.
+
+## Proposal contract
+
+propose accepts only an authorized local fixed-subject-carousel S1 source. It
+first enforces exact CFR, zero rotation, duration no greater than 60 seconds,
+required local tools, and a project-contained output path. Its output directory
+must be one new direct child of project-root; absolute paths, nested paths,
+`.`, `..`, and existing targets are rejected before media work or writes. It
+then writes a strict 0.4.0 Proposal and a pending Review template atomically.
+
+The Proposal must include:
+
+- the fixed-subject-carousel family and local-only privacy boundary;
+- review_required: true;
+- the safe technical source fingerprint;
+- one nested candidate plan;
+- bounded confidence and candidate evidence;
+- bounded limitations;
+- hashes and project-relative references for the overview contact sheet,
+  geometry preview, and timing profile.
+
+The candidate plan proposes only the bounded S1 facts needed by the existing
+compiler:
+
+- source_rect as a maximal centered source crop matching the supported 9:16
+  output aspect; use the full source only when it already matches that aspect;
+- top carousel boundary;
+- subject region;
+- slot_count;
+- switch timing;
+- proportional carousel layout;
+- background color;
+- explicitly selected audio and authorization facts.
+
+The source crop is a composition heuristic, not semantic platform-UI detection
+or removal. Platform chrome, non-centered content, a nonuniform crop, ambiguous
+timing, and all semantic meaning require reviewer correction. Proposal does not
+infer identity, garment, product, UI, watermark, or hidden-pixel content.
+
+## Review contract
+
+The pending Review template must remain pending until an accountable reviewer
+acts. An approved Review is valid only when all of the following are true:
+
+1. proposal_sha256 equals the canonical hash of the exact Proposal being
+   frozen;
+2. decision is approved and reviewer_confirmed is true;
+3. all confirmations are true: family, geometry, slot_count, timing, carousel,
+   background, audio, and authorization;
+4. approved_plan is present and valid for the approved facts;
+5. any preserved audio has confirmed audio rights and any reference use has
+   confirmed authorization.
+
+The reviewer may correct approved_plan. That edit is deliberate: it replaces a
+candidate with reviewed facts. It never lets a reviewer omit a confirmation,
+approve a different Proposal, or turn a hash mismatch into a warning.
+
+validate-proposal validates the strict Proposal and its nested plan.
+validate-review validates a Review document. freeze-plan must validate both
+documents together because only it can establish the Proposal hash binding and
+the relationship between the approved_plan and Proposal.
+
+## Freeze contract
+
+freeze-plan receives Proposal and Review plus a project root and output
+directory. Before it writes a final artifact, it must validate:
+
+- the output directory is one new direct child of project-root, using the same
+  absolute/nested/dot/existing-target rejection as propose;
+
+- Proposal schema, nested candidate plan, safe artifact references, and bounded
+  evidence;
+- Review schema, approval state, reviewer confirmation, and every required
+  confirmation;
+- canonical Proposal hash binding;
+- approved_plan structural and semantic compatibility with the frozen
+  Compiler Plan contract;
+- local-only authorization, audio, path, and output constraints.
+
+On success, freeze-plan canonicalizes the reviewed approved_plan as a
+schema-version 0.3.0 Compiler Plan. It strips Proposal-only candidates,
+confidence, evidence, source fingerprint, and review workflow metadata. It
+does not create a new 0.4 Compiler Plan schema.
+
+On any validation or operational failure, freeze-plan exits with code 2 and
+publishes no final output. Staging and publication must be atomic, so a failed
+freeze cannot leave a partial Frozen Compiler Plan in the target directory.
 
 ## Coordinate spaces
 
-`geometry.source_rect` is measured in source-media pixels. Its `width` and
-`height` establish the clean compiler canvas. `geometry.carousel_rect`,
-`geometry.subject_rect`, and `carousel.origin` use that canvas's pixel space,
-with `(0, 0)` at its top-left. Output profiles scale this base canvas; analysis
-downscaling never changes plan coordinates.
+geometry.source_rect is measured in source-media pixels. Its width and height
+establish the clean compiler canvas. geometry.carousel_rect,
+geometry.subject_rect, and carousel.origin use that canvas pixel space with
+(0, 0) at the canvas top-left. Proportional carousel layout is reviewed before
+freeze and resolves into the compatible frozen plan. Output profiles scale the
+base canvas; analysis downscaling never changes frozen coordinates.
 
-## Proposal, review, freeze
+The source rectangle must be reviewed even if it was generated from the
+centered 9:16 composition heuristic. No stage may describe that heuristic as
+a semantic crop, platform-chrome detector, or UI-removal mechanism.
 
-1. **Proposal** produces a candidate plan plus a local review packet. Proposal
-   metadata may include `confidence` (a 0–1 estimate of evidence support) and
-   `review_required` (whether a human decision is required before freeze).
-   Neither field belongs in the frozen plan, and confidence is never evidence
-   of rights.
-2. **Review** confirms the proposal's measured geometry, timing, and rights.
-   A `review_required: true` proposal cannot be frozen until it is approved.
-3. **Freeze** strips proposal-only metadata, validates this schema and the
-   semantic rules below, then writes the canonical Compiler Plan. The compile
-   report keeps the review result, and any emitted Template IR carries it as
-   `support.review_required`. Rendering accepts only templates where that flag
-   is absent or explicitly `false`.
+## Timing and audio in the frozen plan
 
-## Timing
+uniform divides the local media duration into slot_count segments. hybrid
+starts from that division and snaps switches to local evidence within the
+bounded analysis window. manual uses explicit switch starts.
 
-`uniform` divides the local media duration into `slot_count` segments.
-`hybrid` starts from that division and snaps switches to local evidence within
-`analysis.snap_window_frames`. `manual` takes explicit switch starts in
-`timing.switch_frames`.
+The frozen-plan rules remain:
 
-The exact cross-field rules are:
+- switch_frames is required only for manual and forbidden for uniform and
+  hybrid;
+- manual requires exactly slot_count unique, strictly increasing starts within
+  the source duration, with every segment meeting min_segment_frames;
+- uniform and hybrid reject durations that cannot yield the required minimum
+  segment length;
+- preserve audio requires audio_rights_confirmed and audio.required true;
+- mute requires audio.required false.
 
-- `switch_frames` is required only for `manual`; it is forbidden for `uniform`
-  and `hybrid`.
-- For `manual`, semantic validation requires exactly `slot_count` unique,
-  strictly increasing switch starts, each inside the source duration; each
-  resulting segment must satisfy `min_segment_frames`.
-- For `uniform` and `hybrid`, the compiler must reject durations that cannot
-  produce `slot_count` segments of at least `min_segment_frames`.
-- `audio.mode: "preserve"` requires
-  `authorization.audio_rights_confirmed: true` and `audio.required: true`;
-  `audio.mode: "mute"` requires `audio.required: false`. The schema enforces
-  these combinations.
+Schema validation cannot establish media-relative facts. The existing compiler
+must still check that source_rect lies inside the source, canvas geometry is
+renderable without implicit crop or scale, all timing boundaries are inside the
+source duration, and decoded media meets its existing safety gates.
 
-The schema intentionally cannot validate media-relative facts. Semantic
-validation must use the locally probed media to ensure `source_rect` lies
-within the source, canvas rectangles and the carousel placement are renderable
-without an implicit crop or scale, and every derived timing boundary is within
-the duration. A structurally valid manual list with the wrong length is thus a
-semantic failure, not a schema failure.
+## Exit and fail-closed rules
 
-## Deterministic local boundary and artifacts
+propose can exit 0 only after it has atomically published a review_required
+Proposal packet. That is never approval. Proposal/review validation errors and
+freeze-plan errors exit 2. Compile keeps its existing exit behavior: 0 for a
+completed compile without required review, 1 when artifacts exist but review
+is required, and 2 for validation or operational failure.
 
-Raw media, hashes, paths, probes, and evidence frames stay local. Given the
-same local inputs and approved review decisions, the compiler canonicalizes
-the plan and produces the same frozen result; it must not upload media or use
-an unreviewed remote result as frozen truth.
-
-The workflow emits a compact proposal/review packet (with at most
-`analysis.max_evidence_frames` local evidence references), a review decision,
-and a schema-valid frozen plan. This keeps agent handoffs small: send scalar
-geometry, timing, and evidence references rather than frames, probe dumps, or
-media. `analysis.width` and `max_evidence_frames` are explicit cost bounds,
-not quality guarantees.
-
-## Fail closed
-
-Do not freeze or render when the schema rejects a plan, unknown properties are
-present, reference rights are not confirmed, preserved audio lacks confirmed
-rights, semantic validation fails, required review is unresolved, or the
-local-only boundary cannot be maintained. The compiler must report the failed
-gate instead of guessing missing geometry, timing, authorization, or media
-behavior.
+Do not freeze or render when authorization is absent, preserved audio lacks
+rights, a hash is mismatched, a required confirmation is false or missing, a
+schema rejects a document, an unknown property appears, evidence/path bounds
+are violated, a media gate fails, or the local-only boundary cannot be
+maintained. Report the failed gate; never guess missing geometry, timing,
+semantic meaning, authorization, or media behavior.

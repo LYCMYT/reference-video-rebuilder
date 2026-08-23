@@ -33,6 +33,11 @@ previews/
 derived-assets/
 reference-survey*/
 template-compile*/
+plan-proposal/
+proposal/
+frozen-plan/
+.rrv-proposal-*/
+.rrv-freeze-*/
 .template-compile*.staging-*/
 .template-compile*.analysis-*/
 render/

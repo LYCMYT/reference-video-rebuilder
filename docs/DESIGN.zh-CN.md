@@ -1,13 +1,13 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.3.0-alpha
+版本：0.4.0-alpha
 日期：2026-08-23
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
 
-当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Compiler Plan/Template IR/资产合同校验、固定 S1 确定性合成和逐输出技术 QA。`0.3.0-alpha` 新增的编译器只接受已授权、`local-only`、`fixed-subject-carousel` S1 参考；几何和 `slot_count` 必须由审核者先确认。编译输出的 Template IR 版本仍为 `0.2.0`。参考视频的语义槽位判定、换装/模特图生成、残留平台元素的人眼审查仍由 Codex/人工完成；本版本不承诺任意视频或被遮挡像素的复原。
+当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Compiler Plan/Template IR/资产合同校验、固定 S1 确定性合成和逐输出技术 QA。0.4.0-alpha 新增已授权、本地 fixed-subject-carousel S1 的 propose -> review -> freeze-plan -> compile -> render 工作流：propose 只产生严格 0.4.0 Proposal 与待审工件，Review 显式绑定 Proposal 哈希，freeze-plan 才生成既有编译器消费的规范 Compiler Plan。Frozen Compiler Plan schema 保持 0.3.0 以兼容 v0.3，编译输出的 Template IR schema 仍为 0.2.0。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解、没有云端执行、没有素材/换装资产生成。`compile` 不能猜测主体、商品、文字、平台 UI 或槽位；它只在已确认的固定主体轮播 S1 计划上做有界的本地时序分析。本文后文出现的 OCR、检测、云端 adapter、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现、没有云端执行、没有素材/换装资产生成。propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素；它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。本文后文出现的 OCR、检测、云端 adapter、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -104,13 +104,15 @@ Skill 名称：`reference-video-rebuilder`
 
 ## 4. 两种工作模式
 
-### 4.1 Compile：新参考视频编译模式
+### 4.1 Propose -> Review -> Freeze -> Compile：新参考视频编译模式
 
-当前实现只适用于已授权、本地固定主体轮播 S1 的第一次编译，且审核者已确认 clean source geometry 与 `slot_count`。
+当前实现只适用于已授权、本地 fixed-subject-carousel S1 的第一次编译。流程为：确认权利与本地边界 → propose → 显式哈希绑定 Review → freeze-plan → validate-compiler-plan → compile → Template IR 0.2.0 → 既有审核与渲染。
 
-流程：确认权利与本地边界 → 人工/Codex 审核并冻结 Compiler Plan → `validate-compiler-plan` → 本地媒体语义预检（尺寸、帧率、时长、几何、时序、音频）→ 有界时序分析 → 生成 Template IR `0.2.0` 与审核工件 → 处理 `review_required` → 冻结模板版本。不得通过 OCR 或任意语义推断填补缺失计划字段。
+propose 自动提出 source_rect、顶部 carousel 边界、subject 区域、slot_count、切换时序、按比例的 carousel 布局和背景色，并生成 overview contact sheet、geometry preview、timing profile、严格 0.4.0 Proposal JSON 与 pending review template。source_rect 只是匹配受支持 9:16 输出比例的最大居中源裁剪；仅当源本身已匹配时才使用完整帧。它是构图启发式，不是 platform chrome 或 UI 的语义检测/移除结果。chrome、非居中内容、非均匀裁剪、语义不明或时间模糊时，审核者必须修正。
 
-Compile 模式的产物必须是可重复使用的模板，而不是一次性脚本。
+Proposal 永远 review_required=true，不能直接编译。审核者必须确认 family、geometry、slot_count、timing、carousel、background、audio 和 authorization，并可更正 approved_plan。freeze-plan 校验精确 Proposal 哈希、所有确认与 approved_plan 后，才发布 schema 0.3.0 的 Frozen Compiler Plan。不得通过 OCR、自动批准或任意语义推断填补缺失事实。
+
+Compile 模式的产物必须是可重复使用的模板，而不是一次性脚本；既有确定性 compiler、render 和 QA 合同不因 0.4 Proposal 阶段而改变。
 
 ### 4.2 Remix：已审核模板复用模式
 
@@ -124,7 +126,7 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 
 | 等级 | 视频特征 | 自动化承诺 | 失败策略 |
 |---|---|---|---|
-| S1 确定性模板 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加、轻微动作 | 当前仅限已确认几何和 `slot_count` 的 `fixed-subject-carousel`；布局和切点可本地重建 | Compiler Plan 必须先经人工/Codex 审核；不自动推断语义槽位 |
+| S1 确定性模板 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加、轻微动作 | 当前仅限已授权的 fixed-subject-carousel；propose 可给出有界几何、slot_count 和时序候选 | Proposal 永远需要人工/Codex Review；不自动发现任意 family 或推断语义槽位 |
 | S2 跟踪合成 | 单主体中等运动、缓慢运镜、可跟踪遮挡、动态背景 | 中；结构和运动可保持，需动态蒙版 | 请求修正关键帧、轨迹或蒙版 |
 | S3 生成式修改 | 快速运动、转身、复杂衣服动态、强运镜、较大遮挡 | 低到中；只保证整体效果和节奏相似 | 分段生成、局部重试、明确实验性 |
 | S4 不支持精确模式 | 多人紧密交互、镜面、透明物、严重遮挡、极快混剪、输入损坏 | 不承诺 | 输出分析报告并建议拆分、简化或人工模板 |
@@ -134,8 +136,9 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 ## 6. 总体架构
 
 本节描述目标架构；图中的 OCR、检测、生成 adapter、云端和高级 QA
-组件不是 `0.3.0-alpha` 的已实现能力。当前可执行路径仅为本地、已确认
-计划的 `fixed-subject-carousel` S1 编译和已审核 Template IR 的确定性渲染。
+组件不是 0.4.0-alpha 的已实现能力。当前可执行路径仅为本地、已授权的
+fixed-subject-carousel S1 的 propose -> review -> freeze-plan -> compile 和
+已审核 Template IR 的确定性渲染。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -185,6 +188,28 @@ Codex 不应逐帧读取视频，也不应每次临时拼接复杂 FFmpeg 命令
 - 可选本地 MCP：长任务、队列、进度、取消和模型驻留。
 
 ## 7. 核心数据模型
+
+### 7.0 Proposal、Review 与 Frozen Compiler Plan
+
+0.4 的三种计划文档不可混用：
+
+| 文档 | 版本 | 作用 |
+|---|---|---|
+| Proposal JSON | 0.4.0 | 严格、有界、待审核的候选；review_required 固定为 true |
+| Review decision | 0.4.0 | 显式绑定一份 Proposal SHA-256 的审核决定 |
+| Frozen Compiler Plan | 0.3.0 | 既有 compiler 的规范输入，保持 v0.3 兼容 |
+
+Proposal 需包含一个候选计划、受限候选/置信度、受限本地证据引用和安全技术
+source fingerprint。允许的 fingerprint 仅为 SHA-256、width、height、精确
+frame_count、fps 和 has_audio；不得包含源文件名或绝对路径、工具绝对路径、
+容器 tags、title、artist、comments、账号身份、原始 probe 或原始媒体。
+
+Review 的 approved_plan 可以由审核者修正，但批准时必须同时满足：
+Proposal 哈希完全匹配、decision 为 approved、reviewer_confirmed 为 true，
+且 family、geometry、slot_count、timing、carousel、background、audio、
+authorization 八项确认均为 true。freeze-plan 只从通过这些条件的
+approved_plan 规范化生成 0.3.0 Frozen Compiler Plan；Proposal 的候选、
+置信度、证据和 source fingerprint 不进入冻结计划。
 
 ### 7.1 Template IR
 
@@ -337,7 +362,7 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 
 ### 7.4 置信度
 
-所有自动推断槽位必须包含：
+0.4 仅允许把下列字段作为 Proposal 中的有界候选，而不是自动确定的语义槽位：
 
 - `confidence`：0 到 1；
 - `evidence`：关键帧、框、蒙版或检测来源；
@@ -345,46 +370,61 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 - `reason`；
 - `allowed_processors`。
 
-低于阈值时不得静默进入正式渲染。
+无论置信度高低，Proposal 都不得静默进入正式渲染或冻结。它必须保持 review_required=true；由审核者确认或修正 geometry、slot_count、timing、carousel、background、audio 和 authorization 后，freeze-plan 才可继续。
 
 ## 8. 完整工作流
 
-本节其余步骤是目标工作流；`0.3.0-alpha` 的实际 Compile 路径以第 4.1
-节和第 10 节的 Compiler Plan 命令为准。尤其不能把下面的 OCR、分类、
-槽位提议或 adapter 步骤当作当前命令会执行的自动化。
+本节记录完整产品流程。0.4.0-alpha 实际的新参考路径以 propose -> review
+-> freeze-plan -> compile 为准；后续素材映射与 render 保持既有合同。下面
+涉及 OCR、任意视频分类、语义槽位推断、云端 adapter 或资产生成的历史设计
+不得解释为当前 CLI 能力。
 
 ### 8.1 Preflight
 
-1. 检查 FFmpeg/ffprobe、Python、Node 和可选 GPU。
-2. 检查磁盘空间、可写目录和输入可读性。
-3. 检查 VFR、HDR、旋转元数据、损坏帧和音轨。
-4. 确定 `local-only` 或 `cloud-assisted`。
-5. 确认媒体、肖像、商标和音频权限。
-6. 建立项目 ID，复制或链接素材到项目隔离目录。
+1. 检查 FFmpeg、ffprobe、可写 project-root 和输入可读性。
+2. 只接受精确 CFR、零旋转且时长不超过 60 秒的本地源。
+3. 确认参考、肖像、商品、品牌和音频权限；若保留音频，单独确认音频权利。
+4. 确定 local-only；0.4 不提供 cloud-assisted 路径。
+5. 建立项目隔离目录。源与证据留在本地，工件路径不得逃逸 project-root。
 
-### 8.2 Analyze
+### 8.2 Propose
 
-1. 输出媒体探测 JSON。
-2. 生成低频 survey、镜头关键帧和联系表。
-3. 识别镜头、硬切、淡变、速度变化和重复帧。
-4. 分析音频节拍、响度、静音和波形。
-5. OCR 检测字幕、弹幕、账号、平台 UI 和水印候选。
-6. 检测主体、服装、商品、Logo、背景和道具候选。
-7. 估计主体姿态、轨迹、缩放、遮挡和镜头运动。
-8. 区分持久 UI、创意内容和未知区域。
-9. 输出机器 JSON、联系表、异常帧，不向 Codex返回逐帧大日志。
+调用 propose。它输出严格 0.4.0 Proposal、pending review template、overview
+contact sheet、geometry preview 与 timing profile，并提出以下受限候选：
 
-### 8.3 Classify
+1. 匹配受支持 9:16 输出比例的最大居中 source_rect；仅源本身已匹配时使用完整帧；
+2. 顶部 carousel 边界和 subject 区域；
+3. slot_count、切换帧/时序和按比例表达的 carousel 布局；
+4. 背景色以及选定的音频/授权事实。
 
-根据镜头数量、主体数量、动作速度、相机运动、遮挡、反射、透明度、UI 遮挡和输入质量计算支持等级。超出等级时给出可完成的降级范围。
+source_rect 是构图启发式，不是 OCR、platform chrome 检测、语义 UI 分割或
+覆盖层移除。它无法判断人物、服装、商品、文字、水印或被遮挡的内容。候选
+和证据必须有数量/尺寸边界；Proposal 只可带安全技术 source fingerprint
+与项目相对工件引用，不可带源/工具绝对路径、文件名、容器 tags、账号身份、
+raw probe 或原始证据。
 
-### 8.4 Propose and confirm slots
+### 8.3 Review
 
-生成槽位候选表，包含时间范围、图层、处理方式和置信度。平台元素只能成为删除层，不能成为待复刻槽位。用户只需确认低置信度或会显著改变结果的决策。
+审核 Proposal，而不是让系统自动分类任意视频。审核者应查看 contact sheet、
+geometry preview 和 timing profile，明确确认 family、geometry、slot_count、
+timing、carousel、background、audio 和 authorization。每份 Proposal 的
+review_required 固定为 true；置信度不是批准。审核者可在 approved_plan 中
+纠正裁剪、边界、时序和其他计划值，尤其在 chrome、非居中内容、非均匀裁剪
+或模糊切换使候选不可靠时。
 
-### 8.5 Build and freeze template
+### 8.4 Freeze
 
-将确认结果编译为 Template IR，渲染带边框和槽位编号的结构调试版。通过后生成不可变模板版本，例如 `outfit-reel-001@1.0.0`。
+调用 validate-proposal 和 validate-review 后，调用 freeze-plan。它必须校验
+Proposal 的精确 SHA-256 绑定、approved Review、reviewer_confirmed、全部八项
+确认、approved_plan、权利和本地路径/工件边界。任一失败返回 exit 2，且冻结
+输出不得写入部分文件。成功时只生成 schema 0.3.0 的 Frozen Compiler Plan。
+
+### 8.5 Compile
+
+对 Frozen Compiler Plan 运行 validate-compiler-plan 与既有 compile。compile
+仍在最终可见输出目录创建前完成 schema 和媒体相关语义预检，并输出 Template
+IR 0.2.0、审核工件和既有 exit 0/1/2 结果。Proposal 阶段不会改变 deterministic
+compiler 或 Template IR 合同。
 
 ### 8.6 Validate replacement assets
 
@@ -397,7 +437,7 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 
 ### 8.7 Prepare derived assets
 
-根据输入类型选择 adapter：直接贴图、抠图、对齐、虚拟试衣、受控图像生成、背景补全、颜色匹配、音频裁切或循环。当前固定动作视频优先生成定姿穿搭图，不生成整段 AI 视频。
+当前 0.4 只接受用户提供或另行批准的 render-ready 素材，并执行既有的显式映射与确定性处理；不调用虚拟试衣、受控图像生成、背景补全或任何云端/本地资产生成 adapter。直接贴图、抠图、对齐、虚拟试衣、生成和视频修改属于后续设计，不能由 propose 自动触发。
 
 ### 8.8 Review looks
 
@@ -486,12 +526,16 @@ NEW
 
 ## 10. 命令行和工具接口
 
-`0.3.0-alpha` 已提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志。产品/CLI 版本为 `0.3.0-alpha`，而编译输出的 Template IR Schema 版本保持 `0.2.0`：
+`0.4.0-alpha` 提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志。产品/CLI 版本为 `0.4.0-alpha`，Proposal schema 为 `0.4.0`，Frozen Compiler Plan schema 保持 `0.3.0`，编译输出的 Template IR schema 保持 `0.2.0`：
 
 ```text
 video-remix doctor [--ffmpeg <path>] [--ffprobe <path>] --json
 video-remix probe <reference> [--ffmpeg <path>] [--ffprobe <path>] --json
 video-remix survey <reference> --project-root <project-dir> [--output-dir reference-survey] [--frame <n> ...] [--samples <n>] [--ffmpeg <path>] --json
+video-remix validate-proposal <proposal.json> --json
+video-remix validate-review <review.json> --json
+video-remix propose <source> --project-root <project-dir> --output-dir <output-dir> --template-id <template-id> [--slot-count-hint] --reference-rights-confirmed [--audio-rights-confirmed] [--audio-mode] [--output-profile] --ffmpeg <path> --ffprobe <path> --json
+video-remix freeze-plan <proposal.json> <review.json> --project-root <project-dir> --output-dir <output-dir> --json
 video-remix validate-compiler-plan <compiler-plan.json> --json
 video-remix compile <reference> <compiler-plan.json> --project-root <project-dir> [--output-dir template-compile] [--ffmpeg <path>] [--ffprobe <path>] [--timeout <seconds>] --json
 video-remix validate-template <template.ir.json> --json
@@ -500,16 +544,23 @@ video-remix render <template.ir.json> <assets.json> --project-root <project-dir>
 video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
 
+v0.4 的 `propose` 与 `freeze-plan` 要求 `--output-dir` 是
+`project-root` 下一个尚不存在的一级子目录名称，例如 `proposal` 或
+`frozen-plan`。绝对路径、嵌套路径、`.`、`..` 和已存在目标会在媒体处理或
+任何工件写入前被拒绝；该限制用于保证 Windows 本地原子发布和路径边界。
+
 Alpha 通用规则：
 
-- 标准输出返回稳定 JSON 摘要；`compile`、`survey` 和可选 `render --summary` 写入的工件均受 project root 约束；
+- 标准输出返回稳定 JSON 摘要；propose、freeze-plan、`compile`、`survey` 和可选 `render --summary` 写入的工件均受 project root 约束；
+- propose 成功返回 exit 0 但状态始终为 review_required，不是批准；Proposal/Review 校验失败和 freeze-plan 失败返回 exit 2。freeze-plan 在失败时不得写出部分 Frozen Compiler Plan；
 - `compile` 在任何最终可见输出目录创建前完成 Compiler Plan Schema 校验和媒体相关语义预检。`review_required=false` 返回码为 `0`；成功但需要人工审核返回码为 `1`；校验或运行错误返回码为 `2`；
 - `compile` 的 JSON 只包含根目录相对工件路径、哈希和简短审核事实，绝不内联完整 Template IR、逐帧评分、源文件绝对路径或工具绝对路径；
+- Proposal 仅可包含 SHA-256、width、height、精确 frame_count、fps 和 has_audio 这组安全技术 source fingerprint；不得包含源文件名/绝对路径、工具路径、容器 tags、title、artist、comments、账号身份、raw probe 或原始证据；
 - `render` 写入任何帧前必须完成模板与文件资产校验，之后必须对每个输出执行 QA；
 - 禁止 shell 字符串拼接执行 FFmpeg，使用参数数组；
-- 不自动分类语义槽位、不执行 OCR、不自动生成换装资产、不使用云端执行，也不把技术解码 QA 误称为视觉/权利验收。
+- 不自动发现任意视频 family 或分类语义槽位、不执行 OCR、不自动生成换装资产、不使用云端执行，也不把技术解码 QA 误称为视觉/权利验收。
 
-后续可增加 `init`、`classify`、`propose-slots`、`freeze-template`、`prepare-assets`、`preview`、`package`、`status`、断点恢复和本地 MCP；这些不是当前 Alpha 命令。
+propose 只能产生最大居中 9:16 source crop、carousel、subject、slot_count、timing、比例布局和背景色等待审候选。它不是 platform chrome/UI 检测或移除器；chrome、非居中内容、非均匀裁剪和语义/时序歧义必须由审核者更正。
 
 ## 11. 目录与项目状态
 
@@ -540,6 +591,13 @@ workspaces/<project-id>/
 
 源素材默认保持在项目隔离目录，不进入 Skill 目录和 Git 历史。
 
+0.4 的 proposal 输出目录还包含严格 Proposal、pending Review、overview
+contact sheet、geometry preview 和 timing profile。所有这些工件都必须是
+project-root 相对引用，并按原子发布处理；不得把源文件名、用户绝对路径、
+工具绝对路径、容器 metadata、账号信息、raw probe 或原始帧写进 Proposal
+或公开 CLI JSON。安全技术 source fingerprint 仅允许 SHA-256、width、
+height、精确 frame_count、fps 和 has_audio。
+
 ## 12. 渲染策略
 
 ### 12.1 确定性优先
@@ -559,6 +617,23 @@ workspaces/<project-id>/
 默认 H.264/AAC、`yuv420p`、恒定帧率和 faststart；主输出 1080×1920，同时生成 720×1280。保留可配置 HEVC、透明中间文件和无音频母版。
 
 ## 13. 质量验收
+
+### 13.0 Proposal、Review 与 Freeze
+
+0.4 必须在既有 Template IR 与媒体 QA 之前通过下列自动关卡：
+
+- Proposal schema 0.4.0 及其嵌套 candidate plan；
+- 精确 CFR、零旋转、时长不超过 60 秒、FFmpeg/ffprobe 可用性；
+- project-root 路径约束、无源/工具绝对路径泄露与工件原子性；
+- propose/freeze-plan 输出必须是 project-root 下尚不存在的一级子目录，嵌套、绝对、点段或已存在目标在任何处理前拒绝；
+- overview contact sheet、geometry preview、timing profile 和代表帧的证据边界；
+- Proposal/Review 的精确 SHA-256 绑定；
+- family、geometry、slot_count、timing、carousel、background、audio、authorization 全部显式确认；
+- freeze-plan 的失败无写入，以及输出仍为 schema 0.3.0 Frozen Compiler Plan。
+
+Proposal 的 source_rect 只可被描述为最大居中 9:16 构图候选；当 chrome、
+非居中内容或非均匀裁剪使它不正确时，审核者必须修正。该关卡不包含 OCR、
+platform UI 语义检测、自动批准或隐藏像素恢复。
 
 ### 13.1 结构和媒体
 
@@ -585,7 +660,8 @@ workspaces/<project-id>/
 
 ### 13.4 标识清除
 
-结合 OCR、已知平台区域检测、联系表和全片人工审查：
+当前 0.4 不使用 OCR 或自动 platform UI 语义检测。结合已知区域的人工
+检查、contact sheet、geometry preview、timing profile 和全片人工审查：
 
 - 无平台 Logo；
 - 无点赞、评论、分享栏；
@@ -596,28 +672,30 @@ workspaces/<project-id>/
 
 ### 13.5 QA 结果
 
-每项状态只能是 `pass`、`warn` 或 `fail`。任何 `fail` 阻止打包；需要人工接受的 `warn` 必须记录批准信息。
+每项状态只能是 `pass`、`warn` 或 `fail`。任何 `fail` 阻止打包；需要人工接受的 `warn` 必须记录批准信息。技术解码通过不等于 source crop、身份、服装、商品、平台元素或权利已经通过人工验收。
 
 ## 14. 失败、降级和人工关卡
 
 必须设置以下关卡：
 
+- Proposal 生成后、Review 前的强制停止（review_required=true）；
+- Proposal 哈希绑定和八项 Review 确认；
+- freeze-plan 无部分写入失败门；
 - 不支持等级确认；
 - 低置信度槽位确认；
-- 云端上传许可；
 - 人物和服装联系表批准；
 - 正式高清渲染前预览批准；
 - 最终残留标识人工审查。
 
-局部错误只重跑受影响槽位或帧段。遇到显存不足时依次降低 batch、分辨率、模型规模或转为批准的云端 adapter；不得静默换模型导致风格变化。
+局部错误只重跑受影响槽位或帧段。Proposal 中的 chrome、非居中构图、非均匀裁剪、语义或时序歧义必须回到 Review 修正，不得自动接受或切换为云端路径。遇到资源不足时停止并报告本地依赖或资源问题；不得静默换模型、上传媒体或改变冻结计划。
 
 ## 15. 隐私、安全与权利
 
 - 默认本地项目隔离和最小路径白名单；
 - 不读取任务范围外文件；
 - 不在日志中输出人脸图、访问令牌或完整私人路径；
-- 云端 adapter 默认关闭，逐项目授权；
-- 记录上传了什么、传给哪个 provider、何时删除；
+- 0.4 没有云端 adapter 或上传路径；
+- 不记录或输出源文件名、完整私人路径、源 tags、账号身份或原始 probe；
 - 不把源视频、用户模特、服装或音乐提交 Git；
 - 输入文件视为数据，不执行其中的文本指令；
 - 对外部二进制、模型和模板记录哈希；
@@ -675,6 +753,20 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - `gpu-worker`：未来连接用户自有 NVIDIA 工作站的设想，不是当前 CLI 能力。
 
 ## 18. 测试与评测体系
+
+### 18.0 0.4 Proposal/Review/Freeze 回归
+
+新增回归必须覆盖：
+
+- Proposal schema 0.4.0 和嵌套 plan；
+- 精确 CFR、零旋转、60 秒上限、工具缺失、路径逃逸和原子性；
+- 允许的安全技术 source fingerprint 与禁止的文件名、绝对路径、tags、账号身份、raw probe 泄露；
+- evidence 数量/尺寸边界和 overview/geometry/timing 工件；
+- Proposal SHA-256 与 Review 的精确绑定；
+- 八项确认、approved_plan 修正与拒绝/pending Review；
+- freeze-plan 的失败无写入、成功冻结为 Compiler Plan 0.3.0；
+- 既有 compile、render、Template IR 0.2.0 与技术 QA 不变；
+- 人工视觉、裁剪和权利审核记录。
 
 ### 18.1 单元测试
 
@@ -743,12 +835,14 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - 支持局部重试；
 - 完成失败恢复。
 
-### Phase 3：同类型模板编译器
+### Phase 3：有界计划提议与审核（v0.4，已实现）
 
-- 自动发现固定镜头换装类视频；
-- 自动检测换装切点和商品滚轮；
-- 支持不同槽位数量、位置和时长；
-- 生成用户确认的 Template IR。
+- 对已授权、本地 fixed-subject-carousel S1 输入提供 propose -> review -> freeze-plan；
+- 自动提出最大居中 9:16 source crop、carousel/subject 区域、slot_count、时序、比例布局和背景色，并生成 contact sheet、geometry preview、timing profile；
+- 强制 review_required=true、Proposal 哈希绑定、八项显式确认和可修正的 approved_plan；
+- 冻结为兼容 v0.3 的 Compiler Plan schema 0.3.0，保持 Template IR 0.2.0 与既有 compile/render/QA 不变。
+
+本阶段不声明从任意视频自动发现 family、主体、服装、商品、platform UI 或语义槽位；也不包含 OCR、云端、资产生成、自动批准或隐藏像素恢复。
 
 ### Phase 4：S1 通用模板族
 
@@ -773,7 +867,7 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 
 ### 20.1 基本原则
 
-采用“当前主模型负责判断，Terra负责受约束执行，确定性工具负责证明”的三层体系。降低模型成本只能发生在已经冻结、可测试、可回滚的任务上，不能降低人物一致性、服装准确度、平台标识清理或最终视频验收标准。
+采用“controller_current 负责语义与最终接受，gpt-5.6-terra max 负责已冻结实现，确定性工具负责证明”的三层体系。降低模型成本只能发生在已经冻结、可测试、可回滚的任务上，不能降低人物一致性、服装准确度、平台标识清理或最终视频验收标准。
 
 “当前主模型”是运行时正在主持项目的高能力模型，不在 Skill 中写死具体名称。每次运行必须记录实际模型。`gpt-5.6-terra` 的 `max` 是 reasoning effort，不是另一个模型名称。
 
@@ -784,16 +878,16 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 | 工作 | 默认模型/执行者 | 是否允许降级 | 强制复核 |
 |---|---|---|---|
 | 用户意图、未知条件、产品边界 | 当前主模型 | 否 | 用户确认重大歧义 |
-| 参考视频语义、S1–S4分类、槽位推断 | 当前主模型 | 否 | 关键帧证据和人工确认低置信度项 |
+| Proposal 的受限语义审查、family 接受、裁剪/时序歧义 | controller_current | 否 | 本地工件、显式 Review 和人工确认 |
 | 删除、保留和替换边界 | 当前主模型 | 否 | 最终残留检查 |
 | Template IR 架构或不兼容 Schema 变更 | 当前主模型主导；Terra Max可实现 | 否 | 当前主模型审查 + Schema测试 |
-| 已冻结接口的非平凡代码实现 | `gpt-5.6-terra` + `max` | 通过评测后可降至 high/xhigh | 测试 + 当前主模型代码审查 |
+| 已冻结接口的非平凡代码实现 | `gpt-5.6-terra` + `max` | 通过评测后可降至 high/xhigh | 测试 + controller_current 代码审查 |
 | Remotion组件、FFmpeg参数生成 | Terra Max | 仅限已有模板族 | 帧级测试 + 预览审查 |
 | 单元测试、fixture、重复adapter骨架 | Terra high/medium | 可以 | CI和覆盖率要求 |
 | 文件清单、JSON机械转换、日志摘要 | Terra较低配置或更低成本模型 | 可以 | Schema或哈希检查 |
 | 模特身份、服装、商品准确度判断 | 当前主模型 + 人工 | 否 | 联系表和最终视频 |
 | 隐私、路径安全、授权、许可证和云上传 | 当前主模型 | 否 | 安全测试和人工批准 |
-| 最终成片验收和发布判断 | 当前主模型 + 人工 | 否 | 所有自动QA通过 |
+| 最终成片验收和发布判断 | controller_current + 人工 | 否 | 所有自动QA通过 |
 
 ### 20.3 下放前合同
 
@@ -887,6 +981,15 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
 - Windows 一键 doctor；
 - 公开安装说明可复现。
 
+### 0.4.0-alpha
+
+- propose、validate-proposal、validate-review 和 freeze-plan 完成有界 S1 的本地计划提议/审核/冻结；
+- Proposal 固定为 review_required=true，并输出受限 contact sheet、geometry preview、timing profile 与安全技术 source fingerprint；
+- Review 对精确 Proposal 哈希和八项确认 fail closed，审核者可明确修正 approved_plan；
+- freeze-plan 失败无写入，成功输出兼容的 Compiler Plan schema 0.3.0；
+- Template IR 0.2.0、既有 deterministic compile/render 与技术 QA 回归不变；
+- 不声明任意视频 family 发现、OCR、云端、资产生成、自动批准或隐藏像素恢复。
+
 ### 1.0.0
 
 - 定义清楚的 S1 支持域；
@@ -938,6 +1041,12 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
 它属于 S1，是合适的首个 Template IR 基准。验收重点：切点误差≤1帧、12套无串位、人物锚点稳定、滚轮轨迹一致、无平台残留、双输出可播放。
 
 ## 24. 最终决策
+
+0.4 的冻结决策是：对单一授权的 fixed-subject-carousel S1 家族，先以最大
+居中 9:16 构图启发式和其他受限几何/时序候选执行 propose；始终停在
+review_required；再由 controller_current/人工显式审核、哈希绑定并
+freeze-plan。该启发式不等于 platform chrome/UI 语义检测或移除，不能替代
+对 chrome、非居中内容、非均匀裁剪、语义、时序、视觉和权利的人工复核。
 
 项目应以自研 `reference-video-rebuilder` Skill 为核心，而不是 fork 某一个现有视频仓库。官方 Remotion Skills 和 FFmpeg 作为外部基础层；分析、Template IR、槽位映射、生成路由、平台元素排除、身份/服装 QA、运行状态和可重复模板必须自行实现。
 

@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/compiler-plan-proposal.schema.json",
+  "title": "Reference Video Rebuilder Compiler Plan Proposal contract",
+  "description": "Strict local-only review proposal for a candidate frozen Compiler Plan. The candidate plan is structurally and semantically validated by the public validator against the frozen Compiler Plan contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "template_id",
+    "family",
+    "privacy",
+    "review_required",
+    "source_fingerprint",
+    "candidate_plan",
+    "confidence",
+    "candidates",
+    "evidence",
+    "limitations"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.4.0"},
+    "template_id": {"$ref": "#/$defs/templateId"},
+    "family": {"const": "fixed-subject-carousel"},
+    "privacy": {"const": "local-only"},
+    "review_required": {"const": true},
+    "source_fingerprint": {"$ref": "#/$defs/sourceFingerprint"},
+    "candidate_plan": {"$ref": "#/$defs/candidatePlan"},
+    "confidence": {"$ref": "#/$defs/confidence"},
+    "candidates": {"$ref": "#/$defs/candidates"},
+    "evidence": {"$ref": "#/$defs/evidence"},
+    "limitations": {
+      "type": "array",
+      "maxItems": 32,
+      "items": {"$ref": "#/$defs/boundedText"}
+    }
+  },
+  "$defs": {
+    "templateId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}(?![\\s\\S])"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}(?![\\s\\S])"
+    },
+    "boundedText": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": ".*\\S.*"
+    },
+    "boundedMethod": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": ".*\\S.*"
+    },
+    "unitInterval": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "sourceFingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "width", "height", "frame_count", "fps", "has_audio"],
+      "properties": {
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1},
+        "frame_count": {"type": "integer", "minimum": 1},
+        "fps": {"type": "number", "exclusiveMinimum": 0},
+        "has_audio": {"type": "boolean"}
+      }
+    },
+    "candidatePlan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "template_id",
+        "family",
+        "authorization",
+        "privacy",
+        "geometry",
+        "timing",
+        "carousel",
+        "background",
+        "audio",
+        "output_profiles",
+        "analysis"
+      ],
+      "properties": {
+        "schema_version": {},
+        "template_id": {},
+        "family": {},
+        "authorization": {},
+        "privacy": {},
+        "geometry": {},
+        "timing": {},
+        "carousel": {},
+        "background": {},
+        "audio": {},
+        "output_profiles": {},
+        "analysis": {}
+      }
+    },
+    "confidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "overall",
+        "source_rect",
+        "carousel_boundary",
+        "slot_count",
+        "timing",
+        "carousel_layout",
+        "background_color"
+      ],
+      "properties": {
+        "overall": {"$ref": "#/$defs/unitInterval"},
+        "source_rect": {"$ref": "#/$defs/unitInterval"},
+        "carousel_boundary": {"$ref": "#/$defs/unitInterval"},
+        "slot_count": {"$ref": "#/$defs/unitInterval"},
+        "timing": {"$ref": "#/$defs/unitInterval"},
+        "carousel_layout": {"$ref": "#/$defs/unitInterval"},
+        "background_color": {"$ref": "#/$defs/unitInterval"}
+      }
+    },
+    "carouselBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["y", "score", "method"],
+      "properties": {
+        "y": {"type": "integer", "minimum": 0},
+        "score": {"$ref": "#/$defs/unitInterval"},
+        "method": {"$ref": "#/$defs/boundedMethod"}
+      }
+    },
+    "slotCount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "score", "method"],
+      "properties": {
+        "value": {"type": "integer", "minimum": 1, "maximum": 64},
+        "score": {"$ref": "#/$defs/unitInterval"},
+        "method": {"$ref": "#/$defs/boundedMethod"}
+      }
+    },
+    "switchFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["frame", "score", "prominence"],
+      "properties": {
+        "frame": {"type": "integer", "minimum": 0},
+        "score": {"type": "number", "minimum": 0},
+        "prominence": {"type": "number", "minimum": 0}
+      }
+    },
+    "candidates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["carousel_boundaries", "slot_counts", "switch_frames"],
+      "properties": {
+        "carousel_boundaries": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/carouselBoundary"}
+        },
+        "slot_counts": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"$ref": "#/$defs/slotCount"}
+        },
+        "switch_frames": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/switchFrame"}
+        }
+      }
+    },
+    "relativeArtifactPath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!\\\\)(?!.*\\\\)(?!.*(?:^|/)\\.?(?:/|$))(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*//)[^\\r\\n]+(?![\\s\\S])"
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativeArtifactPath"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "representative_frames",
+        "artifacts"
+      ],
+      "properties": {
+        "representative_frames": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 64,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["overview_contact_sheet", "geometry_preview", "timing_profile"],
+          "properties": {
+            "overview_contact_sheet": {"$ref": "#/$defs/artifact"},
+            "geometry_preview": {"$ref": "#/$defs/artifact"},
+            "timing_profile": {"$ref": "#/$defs/artifact"}
+          }
+        }
+      }
+    }
+  }
+}

@@ -35,7 +35,12 @@ SCHEMA_DIRECTORY = SKILL_ROOT / "assets" / "schemas"
 TEMPLATE_SCHEMA_PATH = SCHEMA_DIRECTORY / "template-ir.schema.json"
 ASSET_MANIFEST_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-manifest.schema.json"
 COMPILER_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "compiler-plan.schema.json"
-CLI_VERSION = "0.3.0-alpha"
+PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "compiler-plan-proposal.schema.json"
+REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "review-decision.schema.json"
+# Descriptive aliases remain public for callers that name the artifact type.
+COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
+REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
+CLI_VERSION = "0.4.0-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 __version__ = CLI_VERSION
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -101,6 +106,12 @@ def _compile_module() -> Any:
     return _lazy_module("rrv_compile")
 
 
+def _propose_module() -> Any:
+    """Load proposal/freeze support only for proposal workflow commands."""
+
+    return _lazy_module("rrv_propose")
+
+
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
     text = " ".join(str(value).strip().split())
     if not text:
@@ -110,6 +121,31 @@ def _compact_error_text(value: object, *, limit: int = 480) -> str:
 
 def _reject_nonfinite_json(value: str) -> None:
     raise ValueError(f"non-finite JSON number is not allowed: {value}")
+
+
+class _ContractDuplicateKeyError(ValueError):
+    """A v0.4 packet contains duplicate object members."""
+
+
+class _ContractNonfiniteNumberError(ValueError):
+    """A v0.4 packet uses JSON's non-standard non-finite number spelling."""
+
+
+def _reject_contract_nonfinite_json(value: str) -> None:
+    # Never retain the spelling in an exception: it is public packet input.
+    raise _ContractNonfiniteNumberError()
+
+
+def _reject_duplicate_contract_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build one JSON object while rejecting duplicate keys at every depth."""
+
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            # Deliberately omit ``key``: it can be a private source label.
+            raise _ContractDuplicateKeyError()
+        result[key] = value
+    return result
 
 
 def load_json(path: Path) -> Any:
@@ -125,6 +161,28 @@ def load_json(path: Path) -> Any:
         ) from exc
     except ValueError as exc:
         raise ValueError(f"invalid JSON: {exc}") from exc
+
+
+def _load_contract_json(path: Path) -> Any:
+    """Load a Proposal/Review packet with unambiguous JSON object semantics.
+
+    Legacy contracts retain their historical loader.  v0.4 packets reject
+    duplicate object members recursively so a reviewer, CLI, and downstream
+    JSON implementation cannot disagree about which decision was supplied.
+    """
+
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            return json.load(
+                handle,
+                parse_constant=_reject_contract_nonfinite_json,
+                object_pairs_hook=_reject_duplicate_contract_members,
+            )
+    except (_ContractDuplicateKeyError, _ContractNonfiniteNumberError):
+        raise
+    except Exception as exc:
+        # The caller returns a fixed public class, not parser text or a path.
+        raise ValueError("contract JSON could not be loaded") from exc
 
 
 def sha256_file(path: Path, chunk_size: int = SHA256_CHUNK_SIZE) -> str:
@@ -192,6 +250,12 @@ def doctor_payload(
     compiler_plan_schema_available = has_jsonschema and (
         _get_schema_validator(COMPILER_PLAN_SCHEMA_PATH, "Compiler Plan") is not None
     )
+    proposal_schema_available = has_jsonschema and (
+        _get_schema_validator(PROPOSAL_SCHEMA_PATH, "Compiler Plan Proposal") is not None
+    )
+    review_schema_available = has_jsonschema and (
+        _get_schema_validator(REVIEW_SCHEMA_PATH, "review decision") is not None
+    )
     # A discovered regular file is not evidence that it is an executable
     # media tool.  Advertise every operational capability only after the
     # bounded version probe succeeds.
@@ -199,6 +263,8 @@ def doctor_payload(
     has_ffprobe = _tool_version_confirmed(tools.ffprobe)
     has_pillow = _pillow_available()
     compiler_core_available = _compiler_module_available()
+    proposal_core_available = _propose_module_available("propose_reference")
+    freeze_core_available = _propose_module_available("freeze_plan")
     compiler_prerequisites = (
         has_ffmpeg
         and has_ffprobe
@@ -207,6 +273,23 @@ def doctor_payload(
         and compiler_plan_schema_available
         and template_schema_available
         and compiler_core_available
+    )
+    proposal_prerequisites = (
+        has_ffmpeg
+        and has_ffprobe
+        and has_pillow
+        and has_jsonschema
+        and compiler_plan_schema_available
+        and proposal_schema_available
+        and review_schema_available
+        and proposal_core_available
+    )
+    freeze_prerequisites = (
+        has_jsonschema
+        and compiler_plan_schema_available
+        and proposal_schema_available
+        and review_schema_available
+        and freeze_core_available
     )
     return {
         "status": "ok",
@@ -240,6 +323,10 @@ def doctor_payload(
             "template_validation": template_schema_available,
             "asset_manifest_structure_validation": asset_manifest_schema_available,
             "compiler_plan_validation": compiler_plan_schema_available,
+            "proposal_validation": proposal_schema_available,
+            "review_validation": review_schema_available,
+            "compiler_plan_proposal": proposal_prerequisites,
+            "compiler_plan_freeze": freeze_prerequisites,
             "asset_path_policy_validation": True,
             "asset_media_probe_validation": False,
             "media_probe": has_ffprobe or has_ffmpeg,
@@ -258,7 +345,7 @@ def doctor_payload(
         },
         "notes": [
             "S1 survey, deterministic local render, and technical video QA are available only when their reported tools are present.",
-            "Reference compilation is limited to authorized local fixed-subject-carousel S1 plans with confirmed geometry and slot_count.",
+            "Compiler Plan proposal and freeze are limited to authorized local fixed-subject-carousel S1 work and always require explicit human review before freeze.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
         ],
@@ -326,6 +413,15 @@ def _compiler_module_available() -> bool:
         return False
 
 
+def _propose_module_available(operation: str) -> bool:
+    """Check a proposal-workflow surface without exposing import failures."""
+
+    try:
+        return callable(getattr(_propose_module(), operation, None))
+    except Exception:
+        return False
+
+
 def _tool_version_confirmed(tool: Any) -> bool:
     """Require a successful executable version probe for compiler claims."""
 
@@ -354,6 +450,167 @@ def _validate_schema(data: Any, schema_path: Path, contract_name: str) -> list[s
         key=lambda error: (tuple(str(item) for item in error.absolute_path), error.message),
     )
     return [f"{_schema_path(error)}: {error.message}" for error in errors]
+
+
+_CONTRACT_POINTER_COMPONENTS = frozenset(
+    {
+        "schema_version",
+        "template_id",
+        "family",
+        "privacy",
+        "review_required",
+        "source_fingerprint",
+        "candidate_plan",
+        "confidence",
+        "candidates",
+        "evidence",
+        "limitations",
+        "sha256",
+        "width",
+        "height",
+        "frame_count",
+        "fps",
+        "has_audio",
+        "overall",
+        "source_rect",
+        "carousel_boundary",
+        "slot_count",
+        "timing",
+        "carousel_layout",
+        "background_color",
+        "carousel_boundaries",
+        "slot_counts",
+        "switch_frames",
+        "y",
+        "score",
+        "method",
+        "value",
+        "frame",
+        "prominence",
+        "representative_frames",
+        "artifacts",
+        "overview_contact_sheet",
+        "geometry_preview",
+        "timing_profile",
+        "path",
+        "proposal_sha256",
+        "decision",
+        "reviewer_confirmed",
+        "confirmations",
+        "approved_plan",
+        "notes",
+        "geometry",
+        "authorization",
+        "carousel",
+        "background",
+        "audio",
+        "output_profiles",
+        "analysis",
+        "source_rect",
+        "carousel_rect",
+        "subject_rect",
+        "x",
+        "mode",
+        "min_segment_frames",
+        "origin",
+        "item_width",
+        "item_height",
+        "gap",
+        "end_offset_x",
+        "color",
+        "replaceable",
+        "required",
+        "snap_window_frames",
+        "min_prominence",
+        "max_evidence_frames",
+    }
+)
+_CONTRACT_SCHEMA_RULES = frozenset(
+    {
+        "additionalProperties",
+        "allOf",
+        "const",
+        "enum",
+        "exclusiveMinimum",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minLength",
+        "minItems",
+        "minimum",
+        "not",
+        "pattern",
+        "required",
+        "type",
+        "uniqueItems",
+    }
+)
+
+
+def _safe_contract_schema_pointer(error: Any) -> str:
+    """Return only known contract keys and indexes, never an instance key."""
+
+    path = "$"
+    for item in error.absolute_path:
+        if _is_int(item) and item >= 0:
+            path = _path(path, item)
+        elif isinstance(item, str) and item in _CONTRACT_POINTER_COMPONENTS:
+            path = _path(path, item)
+        else:
+            return "$"
+    return path
+
+
+def _safe_contract_schema_rule(error: Any) -> str:
+    rule = getattr(error, "validator", None)
+    return str(rule) if rule in _CONTRACT_SCHEMA_RULES else "invalid"
+
+
+def _validate_contract_schema(data: Any, schema_path: Path, contract_name: str) -> list[str]:
+    """Validate v0.4 packets without reflecting user-provided instances."""
+
+    validator = _get_schema_validator(schema_path, contract_name)
+    if validator is None:
+        return ["$: schema.unavailable"]
+    schema_errors = sorted(
+        validator.iter_errors(data),
+        key=lambda error: (tuple(str(item) for item in error.absolute_path), str(error.validator)),
+    )
+    return [
+        f"{_safe_contract_schema_pointer(error)}: schema.{_safe_contract_schema_rule(error)}"
+        for error in schema_errors
+    ]
+
+
+def _find_contract_nonfinite(value: Any, path: str, errors: list[str]) -> None:
+    """Find non-finite numbers without reflecting arbitrary object keys.
+
+    Proposal and review packets are public-facing.  Unlike the legacy
+    validators, their diagnostics must never turn a hostile object key or
+    value into output.  Known contract member names and array indexes are
+    stable JSON Pointer components; all other object members are collapsed to
+    the root pointer.
+    """
+
+    if len(errors) >= _MAX_CONTRACT_ERRORS:
+        return
+    if isinstance(value, float) and not math.isfinite(value):
+        errors.append(f"{path}: schema.finite_number")
+    elif isinstance(value, Mapping):
+        for key, child in value.items():
+            child_path = (
+                _path(path, key)
+                if isinstance(key, str) and key in _CONTRACT_POINTER_COMPONENTS
+                else "$"
+            )
+            _find_contract_nonfinite(child, child_path, errors)
+            if len(errors) >= _MAX_CONTRACT_ERRORS:
+                return
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            _find_contract_nonfinite(child, _path(path, index), errors)
+            if len(errors) >= _MAX_CONTRACT_ERRORS:
+                return
 
 
 def _range_entries(
@@ -818,6 +1075,285 @@ def validate_compiler_plan_data(data: Any) -> list[str]:
     _find_nonfinite(data, "$", errors)
     errors.extend(_validate_schema(data, COMPILER_PLAN_SCHEMA_PATH, "Compiler Plan"))
     return errors
+
+
+_MAX_CONTRACT_ERRORS = 64
+_MAX_CONTRACT_ERROR_LENGTH = 360
+
+
+def _bounded_contract_errors(errors: Iterable[str]) -> list[str]:
+    """Return deterministic, context-safe validation errors for v0.4 packets."""
+
+    bounded: list[str] = []
+    seen: set[str] = set()
+    for error in errors:
+        compact = _compact_error_text(error, limit=_MAX_CONTRACT_ERROR_LENGTH)
+        if compact in seen:
+            continue
+        seen.add(compact)
+        bounded.append(compact)
+        if len(bounded) >= _MAX_CONTRACT_ERRORS:
+            break
+    return bounded
+
+
+def _safe_nested_plan_errors(prefix: str, plan: Any, errors: Iterable[str]) -> list[str]:
+    """Retain nested-plan validation without returning its legacy messages.
+
+    ``validate_compiler_plan_data`` predates the public v0.4 packet surface
+    and intentionally provides detailed diagnostics.  It may therefore quote
+    invalid values.  Proposal/review validators still invoke it as the frozen
+    compatibility gate, then derive public-safe diagnostics directly from the
+    same schema and finite-number rule.
+    """
+
+    legacy_errors = tuple(errors)
+    if not legacy_errors:
+        return []
+    safe_errors: list[str] = []
+    _find_contract_nonfinite(plan, "$", safe_errors)
+    safe_errors.extend(
+        _validate_contract_schema(plan, COMPILER_PLAN_SCHEMA_PATH, "Compiler Plan")
+    )
+    nested: list[str] = []
+    for error in _bounded_contract_errors(safe_errors):
+        if error.startswith("$"):
+            nested.append(f"{prefix}{error[1:]}")
+        else:  # Defensive fallback: no legacy text may reach a public packet.
+            nested.append(f"{prefix}: schema.compiler_plan")
+    return nested or [f"{prefix}: schema.compiler_plan"]
+
+
+def _validate_relative_artifact_path(
+    value: Any,
+    path: str,
+    errors: list[str],
+    *,
+    project_root: Path | None = None,
+) -> None:
+    """Enforce portable, project-contained evidence paths without reading media."""
+
+    if not isinstance(value, str):
+        return
+    if not value or value != value.strip() or "\x00" in value:
+        errors.append(f"{path}: path.invalid")
+        return
+    if "\\" in value:
+        errors.append(f"{path}: path.separator")
+        return
+    if re.match(r"^[A-Za-z]:", value):
+        errors.append(f"{path}: path.drive_qualified")
+        return
+    if value.startswith("/"):
+        errors.append(f"{path}: path.rooted")
+        return
+    parts = value.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        errors.append(f"{path}: path.not_normalized")
+        return
+    if project_root is not None:
+        try:
+            root = project_root.resolve()
+            resolved = (root.joinpath(*parts)).resolve()
+            resolved.relative_to(root)
+        except (OSError, ValueError):
+            errors.append(f"{path}: path.escapes_project_root")
+
+
+def _validate_proposal_artifact_paths(
+    data: Mapping[str, Any], errors: list[str], *, project_root: Path | None
+) -> None:
+    evidence = data.get("evidence")
+    if not isinstance(evidence, Mapping):
+        return
+    artifacts = evidence.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        return
+    for name in ("overview_contact_sheet", "geometry_preview", "timing_profile"):
+        artifact = artifacts.get(name)
+        if isinstance(artifact, Mapping):
+            _validate_relative_artifact_path(
+                artifact.get("path"),
+                f"$.evidence.artifacts.{name}.path",
+                errors,
+                project_root=project_root,
+            )
+
+
+def _fingerprint_media(fingerprint: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Build only the frozen compiler's pure media facts from a fingerprint."""
+
+    width = fingerprint.get("width")
+    height = fingerprint.get("height")
+    frame_count = fingerprint.get("frame_count")
+    fps = fingerprint.get("fps")
+    has_audio = fingerprint.get("has_audio")
+    if (
+        not _is_int(width)
+        or width < 1
+        or not _is_int(height)
+        or height < 1
+        or not _is_int(frame_count)
+        or frame_count < 1
+        or not _is_number(fps)
+        or float(fps) <= 0
+        or not isinstance(has_audio, bool)
+    ):
+        return None
+    duration_seconds = frame_count / float(fps)
+    streams: list[dict[str, Any]] = [
+        {
+            "type": "video",
+            "width": width,
+            "height": height,
+            "frame_count": frame_count,
+            "frame_rate": float(fps),
+            "average_frame_rate": float(fps),
+            "exact_duration_seconds": duration_seconds,
+            "cfr_confirmed": True,
+            "rotation_degrees": 0,
+        }
+    ]
+    if has_audio:
+        streams.append({"type": "audio"})
+    return {"format": {"duration_seconds": duration_seconds}, "streams": streams}
+
+
+def _proposal_plan_semantic_errors(
+    plan: Any, fingerprint: Any, *, prefix: str
+) -> list[str]:
+    """Run the frozen pure plan semantics without probing or writing media.
+
+    The proposal core uses the same synthetic-CFR facts before freeze.  Keeping
+    this check here makes ``validate-proposal`` fail closed for a plan that is
+    structurally legal but cannot fit its declared source fingerprint.
+    """
+
+    if not isinstance(plan, Mapping) or not isinstance(fingerprint, Mapping):
+        return []
+    media = _fingerprint_media(fingerprint)
+    if media is None:
+        return []
+    try:
+        compiler = _compile_module()
+        media_info = compiler._media_info(media, require_exact_timing=True)
+        compiler._validate_plan(plan, media_info)
+    except Exception as exc:
+        # The compiler's detailed exception text can include dimensions or
+        # other caller-controlled fields.  It remains useful internally, but
+        # this public validator must expose only fixed pointers/rule classes.
+        signals: list[str] = []
+        message = getattr(exc, "message", None)
+        if isinstance(message, str):
+            signals.append(message)
+        details = getattr(exc, "details", None)
+        if isinstance(details, Mapping):
+            nested = details.get("errors")
+            if isinstance(nested, list):
+                signals.extend(item for item in nested if isinstance(item, str))
+        try:
+            signals.append(str(exc))
+        except Exception:  # pragma: no cover - defensive third-party exception.
+            pass
+        signal = " ".join(signals).lower()
+        pointer_suffix = next(
+            (
+                suffix
+                for marker, suffix in (
+                    ("source_rect", ".geometry.source_rect"),
+                    ("carousel_rect", ".geometry.carousel_rect"),
+                    ("subject_rect", ".geometry.subject_rect"),
+                    ("switch_frames", ".timing.switch_frames"),
+                    ("slot_count", ".timing.slot_count"),
+                    ("min_segment_frames", ".timing.min_segment_frames"),
+                    ("timing", ".timing"),
+                    ("carousel", ".carousel"),
+                    ("background", ".background"),
+                    ("audio", ".audio"),
+                    ("output_profiles", ".output_profiles"),
+                    ("analysis", ".analysis"),
+                    ("geometry", ".geometry"),
+                )
+                if marker in signal
+            ),
+            "",
+        )
+        return [f"{prefix}{pointer_suffix}: semantic.invalid"]
+    return []
+
+
+def validate_proposal_data(
+    data: Any, *, project_root: Path | None = None
+) -> list[str]:
+    """Validate a v0.4 local proposal and its candidate frozen plan.
+
+    JSON Schema owns packet shape.  The frozen candidate is deliberately
+    delegated to the established Compiler Plan validator so a proposal cannot
+    smuggle an unknown or stale plan form through a generic ``object`` field.
+    """
+
+    errors: list[str] = []
+    _find_contract_nonfinite(data, "$", errors)
+    errors.extend(
+        _validate_contract_schema(data, PROPOSAL_SCHEMA_PATH, "Compiler Plan Proposal")
+    )
+    if not isinstance(data, Mapping):
+        return _bounded_contract_errors(errors)
+    candidate_plan = data.get("candidate_plan")
+    if "candidate_plan" in data:
+        candidate_errors = validate_compiler_plan_data(candidate_plan)
+        errors.extend(
+            _safe_nested_plan_errors(
+                "$.candidate_plan", candidate_plan, candidate_errors
+            )
+        )
+        if not candidate_errors:
+            errors.extend(
+                _proposal_plan_semantic_errors(
+                    candidate_plan,
+                    data.get("source_fingerprint"),
+                    prefix="$.candidate_plan",
+                )
+            )
+    _validate_proposal_artifact_paths(data, errors, project_root=project_root)
+    return _bounded_contract_errors(errors)
+
+
+def validate_review_data(data: Any) -> list[str]:
+    """Validate a v0.4 review decision and its candidate approved plan."""
+
+    errors: list[str] = []
+    _find_contract_nonfinite(data, "$", errors)
+    errors.extend(_validate_contract_schema(data, REVIEW_SCHEMA_PATH, "review decision"))
+    if not isinstance(data, Mapping):
+        return _bounded_contract_errors(errors)
+    if "approved_plan" in data:
+        approved_plan = data.get("approved_plan")
+        errors.extend(
+            _safe_nested_plan_errors(
+                "$.approved_plan", approved_plan, validate_compiler_plan_data(approved_plan)
+            )
+        )
+    return _bounded_contract_errors(errors)
+
+
+def _validate_packet_file(path: Path, validator: Any, label: str) -> list[str]:
+    """Load a public v0.4 packet without reflecting private parser input."""
+
+    try:
+        data = _load_contract_json(path)
+    except _ContractDuplicateKeyError:
+        return ["$: json.duplicate_key"]
+    except _ContractNonfiniteNumberError:
+        return ["$: json.finite_number"]
+    except Exception:
+        return ["$: json.invalid"]
+    try:
+        return _bounded_contract_errors(validator(data))
+    except Exception:
+        # A public validator must not turn an import/parser failure into a
+        # private path, raw instance, or tool-output message.
+        return ["$: validation.unavailable"]
 
 
 def require_dict(value: Any, path: str, errors: list[str]) -> dict[str, Any]:
@@ -1470,6 +2006,213 @@ def run_compile(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         return _compile_error_payload(runtime, exc), 2
 
 
+_PUBLIC_SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_PROPOSAL_SUMMARY_LIMITS = {
+    "slot_count": (1, 64),
+    "carousel_boundary_count": (0, 16),
+    "switch_frame_count": (0, 64),
+}
+
+
+def _compact_workflow_relative_path(value: Any, field: str) -> str:
+    """Normalize one core-returned path without relaying a private location."""
+
+    path = _compile_relative_output_path(value, field)
+    if (
+        re.match(r"^[A-Za-z]:", path)
+        or path == "."
+        or any(part == "." for part in path.split("/"))
+    ):
+        raise TypeError(f"workflow returned a non-relative {field}")
+    return path
+
+
+def _compact_workflow_artifact(value: Any, field: str) -> dict[str, str]:
+    """Expose an artifact only as its portable path and content digest."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"workflow returned an invalid {field}")
+    digest = value.get("sha256")
+    if not isinstance(digest, str) or not _PUBLIC_SHA256_PATTERN.fullmatch(digest):
+        raise TypeError(f"workflow returned an invalid {field}.sha256")
+    return {
+        "path": _compact_workflow_relative_path(value.get("path"), f"{field}.path"),
+        "sha256": digest,
+    }
+
+
+def _compact_candidate_summary(value: Any) -> dict[str, int]:
+    """Keep only bounded count facts, never confidence or score traces."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("workflow returned an invalid candidate_summary")
+    summary: dict[str, int] = {}
+    for key, (minimum, maximum) in _PROPOSAL_SUMMARY_LIMITS.items():
+        item = value.get(key)
+        if not _is_int(item) or not minimum <= item <= maximum:
+            raise TypeError(f"workflow returned an invalid candidate_summary.{key}")
+        summary[key] = item
+    return summary
+
+
+def _compact_proposal_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a small, path-safe proposal handoff envelope.
+
+    A proposal's full candidate plan, confidence samples, source label, and
+    subprocess output remain in the local packet.  This command response is
+    deliberately just enough to route a human review.
+    """
+
+    review_required = result.get("review_required")
+    template_id = result.get("template_id")
+    if review_required is not True:
+        raise TypeError("workflow returned a proposal without review_required=true")
+    if not isinstance(template_id, str) or not ID_PATTERN.fullmatch(template_id):
+        raise TypeError("workflow returned an invalid template_id")
+    compact: dict[str, Any] = {
+        "review_required": True,
+        "template_id": template_id,
+        "output_dir": _compact_workflow_relative_path(result.get("output_dir"), "output_dir"),
+        "candidate_summary": _compact_candidate_summary(result.get("candidate_summary")),
+    }
+    schema_version = result.get("schema_version")
+    if isinstance(schema_version, str):
+        compact["schema_version"] = schema_version
+    raw_artifacts = result.get("artifacts")
+    if not isinstance(raw_artifacts, Mapping):
+        raise TypeError("workflow returned invalid artifacts")
+    artifacts: dict[str, Any] = {}
+    for name in ("proposal", "review_template"):
+        artifacts[name] = _compact_workflow_artifact(
+            raw_artifacts.get(name), f"artifacts.{name}"
+        )
+    raw_evidence = raw_artifacts.get("evidence")
+    if not isinstance(raw_evidence, Mapping):
+        raw_evidence = raw_artifacts
+    for name in ("overview_contact_sheet", "geometry_preview", "timing_profile"):
+        item = raw_evidence.get(name)
+        if item is not None:
+            artifacts[name] = _compact_workflow_artifact(
+                item, f"artifacts.evidence.{name}"
+            )
+    compact["artifacts"] = artifacts
+    return compact
+
+
+def _compact_freeze_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only freeze output paths and digests, never review internals."""
+
+    template_id = result.get("template_id")
+    if not isinstance(template_id, str) or not ID_PATTERN.fullmatch(template_id):
+        raise TypeError("workflow returned an invalid template_id")
+    raw_artifacts = result.get("artifacts")
+    if not isinstance(raw_artifacts, Mapping):
+        raise TypeError("workflow returned invalid artifacts")
+    compact: dict[str, Any] = {
+        "template_id": template_id,
+        "output_dir": _compact_workflow_relative_path(result.get("output_dir"), "output_dir"),
+        "artifacts": {
+            name: _compact_workflow_artifact(
+                raw_artifacts.get(name), f"artifacts.{name}"
+            )
+            for name in ("compiler_plan", "freeze_report")
+        },
+    }
+    schema_version = result.get("schema_version")
+    if isinstance(schema_version, str):
+        compact["schema_version"] = schema_version
+    return compact
+
+
+def _workflow_error_payload(operation: str, error: BaseException) -> dict[str, Any]:
+    """Sanitize proposal/freeze failures before emitting public JSON."""
+
+    message = f"{operation} failed"
+    try:
+        runtime = _runtime_module()
+    except Exception:
+        return {
+            "schema_version": "1.0",
+            "status": "error",
+            "error": {"code": "operation_failed", "message": message},
+        }
+    if isinstance(error, runtime.RRVError):
+        code = getattr(error, "code", None)
+        if not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code):
+            code = runtime.ERR_TOOL_EXECUTION
+        details = {
+            key: value
+            for key, value in _safe_compile_error_details(
+                getattr(error, "details", None)
+            ).items()
+            if not (isinstance(value, str) and re.match(r"^[A-Za-z]:", value))
+        }
+        return runtime.error_payload(runtime.RRVError(code, message, details))
+    return runtime.error_payload(runtime.RRVError(runtime.ERR_TOOL_EXECUTION, message))
+
+
+def run_propose(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Create a review-required local proposal through the lazy core module."""
+
+    output_profiles = (
+        tuple(args.output_profiles)
+        if args.output_profiles
+        else ("720x1280", "1080x1920")
+    )
+    try:
+        result = _propose_module().propose_reference(
+            args.reference,
+            project_root=args.project_root,
+            template_id=args.template_id,
+            output_dir=args.output_dir,
+            slot_count_hint=args.slot_count_hint,
+            audio_mode=args.audio_mode,
+            reference_rights_confirmed=args.reference_rights_confirmed,
+            audio_rights_confirmed=args.audio_rights_confirmed,
+            output_profiles=output_profiles,
+            analysis_width=args.analysis_width,
+            max_evidence_frames=args.max_evidence_frames,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("workflow returned an invalid result")
+        runtime = _runtime_module()
+        return runtime.success_payload(_compact_proposal_result(result)), 0
+    except Exception as exc:
+        return _workflow_error_payload("compiler plan proposal", exc), 2
+
+
+def run_freeze_plan(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Delegate every untrusted packet read and validation to the safe core.
+
+    ``rrv_propose.freeze_plan`` binds a descriptor-safe, root-aware snapshot
+    to validation and review hashing. The CLI must not resolve, read, or
+    validate packets first: that would add a second, race-prone path traversal
+    before the core's containment boundary.
+    """
+    try:
+        result = _propose_module().freeze_plan(
+            args.proposal,
+            args.review,
+            project_root=args.project_root,
+            output_dir=args.output_dir,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("workflow returned an invalid result")
+        runtime = _runtime_module()
+        return runtime.success_payload(_compact_freeze_result(result)), 0
+    except Exception as exc:
+        return _workflow_error_payload("compiler plan freeze", exc), 2
+
+
+def run_freeze(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Compatibility-friendly public name for the ``freeze-plan`` command."""
+
+    return run_freeze_plan(args)
+
+
 def _add_runtime_arguments(
     parser: argparse.ArgumentParser,
     *,
@@ -1480,6 +2223,23 @@ def _add_runtime_arguments(
     parser.add_argument("--ffprobe", type=Path, help="Explicit local ffprobe executable")
     if include_timeout:
         parser.add_argument("--timeout", type=float, default=timeout_default)
+
+
+def _bounded_cli_integer(minimum: int, maximum: int):
+    """Build a small argparse converter for public bounded integer options."""
+
+    def convert(value: str) -> int:
+        try:
+            converted = int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("must be an integer") from exc
+        if not minimum <= converted <= maximum:
+            raise argparse.ArgumentTypeError(
+                f"must be between {minimum} and {maximum}"
+            )
+        return converted
+
+    return convert
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1504,6 +2264,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_compiler_plan.add_argument("plan", type=Path)
     validate_compiler_plan.add_argument("--json", action="store_true", dest="as_json")
+    validate_proposal = subparsers.add_parser(
+        "validate-proposal", help="Validate a v0.4 Compiler Plan proposal packet"
+    )
+    validate_proposal.add_argument("proposal", type=Path)
+    validate_proposal.add_argument("--json", action="store_true", dest="as_json")
+    validate_review = subparsers.add_parser(
+        "validate-review", help="Validate a v0.4 Compiler Plan review decision"
+    )
+    validate_review.add_argument("review", type=Path)
+    validate_review.add_argument("--json", action="store_true", dest="as_json")
 
     probe = subparsers.add_parser("probe", help="Probe one local media source")
     probe.add_argument("source", type=Path)
@@ -1533,6 +2303,45 @@ def build_parser() -> argparse.ArgumentParser:
     compile_command.add_argument("--output-dir", type=Path, default=Path("template-compile"))
     _add_runtime_arguments(compile_command, timeout_default=120.0)
     compile_command.add_argument("--json", action="store_true", dest="as_json")
+
+    propose = subparsers.add_parser(
+        "propose",
+        help="Create a local review-required fixed-subject-carousel S1 proposal",
+    )
+    propose.add_argument("reference", type=Path)
+    propose.add_argument("--project-root", type=Path, required=True)
+    propose.add_argument("--output-dir", type=Path, default=Path("plan-proposal"))
+    propose.add_argument("--template-id", required=True)
+    propose.add_argument("--slot-count-hint", type=_bounded_cli_integer(1, 64))
+    propose.add_argument("--reference-rights-confirmed", action="store_true", required=True)
+    propose.add_argument("--audio-rights-confirmed", action="store_true")
+    propose.add_argument(
+        "--audio-mode",
+        choices=("preserve", "replaceable", "mute"),
+        default="preserve",
+    )
+    propose.add_argument(
+        "--output-profile",
+        dest="output_profiles",
+        choices=("720x1280", "1080x1920"),
+        action="append",
+    )
+    propose.add_argument("--analysis-width", type=_bounded_cli_integer(32, 256), default=96)
+    propose.add_argument(
+        "--max-evidence-frames", type=_bounded_cli_integer(1, 64), default=24
+    )
+    _add_runtime_arguments(propose, timeout_default=120.0)
+    propose.add_argument("--json", action="store_true", dest="as_json")
+
+    freeze_plan = subparsers.add_parser(
+        "freeze-plan",
+        help="Freeze an explicitly approved local Compiler Plan review packet",
+    )
+    freeze_plan.add_argument("proposal", type=Path)
+    freeze_plan.add_argument("review", type=Path)
+    freeze_plan.add_argument("--project-root", type=Path, required=True)
+    freeze_plan.add_argument("--output-dir", type=Path, default=Path("frozen-plan"))
+    freeze_plan.add_argument("--json", action="store_true", dest="as_json")
 
     render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
     render.add_argument("template", type=Path)
@@ -1581,6 +2390,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, status = run_compile(args)
             _emit_stable_json(payload)
             return status
+        if args.command == "propose":
+            payload, status = run_propose(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "freeze-plan":
+            payload, status = run_freeze(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "render":
             payload, status = run_render(args)
             _emit_stable_json(payload)
@@ -1595,6 +2412,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             errors = validate_template_data(template)
         elif args.command == "validate-compiler-plan":
             errors = validate_compiler_plan_data(load_json(args.plan))
+        elif args.command == "validate-proposal":
+            errors = _validate_packet_file(
+                args.proposal, validate_proposal_data, "proposal"
+            )
+        elif args.command == "validate-review":
+            errors = _validate_packet_file(args.review, validate_review_data, "review")
         else:
             template = load_json(args.template)
             errors = validate_assets_data(
