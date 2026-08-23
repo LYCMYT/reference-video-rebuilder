@@ -637,11 +637,24 @@ class ProposalTestCase(unittest.TestCase):
         proposal = self.proposal_data(root, result)
         evidence_path = root / proposal["evidence"]["artifacts"]["geometry_preview"]["path"]
         original_lstat = os.lstat
+        evidence_stat = original_lstat(evidence_path)
+        reparse_identities: set[tuple[int, int, int]] = set()
 
         def reparse_evidence(path):
             stat_result = original_lstat(path)
-            if Path(path) == evidence_path:
-                return self._reparse_result(stat_result)
+            # The bounded root may be returned in a Windows 8.3 spelling,
+            # while this fixture used its long spelling.  Match the evidence
+            # entry by filesystem identity so the mock always exercises the
+            # intended no-reparse evidence gate.
+            if (
+                stat_result.st_dev == evidence_stat.st_dev
+                and stat_result.st_ino == evidence_stat.st_ino
+            ):
+                replacement = self._reparse_result(stat_result)
+                reparse_identities.add(
+                    (replacement.st_dev, replacement.st_ino, replacement.st_file_attributes)
+                )
+                return replacement
             return stat_result
 
         with mock.patch.object(rrv_propose.os, "lstat", side_effect=reparse_evidence):
@@ -652,6 +665,16 @@ class ProposalTestCase(unittest.TestCase):
                     project_root=root,
                     output_dir="reparse-evidence",
                 )
+        self.assertEqual(
+            reparse_identities,
+            {
+                (
+                    evidence_stat.st_dev,
+                    evidence_stat.st_ino,
+                    rrv_propose._FILE_ATTRIBUTE_REPARSE_POINT,
+                )
+            },
+        )
         self.assertFalse((root / "reparse-evidence").exists())
 
 
