@@ -1,11 +1,13 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.2.0-alpha.1
-日期：2026-08-22  
+版本：0.3.0-alpha
+日期：2026-08-23
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
 
-当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Template IR/资产合同校验、S1 确定性合成和逐输出技术 QA。参考视频的语义槽位判定、换装/模特图生成、残留平台元素的人眼审查仍由 Codex/人工完成；本版本不承诺任意视频或被遮挡像素的复原。
+当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Compiler Plan/Template IR/资产合同校验、固定 S1 确定性合成和逐输出技术 QA。`0.3.0-alpha` 新增的编译器只接受已授权、`local-only`、`fixed-subject-carousel` S1 参考；几何和 `slot_count` 必须由审核者先确认。编译输出的 Template IR 版本仍为 `0.2.0`。参考视频的语义槽位判定、换装/模特图生成、残留平台元素的人眼审查仍由 Codex/人工完成；本版本不承诺任意视频或被遮挡像素的复原。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解、没有云端执行、没有素材/换装资产生成。`compile` 不能猜测主体、商品、文字、平台 UI 或槽位；它只在已确认的固定主体轮播 S1 计划上做有界的本地时序分析。本文后文出现的 OCR、检测、云端 adapter、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -104,9 +106,9 @@ Skill 名称：`reference-video-rebuilder`
 
 ### 4.1 Compile：新参考视频编译模式
 
-适用于第一次上传的参考视频。
+当前实现只适用于已授权、本地固定主体轮播 S1 的第一次编译，且审核者已确认 clean source geometry 与 `slot_count`。
 
-流程：探测媒体 → 抽帧和音频分析 → 识别镜头和覆盖层 → 估计人物、物体和镜头运动 → 提出槽位 → 评估支持等级 → 人工确认低置信度项 → 生成 Template IR → 渲染结构预览 → 冻结模板版本。
+流程：确认权利与本地边界 → 人工/Codex 审核并冻结 Compiler Plan → `validate-compiler-plan` → 本地媒体语义预检（尺寸、帧率、时长、几何、时序、音频）→ 有界时序分析 → 生成 Template IR `0.2.0` 与审核工件 → 处理 `review_required` → 冻结模板版本。不得通过 OCR 或任意语义推断填补缺失计划字段。
 
 Compile 模式的产物必须是可重复使用的模板，而不是一次性脚本。
 
@@ -114,7 +116,7 @@ Compile 模式的产物必须是可重复使用的模板，而不是一次性脚
 
 适用于已经冻结的 Template IR。
 
-流程：校验素材合同 → 显式映射槽位 → 生成或标准化替换资产 → 关键帧审核 → 低清预览 → 正式渲染 → QA → 打包。
+当前流程：校验素材合同 → 显式映射已提供的 `render-ready` 替换资产 → 关键帧审核 → 低清预览 → 正式渲染 → QA → 打包。素材生成或云端 adapter 属于未来工作，不是当前路径。
 
 Remix 模式的验收要求是：更换第二组完整素材时不修改程序，只修改资产和映射文件即可生成。
 
@@ -122,7 +124,7 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 
 | 等级 | 视频特征 | 自动化承诺 | 失败策略 |
 |---|---|---|---|
-| S1 确定性模板 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加、轻微动作 | 高；布局和切点可以逐帧重建 | 自动生成模板，低置信度槽位仍需确认 |
+| S1 确定性模板 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加、轻微动作 | 当前仅限已确认几何和 `slot_count` 的 `fixed-subject-carousel`；布局和切点可本地重建 | Compiler Plan 必须先经人工/Codex 审核；不自动推断语义槽位 |
 | S2 跟踪合成 | 单主体中等运动、缓慢运镜、可跟踪遮挡、动态背景 | 中；结构和运动可保持，需动态蒙版 | 请求修正关键帧、轨迹或蒙版 |
 | S3 生成式修改 | 快速运动、转身、复杂衣服动态、强运镜、较大遮挡 | 低到中；只保证整体效果和节奏相似 | 分段生成、局部重试、明确实验性 |
 | S4 不支持精确模式 | 多人紧密交互、镜面、透明物、严重遮挡、极快混剪、输入损坏 | 不承诺 | 输出分析报告并建议拆分、简化或人工模板 |
@@ -130,6 +132,10 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 分类必须保守：错误地拒绝精确模式优于静默输出错误商品、错误人物或残留平台标识。
 
 ## 6. 总体架构
+
+本节描述目标架构；图中的 OCR、检测、生成 adapter、云端和高级 QA
+组件不是 `0.3.0-alpha` 的已实现能力。当前可执行路径仅为本地、已确认
+计划的 `fixed-subject-carousel` S1 编译和已审核 Template IR 的确定性渲染。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -204,7 +210,7 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
     "height": 1280,
     "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000"
   },
-  "support": {"level": "S1", "confidence": 0.96, "warnings": []},
+  "support": {"level": "S1", "confidence": 0.96, "review_required": false, "warnings": []},
   "tracks": [
     {"id": "model", "type": "subject", "z_index": 10, "overlap_policy": "forbid"}
   ],
@@ -343,6 +349,10 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 
 ## 8. 完整工作流
 
+本节其余步骤是目标工作流；`0.3.0-alpha` 的实际 Compile 路径以第 4.1
+节和第 10 节的 Compiler Plan 命令为准。尤其不能把下面的 OCR、分类、
+槽位提议或 adapter 步骤当作当前命令会执行的自动化。
+
 ### 8.1 Preflight
 
 1. 检查 FFmpeg/ffprobe、Python、Node 和可选 GPU。
@@ -476,12 +486,14 @@ NEW
 
 ## 10. 命令行和工具接口
 
-`0.2.0-alpha.1` 已提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志：
+`0.3.0-alpha` 已提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志。产品/CLI 版本为 `0.3.0-alpha`，而编译输出的 Template IR Schema 版本保持 `0.2.0`：
 
 ```text
 video-remix doctor [--ffmpeg <path>] [--ffprobe <path>] --json
 video-remix probe <reference> [--ffmpeg <path>] [--ffprobe <path>] --json
 video-remix survey <reference> --project-root <project-dir> [--output-dir reference-survey] [--frame <n> ...] [--samples <n>] [--ffmpeg <path>] --json
+video-remix validate-compiler-plan <compiler-plan.json> --json
+video-remix compile <reference> <compiler-plan.json> --project-root <project-dir> [--output-dir template-compile] [--ffmpeg <path>] [--ffprobe <path>] [--timeout <seconds>] --json
 video-remix validate-template <template.ir.json> --json
 video-remix validate-assets <template.ir.json> <assets.json> --project-root <project-dir> --json
 video-remix render <template.ir.json> <assets.json> --project-root <project-dir> [--frame-directory render/master-frames] [--debug-bounds] [--summary <root-contained.json>] [--ffmpeg <path>] --json
@@ -490,11 +502,12 @@ video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames
 
 Alpha 通用规则：
 
-- 标准输出返回稳定 JSON 摘要；`survey` 和可选 `render --summary` 才写受 project root 约束的工件；
-- 运行错误返回有界错误码；技术 QA 不通过返回码为 `1`，运行错误为 `2`；
+- 标准输出返回稳定 JSON 摘要；`compile`、`survey` 和可选 `render --summary` 写入的工件均受 project root 约束；
+- `compile` 在任何最终可见输出目录创建前完成 Compiler Plan Schema 校验和媒体相关语义预检。`review_required=false` 返回码为 `0`；成功但需要人工审核返回码为 `1`；校验或运行错误返回码为 `2`；
+- `compile` 的 JSON 只包含根目录相对工件路径、哈希和简短审核事实，绝不内联完整 Template IR、逐帧评分、源文件绝对路径或工具绝对路径；
 - `render` 写入任何帧前必须完成模板与文件资产校验，之后必须对每个输出执行 QA；
 - 禁止 shell 字符串拼接执行 FFmpeg，使用参数数组；
-- 不自动分类语义槽位、不自动生成换装资产，也不把技术解码 QA 误称为视觉/权利验收。
+- 不自动分类语义槽位、不执行 OCR、不自动生成换装资产、不使用云端执行，也不把技术解码 QA 误称为视觉/权利验收。
 
 后续可增加 `init`、`classify`、`propose-slots`、`freeze-template`、`prepare-assets`、`preview`、`package`、`status`、断点恢复和本地 MCP；这些不是当前 Alpha 命令。
 
@@ -657,9 +670,9 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 
 建议执行配置：
 
-- `local-only`：严格离线；只使用已安装的本地处理器，生成质量受硬件限制；
-- `cloud-assisted`：分析、素材、状态、渲染均在本机，只有明确批准的派生资产发送至生成 provider；
-- `gpu-worker`：未来连接用户自有 NVIDIA 工作站，但通过同一 adapter 协议调用。
+- `local-only`：当前唯一可执行配置；严格离线，只使用已安装的本地处理器，生成质量受硬件限制；
+- `cloud-assisted`：未来设想，不是当前 CLI 的路径；当前版本不得上传任何参考、证据或派生资产；
+- `gpu-worker`：未来连接用户自有 NVIDIA 工作站的设想，不是当前 CLI 能力。
 
 ## 18. 测试与评测体系
 

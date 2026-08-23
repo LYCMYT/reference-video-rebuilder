@@ -687,6 +687,19 @@ def _layer_key(layer: Mapping[str, Any], track_z: Mapping[str, int]) -> tuple[in
     return track_z[track_id], z_offset, layer_id
 
 
+def _require_review_resolved(template: Mapping[str, Any]) -> None:
+    """Block every render and encode path while review is unresolved."""
+
+    support = _require_mapping(template.get("support"), "template.support")
+    review_required = support.get("review_required", False)
+    if not isinstance(review_required, bool):
+        raise RenderInputError("template.support.review_required must be a boolean")
+    if review_required:
+        raise RenderInputError(
+            "template.support.review_required must be false before rendering"
+        )
+
+
 class S1Renderer:
     """Pillow renderer for the frozen deterministic S1 subset of the IR."""
 
@@ -701,6 +714,7 @@ class S1Renderer:
         support = _require_mapping(self.template.get("support"), "template.support")
         if support.get("level") != "S1":
             raise UnsupportedFeatureError("deterministic renderer supports Template IR support.level S1 only")
+        _require_review_resolved(self.template)
 
         canvas = _require_mapping(self.template.get("canvas"), "template.canvas")
         width = _integer(canvas.get("width"), "template.canvas.width")
@@ -1446,6 +1460,7 @@ def _preflight_encode_outputs(
     and encode preflight remains the race-aware second line of defense.
     """
     template = _require_mapping(template, "template")
+    _require_review_resolved(template)
     frames = resolve_project_path(
         project_root, frame_directory, purpose="master frame directory", allow_absolute=True
     )

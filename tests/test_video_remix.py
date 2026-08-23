@@ -275,7 +275,11 @@ class TemplateIRValidationTests(unittest.TestCase):
         capabilities = payload["capabilities"]
         self.assertTrue(capabilities["template_validation"])
         self.assertTrue(capabilities["asset_manifest_structure_validation"])
-        self.assertFalse(capabilities["reference_analysis"])
+        self.assertTrue(capabilities["compiler_plan_validation"])
+        self.assertEqual(
+            capabilities["reference_analysis"], capabilities["template_compilation"]
+        )
+        self.assertFalse(capabilities["semantic_slot_analysis"])
         self.assertFalse(capabilities["asset_generation"])
         self.assertIsInstance(payload["runtime"]["jsonschema_version"], str)
         self.assertIsInstance(payload["runtime"]["pillow_version"], str)

@@ -226,6 +226,11 @@ def build_audio_extraction_command(
         "-dn",
         "-c:a",
         "copy",
+        # Matroska otherwise writes a non-deterministic segment UID.  The
+        # bitexact format flag keeps repeated stream-copy artifacts byte-stable
+        # while preserving the encoded audio packets unchanged.
+        "-fflags",
+        "+bitexact",
         "-f",
         "matroska",
         "-map_metadata",

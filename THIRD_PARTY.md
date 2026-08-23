@@ -2,7 +2,7 @@
 
 This repository does not vendor third-party model weights, FFmpeg binaries, Remotion source, fonts, music, or sample reference videos. Each runtime adapter must record the exact dependency version and license in the run manifest.
 
-> Review status: the `0.2.0-alpha.1` local runtime inventory was reviewed on
+> Review status: the `0.3.0-alpha` local runtime inventory was reviewed on
 > 2026-08-23. Python dependency ranges are declared in the installable Skill;
 > resolved versions are reported by `doctor`. FFmpeg/ffprobe remain external
 > user-selected executables and are never redistributed by this repository.

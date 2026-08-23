@@ -32,6 +32,9 @@ renders/
 previews/
 derived-assets/
 reference-survey*/
+template-compile*/
+.template-compile*.staging-*/
+.template-compile*.analysis-*/
 render/
 master-frames/
 visual-qa/

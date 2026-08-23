@@ -1,10 +1,11 @@
 # Template IR renderer contract
 
 Template IR 0.2.0 is the minimum executable renderer contract. The bundled
-`0.2.0-alpha.1` runtime implements a deterministic S1 subset plus technical video
-QA. Semantic source analysis and asset generation remain agent-assisted, and
-the schema intentionally describes some features that the current renderer
-will reject rather than approximate.
+`0.3.0-alpha` product continues to execute this `0.2.0` contract through a
+deterministic S1 renderer plus technical video QA. Semantic slot decisions and
+asset generation remain outside the bundled runtime, and the schema
+intentionally describes some features that the current renderer will reject
+rather than approximate.
 
 ## Alpha renderer subset
 
@@ -46,6 +47,14 @@ There is no implicit `source-fit` behavior: `canvas.source_rect` and the
 canvas must have the same aspect ratio (within floating-point tolerance). A
 template that violates this is rejected rather than leaving a renderer to
 invent stretch, crop, or letterbox behavior.
+
+`support.review_required` is an optional boolean review quarantine flag. It
+defaults to `false` for older `0.2.0` templates. A compiler may emit a
+schema-valid Template IR with this flag set to `true` so that local evidence
+can be inspected, but every render and encode entry point must reject it
+before writing frames or outputs. A reviewer resolves the timing or geometry
+decision and explicitly changes the frozen template to `false`; validation
+alone is not approval.
 
 All frame ranges are half-open `[start_frame, end_frame)`, bounded by source
 duration, strictly ascending within their array, and non-overlapping.

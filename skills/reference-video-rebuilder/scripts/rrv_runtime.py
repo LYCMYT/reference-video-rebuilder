@@ -577,6 +577,166 @@ def build_ffprobe_command(source: str | os.PathLike[str], ffprobe: str | os.Path
     ]
 
 
+def build_ffprobe_exact_timing_command(
+    source: str | os.PathLike[str], ffprobe: str | os.PathLike[str]
+) -> list[str]:
+    """Build a bounded, argv-only exact video-count and PTS inspection command.
+
+    ``nb_frames`` is container metadata and may be absent or stale.  This
+    command asks ffprobe to read frames (``-count_frames``) and emits the
+    presentation timestamps needed to reject VFR or otherwise ambiguous input
+    before a frame-indexed compiler publishes a timeline.
+    """
+
+    return [
+        os.fspath(ffprobe),
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-count_frames",
+        "-show_streams",
+        "-show_frames",
+        "-show_entries",
+        "stream=index,codec_type,nb_read_frames,nb_frames,r_frame_rate,avg_frame_rate,time_base:frame=best_effort_timestamp,duration,pkt_duration",
+        "-of",
+        "json",
+        str(require_source_file(source)),
+    ]
+
+
+def _exact_timing_error(message: str) -> RRVError:
+    return RRVError(
+        ERR_PROBE_FAILED,
+        message,
+        {"capability": "exact_cfr_frame_timing"},
+    )
+
+
+def _strict_positive_integer(value: Any) -> int | None:
+    parsed = _integer(value)
+    return parsed if parsed is not None and parsed > 0 else None
+
+
+def parse_ffprobe_exact_timing_json(raw: Any) -> dict[str, Any]:
+    """Validate ffprobe's counted-frame PTS sequence as exact CFR timing.
+
+    The returned count is specifically ``nb_read_frames`` rather than the
+    container's optional ``nb_frames`` metadata.  The parser fails closed when
+    a timestamp, frame count, rate, time base, or constant PTS step cannot be
+    established.
+    """
+
+    if not isinstance(raw, Mapping):
+        raise _exact_timing_error("ffprobe exact timing result must be an object")
+    streams = raw.get("streams")
+    if not isinstance(streams, list):
+        raise _exact_timing_error("ffprobe exact timing result has no streams array")
+    video_streams = [
+        stream
+        for stream in streams
+        if isinstance(stream, Mapping) and stream.get("codec_type") == "video"
+    ]
+    if len(video_streams) != 1:
+        raise _exact_timing_error("ffprobe exact timing requires exactly one selected video stream")
+    stream = video_streams[0]
+    frame_count = _strict_positive_integer(stream.get("nb_read_frames"))
+    if frame_count is None:
+        raise _exact_timing_error("ffprobe did not provide a positive nb_read_frames count")
+    frame_rate = parse_rational(stream.get("r_frame_rate"))
+    average_frame_rate = parse_rational(stream.get("avg_frame_rate"))
+    time_base = parse_rational(stream.get("time_base"))
+    if (
+        frame_rate is None
+        or average_frame_rate is None
+        or time_base is None
+        or frame_rate <= 0
+        or average_frame_rate <= 0
+        or time_base <= 0
+        or not math.isclose(frame_rate, average_frame_rate, rel_tol=1e-9, abs_tol=1e-12)
+    ):
+        raise _exact_timing_error("ffprobe could not confirm matching positive CFR stream rates")
+
+    frames = raw.get("frames")
+    if not isinstance(frames, list) or len(frames) != frame_count:
+        raise _exact_timing_error("ffprobe counted frames do not match its PTS frame records")
+    timestamps: list[int] = []
+    # Some current ffprobe builds omit pkt_duration from frame records even
+    # when they expose a complete best-effort PTS sequence.  For multi-frame
+    # inputs, that sequence is itself the decisive CFR proof; durations remain
+    # an optional consistency check instead of making valid CFR media fail.
+    durations: list[int | None] = []
+    for frame in frames:
+        if not isinstance(frame, Mapping):
+            raise _exact_timing_error("ffprobe PTS frame record is invalid")
+        timestamp = _integer(frame.get("best_effort_timestamp"))
+        # FFprobe 9 emits ``duration`` here, while older builds commonly use
+        # ``pkt_duration``.  Ask for and accept both without relaxing cadence
+        # validation.
+        duration = _strict_positive_integer(frame.get("duration"))
+        if duration is None:
+            duration = _strict_positive_integer(frame.get("pkt_duration"))
+        if timestamp is None:
+            raise _exact_timing_error("ffprobe could not confirm a frame PTS")
+        timestamps.append(timestamp)
+        durations.append(duration)
+
+    if frame_count == 1:
+        step = durations[0]
+        if step is None:
+            raise _exact_timing_error("ffprobe could not confirm a single-frame PTS duration")
+    else:
+        step = timestamps[1] - timestamps[0]
+        if step <= 0 or any(
+            timestamps[index] - timestamps[index - 1] != step
+            for index in range(2, len(timestamps))
+        ):
+            raise _exact_timing_error("ffprobe PTS sequence is not constant-frame-rate")
+    if any(duration is not None and duration != step for duration in durations):
+        raise _exact_timing_error("ffprobe packet durations do not match the constant PTS step")
+    pts_fps = 1.0 / (step * time_base)
+    if not math.isclose(pts_fps, frame_rate, rel_tol=1e-9, abs_tol=1e-12):
+        raise _exact_timing_error("ffprobe PTS cadence does not match the declared frame rate")
+    return {
+        "frame_count": frame_count,
+        "frame_count_source": "ffprobe-nb_read_frames",
+        "fps": pts_fps,
+        "pts_step": step,
+        "time_base": time_base,
+        "duration_seconds": frame_count * step * time_base,
+        "cfr_confirmed": True,
+    }
+
+
+def probe_exact_video_timing(
+    source: str | os.PathLike[str],
+    ffprobe: str | os.PathLike[str],
+    *,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    """Read exact frame count and PTS cadence with a caller-provided ffprobe."""
+
+    source_path = require_source_file(source)
+    timeout = validate_timeout(timeout_seconds)
+    try:
+        result = run_command(
+            build_ffprobe_exact_timing_command(source_path, ffprobe),
+            timeout_seconds=timeout,
+            check=True,
+        )
+    except RRVError as exc:
+        raise RRVError(
+            ERR_PROBE_FAILED,
+            "ffprobe could not confirm exact CFR frame timing",
+            {"capability": "exact_cfr_frame_timing", "cause_code": exc.code},
+        ) from exc
+    try:
+        raw = json.loads(result.stdout, parse_constant=_strict_json_constant)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise _exact_timing_error("ffprobe returned invalid exact timing JSON") from exc
+    return parse_ffprobe_exact_timing_json(raw)
+
+
 def build_ffmpeg_fallback_probe_command(
     source: str | os.PathLike[str], ffmpeg: str | os.PathLike[str]
 ) -> list[str]:
@@ -797,13 +957,16 @@ __all__ = [
     "ToolInfo",
     "build_ffmpeg_fallback_probe_command",
     "build_ffprobe_command",
+    "build_ffprobe_exact_timing_command",
     "discover_tools",
     "error_payload",
     "first_stream",
     "normalize_ffprobe_json",
     "parse_ffmpeg_fallback_output",
+    "parse_ffprobe_exact_timing_json",
     "parse_rational",
     "probe_media",
+    "probe_exact_video_timing",
     "probe_tool_version",
     "relative_output_path",
     "require_project_root",

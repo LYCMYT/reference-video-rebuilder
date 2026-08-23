@@ -7,7 +7,7 @@
 | Owner | `LYCMYT` |
 | Repository name | `reference-video-rebuilder` |
 | Description | `一个注重授权与合规的 Codex Skill，可将参考视频重建为干净、可复用的模板，并替换模特、服装、商品、背景、文字和音频。` |
-| Visibility | 开发阶段选 `Private`；通过公开发布清单并打 `v0.2.0-alpha.1` 后再改 `Public` |
+| Visibility | 开发阶段选 `Private`；通过公开发布清单并打当前 Alpha 标签后再改 `Public`（当前目标为 `v0.3.0-alpha`） |
 | Add README | `Off` |
 | Add .gitignore | `No .gitignore` |
 | Add license | `No license` |
@@ -20,7 +20,7 @@
 - 如果还没有决定是否允许他人商用：GitHub 先建为 Private，不要先公开再撤回。开源许可证一旦对某个公开版本生效，不能撤销他人已经取得的那一版本的许可。
 - 第三方模型和工具不随本仓库许可证自动变成 Apache-2.0；必须遵守 `THIRD_PARTY.md`。
 - 改为 Public 前必须清除 Git 历史中的真人素材、原视频、音乐、EXIF、绝对私人路径和密钥；配置私密安全报告渠道；固定运行时依赖版本并通过许可证与 CI 审核。
-- 如果仓库已经设为 Public，但尚未推送代码，应先启用 GitHub Private Vulnerability Reporting（或暂时改回 Private），再推送首个公开 Alpha。
+- 如果仓库已经设为 Public，应启用 GitHub Private Vulnerability Reporting，并在每个公开 Alpha 前重新执行敏感信息、依赖许可证和 CI 审计。
 
 ## 推荐 Topics
 

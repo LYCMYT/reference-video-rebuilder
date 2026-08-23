@@ -34,6 +34,10 @@ SKILL_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIRECTORY = SKILL_ROOT / "assets" / "schemas"
 TEMPLATE_SCHEMA_PATH = SCHEMA_DIRECTORY / "template-ir.schema.json"
 ASSET_MANIFEST_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-manifest.schema.json"
+COMPILER_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "compiler-plan.schema.json"
+CLI_VERSION = "0.3.0-alpha"
+TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
+__version__ = CLI_VERSION
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 PRIVACY_PROFILES = {"local-only", "cloud-assisted", "gpu-worker"}
@@ -89,6 +93,12 @@ def _render_module() -> Any:
 
 def _qa_module() -> Any:
     return _lazy_module("rrv_qa")
+
+
+def _compile_module() -> Any:
+    """Load the bounded reference compiler only for compiler commands."""
+
+    return _lazy_module("rrv_compile")
 
 
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
@@ -179,12 +189,30 @@ def doctor_payload(
     asset_manifest_schema_available = has_jsonschema and (
         _get_schema_validator(ASSET_MANIFEST_SCHEMA_PATH, "asset manifest") is not None
     )
-    has_ffmpeg = bool(tools.ffmpeg.path)
-    has_ffprobe = bool(tools.ffprobe.path)
+    compiler_plan_schema_available = has_jsonschema and (
+        _get_schema_validator(COMPILER_PLAN_SCHEMA_PATH, "Compiler Plan") is not None
+    )
+    # A discovered regular file is not evidence that it is an executable
+    # media tool.  Advertise every operational capability only after the
+    # bounded version probe succeeds.
+    has_ffmpeg = _tool_version_confirmed(tools.ffmpeg)
+    has_ffprobe = _tool_version_confirmed(tools.ffprobe)
     has_pillow = _pillow_available()
+    compiler_core_available = _compiler_module_available()
+    compiler_prerequisites = (
+        has_ffmpeg
+        and has_ffprobe
+        and has_pillow
+        and has_jsonschema
+        and compiler_plan_schema_available
+        and template_schema_available
+        and compiler_core_available
+    )
     return {
         "status": "ok",
         "stage": "alpha",
+        "version": CLI_VERSION,
+        "template_ir_schema_version": TEMPLATE_IR_SCHEMA_VERSION,
         "platform": {
             "system": platform.system(),
             "release": platform.release(),
@@ -211,11 +239,14 @@ def doctor_payload(
             "doctor": True,
             "template_validation": template_schema_available,
             "asset_manifest_structure_validation": asset_manifest_schema_available,
+            "compiler_plan_validation": compiler_plan_schema_available,
             "asset_path_policy_validation": True,
             "asset_media_probe_validation": False,
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
-            "reference_analysis": False,
+            "reference_analysis": compiler_prerequisites,
+            "semantic_slot_analysis": False,
+            "template_compilation": compiler_prerequisites,
             "asset_generation": False,
             "timeline_render": (
                 has_ffmpeg
@@ -227,7 +258,8 @@ def doctor_payload(
         },
         "notes": [
             "S1 survey, deterministic local render, and technical video QA are available only when their reported tools are present.",
-            "Semantic slot analysis remains agent-assisted; render-ready replacement looks must be supplied or generated before this CLI renders.",
+            "Reference compilation is limited to authorized local fixed-subject-carousel S1 plans with confirmed geometry and slot_count.",
+            "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
         ],
     }
@@ -257,6 +289,16 @@ def _find_nonfinite(value: Any, path: str, errors: list[str]) -> None:
 
 
 def _get_schema_validator(schema_path: Path, contract_name: str) -> Any | None:
+    # Do not let a validator cached before a package/file removal advertise a
+    # capability that is no longer installed.  This also keeps doctor honest
+    # for partially installed Skills.
+    unavailable_message = f"{contract_name} JSON Schema is unavailable"
+    if not schema_path.is_file():
+        _schema_validators.pop(schema_path, None)
+        _schema_validator_errors[schema_path] = unavailable_message
+        return None
+    if _schema_validator_errors.get(schema_path) == unavailable_message:
+        _schema_validator_errors.pop(schema_path, None)
     if schema_path in _schema_validators or schema_path in _schema_validator_errors:
         return _schema_validators.get(schema_path)
     if Draft202012Validator is None:
@@ -273,6 +315,27 @@ def _get_schema_validator(schema_path: Path, contract_name: str) -> Any | None:
     except Exception as exc:  # pragma: no cover - repository contract failure
         _schema_validator_errors[schema_path] = f"unable to load {contract_name} JSON Schema: {exc}"
     return _schema_validators.get(schema_path)
+
+
+def _compiler_module_available() -> bool:
+    """Check the compiler surface without exposing an import failure publicly."""
+
+    try:
+        return callable(getattr(_compile_module(), "compile_reference", None))
+    except Exception:
+        return False
+
+
+def _tool_version_confirmed(tool: Any) -> bool:
+    """Require a successful executable version probe for compiler claims."""
+
+    version = getattr(tool, "version", None)
+    return (
+        bool(getattr(tool, "path", None))
+        and isinstance(version, str)
+        and bool(version.strip())
+        and version != "detected (version unavailable)"
+    )
 
 
 def _schema_path(error: Any) -> str:
@@ -743,6 +806,20 @@ def validate_template_data(data: Any) -> list[str]:
     return errors
 
 
+def validate_compiler_plan_data(data: Any) -> list[str]:
+    """Validate the frozen Compiler Plan's local structural contract.
+
+    Media-relative rules (source bounds, timing fit, audio presence, and
+    renderability) deliberately remain in ``rrv_compile.compile_reference``.
+    This function performs no media access and never writes project files.
+    """
+
+    errors: list[str] = []
+    _find_nonfinite(data, "$", errors)
+    errors.extend(_validate_schema(data, COMPILER_PLAN_SCHEMA_PATH, "Compiler Plan"))
+    return errors
+
+
 def require_dict(value: Any, path: str, errors: list[str]) -> dict[str, Any]:
     if not isinstance(value, dict):
         errors.append(f"{path} must be an object")
@@ -879,6 +956,13 @@ def _deduplicate_errors(errors: Iterable[str]) -> list[str]:
     return result
 
 
+def _template_requires_review(template: Mapping[str, Any]) -> bool:
+    """Return whether a frozen template still has an unresolved review gate."""
+
+    support = template.get("support")
+    return isinstance(support, Mapping) and support.get("review_required") is True
+
+
 def _render_hashes(
     template_path: Path,
     manifest_path: Path,
@@ -1003,6 +1087,13 @@ def _require_render_inputs(
     if not isinstance(template, dict) or not isinstance(manifest, dict):
         return project_root, {}, {}, ["template and manifest must be JSON objects"]
     template_errors = validate_template_data(template)
+    if not template_errors and _template_requires_review(template):
+        # A compiler may publish a technically valid Template IR while asking
+        # a reviewer to resolve timing.  Do not hash assets, load a renderer,
+        # or create any render output until that decision is explicit.
+        return project_root, template, manifest, [
+            "$.support.review_required must be false before rendering"
+        ]
     asset_errors = validate_assets_data(
         template,
         manifest,
@@ -1188,6 +1279,197 @@ def run_survey(args: argparse.Namespace) -> dict[str, Any]:
     return runtime.success_payload(result)
 
 
+def _compile_relative_output_path(value: Any, field: str) -> str:
+    """Accept only portable project-relative paths from the compiler core."""
+
+    if not isinstance(value, str) or not value:
+        raise TypeError(f"compiler returned an invalid {field}")
+    normalized = value.replace("\\", "/")
+    if (
+        normalized.startswith("/")
+        or normalized.startswith("//")
+        or re.match(r"^[A-Za-z]:/", normalized)
+        or any(part in {"", ".."} for part in normalized.split("/"))
+    ):
+        raise TypeError(f"compiler returned a non-relative {field}")
+    return normalized
+
+
+def _compact_compile_artifact(value: Any, field: str) -> dict[str, Any]:
+    """Keep only safe scalar artifact facts; never relay internal payloads."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"compiler returned an invalid {field}")
+    compact: dict[str, Any] = {
+        "path": _compile_relative_output_path(value.get("path"), f"{field}.path")
+    }
+    for key in ("sha256", "media_type", "container", "metadata_stripped", "frame", "columns", "rows", "width", "height"):
+        item = value.get(key)
+        if isinstance(item, bool) or isinstance(item, int) or isinstance(item, str):
+            compact[key] = item
+    return compact
+
+
+def _compact_compile_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose only the compiler's bounded public result envelope.
+
+    The compiler keeps the full Template IR and timing-score detail on disk.
+    This CLI response intentionally returns paths and compact review facts,
+    never a template document or a per-frame score dump.
+    """
+
+    review_required = result.get("review_required")
+    if not isinstance(review_required, bool):
+        raise TypeError("compiler returned a result without boolean review_required")
+    compact: dict[str, Any] = {"review_required": review_required}
+    for key in ("schema_version", "template_id"):
+        value = result.get(key)
+        if isinstance(value, str):
+            compact[key] = value
+    if "output_dir" in result:
+        compact["output_dir"] = _compile_relative_output_path(
+            result["output_dir"], "output_dir"
+        )
+    switch_frames = result.get("switch_frames")
+    if isinstance(switch_frames, list) and len(switch_frames) <= 64 and all(
+        _is_int(frame) and frame >= 0 for frame in switch_frames
+    ):
+        compact["switch_frames"] = switch_frames
+    elif switch_frames is not None:
+        raise TypeError("compiler returned invalid switch_frames")
+
+    raw_artifacts = result.get("artifacts")
+    if isinstance(raw_artifacts, Mapping):
+        artifacts: dict[str, Any] = {}
+        for key in ("audio_original", "contact_sheet", "template_ir", "compile_report"):
+            if key in raw_artifacts:
+                artifacts[key] = _compact_compile_artifact(
+                    raw_artifacts[key], f"artifacts.{key}"
+                )
+        center_frames = raw_artifacts.get("center_frames")
+        if isinstance(center_frames, list):
+            if len(center_frames) > 64:
+                raise TypeError("compiler returned too many center-frame artifacts")
+            # Paths and hashes remain in compile-report.json.  Returning every
+            # evidence row through the CLI adds repeated agent-context tokens
+            # without improving the review, which uses the contact sheet.
+            artifacts["center_frame_count"] = len(center_frames)
+        elif center_frames is not None:
+            raise TypeError("compiler returned invalid center-frame artifacts")
+        compact["artifacts"] = artifacts
+    elif raw_artifacts is not None:
+        raise TypeError("compiler returned invalid artifacts")
+    return compact
+
+
+_SAFE_COMPILE_ERROR_DETAIL_KEYS = {
+    "backend",
+    "capability",
+    "cause_code",
+    "missing_tool",
+    "returncode",
+    "timeout_seconds",
+    "tool",
+}
+
+
+def _contains_absolute_path(value: str) -> bool:
+    normalized = value.replace("\\", "/")
+    return (
+        normalized.startswith("/")
+        or normalized.startswith("//")
+        or re.search(r"[A-Za-z]:/", normalized) is not None
+    )
+
+
+def _safe_compile_error_tool(value: str) -> str | None:
+    """Return a basename-only tool label, never its configured path."""
+
+    normalized = value.replace("\\", "/")
+    label = normalized.rsplit("/", 1)[-1]
+    if not label or _contains_absolute_path(label) or any(char.isspace() for char in label):
+        return None
+    return label
+
+
+def _safe_compile_error_details(details: Any) -> dict[str, Any]:
+    """Preserve only compact compiler failure facts safe for public JSON."""
+
+    if not isinstance(details, Mapping):
+        return {}
+    safe: dict[str, Any] = {}
+    for key in _SAFE_COMPILE_ERROR_DETAIL_KEYS:
+        value = details.get(key)
+        if key == "returncode":
+            if _is_int(value):
+                safe[key] = value
+        elif key == "timeout_seconds":
+            if _is_number(value):
+                safe[key] = value
+        elif isinstance(value, str):
+            compact = _compact_error_text(value, limit=160)
+            if key == "tool":
+                label = _safe_compile_error_tool(compact)
+                if label is not None:
+                    safe[key] = label
+            elif not _contains_absolute_path(compact) and "/" not in compact and "\\" not in compact:
+                safe[key] = compact
+    return safe
+
+
+def _compile_error_payload(runtime: Any, error: BaseException) -> dict[str, Any]:
+    """Build a path- and tool-output-safe compiler failure envelope."""
+
+    details = _safe_compile_error_details(getattr(error, "details", None))
+    code = getattr(error, "code", None)
+    if not isinstance(code, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", code):
+        code = runtime.ERR_TOOL_EXECUTION
+    return runtime.error_payload(
+        runtime.RRVError(
+            code,
+            "reference compilation failed",
+            details,
+        )
+    )
+
+
+def run_compile(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Structurally validate then compile one bounded local S1 reference.
+
+    The core compiler performs media-dependent semantic validation before it
+    creates its final artifact directory.  Keeping the schema gate here means
+    invalid plans cannot load the compiler, probe media, or create outputs.
+    """
+
+    plan = load_json(args.plan)
+    plan_errors = validate_compiler_plan_data(plan)
+    if plan_errors:
+        return {"status": "fail", "errors": plan_errors}, 2
+
+    runtime = _runtime_module()
+    try:
+        tools = runtime.discover_tools(
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            probe_versions=True,
+        )
+        result = _compile_module().compile_reference(
+            args.source,
+            plan,
+            args.project_root,
+            tools,
+            output_dir=args.output_dir,
+            timeout_seconds=args.timeout,
+            template_validator=validate_template_data,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("compiler returned an invalid result")
+        compact_result = _compact_compile_result(result)
+        return runtime.success_payload(compact_result), 1 if compact_result["review_required"] else 0
+    except runtime.RRVError as exc:
+        return _compile_error_payload(runtime, exc), 2
+
+
 def _add_runtime_arguments(
     parser: argparse.ArgumentParser,
     *,
@@ -1202,6 +1484,7 @@ def _add_runtime_arguments(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = _BoundedArgumentParser(prog="video-remix")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {CLI_VERSION}")
     subparsers = parser.add_subparsers(dest="command", required=True)
     doctor = subparsers.add_parser("doctor", help="Inspect local alpha runtime capabilities")
     _add_runtime_arguments(doctor, include_timeout=False)
@@ -1215,6 +1498,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate_assets.add_argument("--project-root", type=Path, help="Allowed project directory; defaults to the manifest directory")
     validate_assets.add_argument("--allow-missing-files", action="store_true", help="Validate structure and path containment without requiring files to exist")
     validate_assets.add_argument("--json", action="store_true", dest="as_json")
+    validate_compiler_plan = subparsers.add_parser(
+        "validate-compiler-plan",
+        help="Validate a frozen fixed-subject-carousel Compiler Plan",
+    )
+    validate_compiler_plan.add_argument("plan", type=Path)
+    validate_compiler_plan.add_argument("--json", action="store_true", dest="as_json")
 
     probe = subparsers.add_parser("probe", help="Probe one local media source")
     probe.add_argument("source", type=Path)
@@ -1233,6 +1522,17 @@ def build_parser() -> argparse.ArgumentParser:
     survey.set_defaults(include_contact_sheet=True, include_audio=True)
     _add_runtime_arguments(survey)
     survey.add_argument("--json", action="store_true", dest="as_json")
+
+    compile_command = subparsers.add_parser(
+        "compile",
+        help="Compile an authorized local fixed-subject-carousel S1 reference",
+    )
+    compile_command.add_argument("source", type=Path)
+    compile_command.add_argument("plan", type=Path)
+    compile_command.add_argument("--project-root", type=Path, required=True)
+    compile_command.add_argument("--output-dir", type=Path, default=Path("template-compile"))
+    _add_runtime_arguments(compile_command, timeout_default=120.0)
+    compile_command.add_argument("--json", action="store_true", dest="as_json")
 
     render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
     render.add_argument("template", type=Path)
@@ -1277,6 +1577,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "survey":
             _emit_stable_json(run_survey(args))
             return 0
+        if args.command == "compile":
+            payload, status = run_compile(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "render":
             payload, status = run_render(args)
             _emit_stable_json(payload)
@@ -1289,6 +1593,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "validate-template":
             template = load_json(args.template)
             errors = validate_template_data(template)
+        elif args.command == "validate-compiler-plan":
+            errors = validate_compiler_plan_data(load_json(args.plan))
         else:
             template = load_json(args.template)
             errors = validate_assets_data(

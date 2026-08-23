@@ -34,5 +34,7 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Validate example Template IR
         run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-template skills/reference-video-rebuilder/assets/project-template/template.ir.example.json --json
+      - name: Validate example Compiler Plan
+        run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-compiler-plan skills/reference-video-rebuilder/assets/project-template/compiler.plan.example.json --json
       - name: Validate example asset manifest
         run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-assets skills/reference-video-rebuilder/assets/project-template/template.ir.example.json skills/reference-video-rebuilder/assets/project-template/assets.example.json --allow-missing-files --json

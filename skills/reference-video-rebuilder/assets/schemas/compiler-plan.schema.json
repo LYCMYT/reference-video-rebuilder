@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/compiler-plan.schema.json",
+  "title": "Reference Video Rebuilder Compiler Plan contract",
+  "description": "Strict structural contract for a frozen 0.3.0 fixed-subject-carousel compiler plan. Media-dependent geometry and timing checks belong to semantic validation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "template_id",
+    "family",
+    "authorization",
+    "privacy",
+    "geometry",
+    "timing",
+    "carousel",
+    "background",
+    "audio",
+    "output_profiles",
+    "analysis"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.3.0"},
+    "template_id": {"$ref": "#/$defs/templateId"},
+    "family": {"const": "fixed-subject-carousel"},
+    "authorization": {"$ref": "#/$defs/authorization"},
+    "privacy": {"const": "local-only"},
+    "geometry": {"$ref": "#/$defs/geometry"},
+    "timing": {"$ref": "#/$defs/timing"},
+    "carousel": {"$ref": "#/$defs/carousel"},
+    "background": {"$ref": "#/$defs/background"},
+    "audio": {"$ref": "#/$defs/audio"},
+    "output_profiles": {"$ref": "#/$defs/outputProfiles"},
+    "analysis": {"$ref": "#/$defs/analysis"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["audio"],
+        "properties": {
+          "audio": {"$ref": "#/$defs/preserveAudio"}
+        }
+      },
+      "then": {
+        "required": ["authorization"],
+        "properties": {
+          "authorization": {"$ref": "#/$defs/authorizationWithAudioRights"},
+          "audio": {
+            "required": ["required"],
+            "properties": {"required": {"const": true}}
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["audio"],
+        "properties": {
+          "audio": {
+            "required": ["mode"],
+            "properties": {"mode": {"const": "mute"}}
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "audio": {
+            "required": ["required"],
+            "properties": {"required": {"const": false}}
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "templateId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+    },
+    "point": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y"],
+      "properties": {
+        "x": {"type": "integer"},
+        "y": {"type": "integer"}
+      }
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer"},
+        "y": {"type": "integer"},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_rights_confirmed", "audio_rights_confirmed"],
+      "properties": {
+        "reference_rights_confirmed": {"const": true},
+        "audio_rights_confirmed": {"type": "boolean"}
+      }
+    },
+    "authorizationWithAudioRights": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reference_rights_confirmed", "audio_rights_confirmed"],
+      "properties": {
+        "reference_rights_confirmed": {"const": true},
+        "audio_rights_confirmed": {"const": true}
+      }
+    },
+    "geometry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_rect", "carousel_rect", "subject_rect"],
+      "properties": {
+        "source_rect": {"$ref": "#/$defs/rect"},
+        "carousel_rect": {"$ref": "#/$defs/rect"},
+        "subject_rect": {"$ref": "#/$defs/rect"}
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot_count", "mode", "min_segment_frames"],
+      "properties": {
+        "slot_count": {"type": "integer", "minimum": 1, "maximum": 64},
+        "mode": {"enum": ["uniform", "hybrid", "manual"]},
+        "min_segment_frames": {"type": "integer", "minimum": 1},
+        "switch_frames": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "integer"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["mode"],
+            "properties": {"mode": {"const": "manual"}}
+          },
+          "then": {"required": ["switch_frames"]},
+          "else": {"not": {"required": ["switch_frames"]}}
+        }
+      ]
+    },
+    "carousel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["origin", "item_width", "item_height", "gap"],
+      "properties": {
+        "origin": {"$ref": "#/$defs/point"},
+        "item_width": {"type": "integer", "minimum": 1},
+        "item_height": {"type": "integer", "minimum": 1},
+        "gap": {"type": "integer", "minimum": 0},
+        "end_offset_x": {"type": "integer", "maximum": 0}
+      }
+    },
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["color", "replaceable"],
+      "properties": {
+        "color": {"type": "string", "pattern": "^#[0-9A-Fa-f]{6}$"},
+        "replaceable": {"type": "boolean"}
+      }
+    },
+    "audio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "required"],
+      "properties": {
+        "mode": {"enum": ["preserve", "replaceable", "mute"]},
+        "required": {"type": "boolean"}
+      }
+    },
+    "preserveAudio": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "required"],
+      "properties": {
+        "mode": {"const": "preserve"},
+        "required": {"type": "boolean"}
+      }
+    },
+    "outputProfiles": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["720x1280", "1080x1920"]}
+    },
+    "analysis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "snap_window_frames", "min_prominence", "max_evidence_frames"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 32, "maximum": 256},
+        "snap_window_frames": {"type": "integer", "minimum": 0},
+        "min_prominence": {"type": "number", "minimum": 0},
+        "max_evidence_frames": {"type": "integer", "minimum": 1, "maximum": 64}
+      }
+    }
+  }
+}

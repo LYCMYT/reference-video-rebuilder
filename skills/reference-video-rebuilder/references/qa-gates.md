@@ -1,16 +1,21 @@
 # QA gates
 
-## 0.2.0-alpha.1 coverage
+## 0.3.0-alpha coverage
 
-The bundled local CLI automates Template IR/asset validation and the technical
-parts of Gate 5. `render` runs the technical verifier for every encoded output
-and returns exit code `1` when an encoded delivery fails a check. Gates 3, 4,
-and 6 are not automatically established by this verifier: require an agent or
-human review before claiming identity consistency, garment fidelity, timing
-intent, or complete removal of platform elements.
+The bundled local CLI validates the Compiler Plan, Template IR, and asset
+mapping, and automates the technical parts of Gate 5. `compile` returns exit
+code `1` when timing evidence still requires review. `render` runs the
+technical verifier for every encoded output and returns exit code `1` when an
+encoded delivery fails a check. Gates 3, 4, and 6 are not automatically
+established: require an agent or human review before claiming identity
+consistency, garment fidelity, timing intent, or complete removal of platform
+elements.
 
 ## Gate 1 — template structure
 
+- the authorized local Compiler Plan has confirmed geometry and `slot_count`;
+- any `compile` result with `review_required: true` has been resolved, and the
+  frozen Template IR has `support.review_required: false` before rendering;
 - media geometry and duration are valid;
 - all IDs are unique;
 - events fall within the frame range;
@@ -54,7 +59,12 @@ explicit check before relying on any of those conditions.
 
 ## Gate 6 — prohibited overlay removal
 
-Use OCR, known UI-region checks, contact sheets, and a human full-playback review. Require no residual platform logo, account text, comments, engagement rail, status/navigation bars, or visible reconstruction smear. In alpha, this is a required review gate rather than an automated pass claim.
+Use known UI-region checks, contact sheets, and a human full-playback review.
+External OCR may assist a separately authorized review workflow, but the
+bundled `0.3.0-alpha` Skill does not include OCR. Require no residual platform
+logo, account text, comments, engagement rail, status/navigation bars, or
+visible reconstruction smear. This remains a required review gate rather than
+an automated pass claim.
 
 ## Result model
 

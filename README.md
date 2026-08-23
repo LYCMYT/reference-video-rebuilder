@@ -4,21 +4,27 @@
 
 The project treats a reference video as a **structure and timing specification**, not as a source of pixels to copy. Platform UI, comments, account information, and watermarks are excluded from the rebuilt result.
 
-> Status: **0.2.0-alpha.1**. The local S1 path can probe/survey reference media, validate a frozen Template IR and local asset manifest, deterministically render supported timelines, and technically verify every encoded output. Semantic slot decisions and generation of replacement looks remain agent-assisted.
+> Status: **0.3.0-alpha**. The local compiler accepts only an authorized,
+> `local-only` `fixed-subject-carousel` S1 reference with reviewer-confirmed
+> geometry and `slot_count`. It validates a frozen Compiler Plan, creates a
+> Template IR that remains schema version **0.2.0**, and can flag timing for
+> review. It does not provide OCR, arbitrary semantic understanding, cloud
+> execution, or asset generation.
 
 ## Core idea
 
 The system has two operating modes:
 
-1. **Compile mode** — analyze a new reference video and produce a reviewable Template IR with replaceable slots.
+1. **Bounded compile mode** — compile a confirmed fixed-subject-carousel S1 plan into a reviewable Template IR.
 2. **Remix mode** — reuse an approved template with a new asset mapping and render a new video.
 
 ```text
-reference video + user assets
-        -> analyze and classify
-        -> Template IR + confidence report
-        -> confirm uncertain slots
-        -> prepare replacement assets
+authorized local reference + confirmed Compiler Plan
+        -> validate plan and media preflight
+        -> bounded fixed-subject-carousel compilation
+        -> Template IR + compact review report
+        -> resolve review_required when present
+        -> map user-supplied render-ready assets
         -> deterministic render
         -> automated and human QA
         -> final videos + reusable project
@@ -35,11 +41,12 @@ skills/reference-video-rebuilder/      Installable Codex Skill
 
 ## Supported direction
 
-- High automation: fixed camera, one primary subject, simple backgrounds, regular cuts, 2D overlays, product carousels, and outfit-switch videos.
-- Assisted workflow: moderate subject motion, slow camera movement, trackable occlusions, and dynamic masks.
-- Experimental: fast motion, large pose changes, complex cloth dynamics, reflections, transparency, or multi-person interactions.
-
-The system must classify the reference before promising a result. It does not claim pixel-perfect arbitrary-video replacement.
+The current compiler is intentionally narrower than a general video analyzer:
+one authorized local `fixed-subject-carousel` S1 family. A human or Codex
+reviewer must confirm source geometry and `slot_count` before compilation. It
+does not classify arbitrary footage, infer semantic slots, read text with OCR,
+use cloud services, or generate replacement assets. It does not claim
+pixel-perfect arbitrary-video replacement.
 
 ## Install the Skill and runtime dependencies
 
@@ -65,25 +72,27 @@ Skill directory (the directory that contains `SKILL.md`):
 python -m pip install -r .\requirements-runtime.txt
 ```
 
-FFmpeg/ffprobe remain external local executables; image/video generation
-providers and advanced analyzers are optional and are not vendored here. Run
-`doctor` with explicit executable paths when using a portable installation.
-Only the reported capabilities are available. In particular, this alpha does
-not infer semantic slots by itself, generate a new outfit/model image during
-`render`, or promise pixel-identical replacement for arbitrary video.
+FFmpeg/ffprobe remain external local executables. Run `doctor` with explicit
+executable paths when using a portable installation. Only the reported
+capabilities are available. In particular, this alpha has no OCR, no arbitrary
+semantic-slot inference, no cloud route, and no image/video asset generation;
+replacement looks must be supplied as reviewed `render-ready` assets.
 
-## 0.2.0-alpha.1 quick start
+## 0.3.0-alpha quick start
 
 ```powershell
 cd skills/reference-video-rebuilder
 $ffmpeg = 'C:\tools\ffmpeg.exe' # Or omit when ffmpeg is on PATH.
-python scripts/video_remix.py doctor --ffmpeg $ffmpeg --json
+$ffprobe = 'C:\tools\ffprobe.exe' # Required for bounded compilation.
+python scripts/video_remix.py doctor --ffmpeg $ffmpeg --ffprobe $ffprobe --json
+python scripts/video_remix.py validate-compiler-plan assets/project-template/compiler.plan.example.json --json
 python scripts/video_remix.py validate-template assets/project-template/template.ir.example.json --json
 python scripts/video_remix.py validate-assets assets/project-template/template.ir.example.json assets/project-template/assets.example.json --allow-missing-files --json
 
-# A new authorized reference: make bounded local evidence for Codex/agent review.
+# A new authorized fixed-subject-carousel S1 reference, after a reviewer has
+# confirmed its geometry and slot_count in the frozen Compiler Plan.
 $project = 'D:\video-projects\outfit-reel'
-python scripts/video_remix.py survey "$project\reference.mp4" --project-root $project --output-dir reference-survey --ffmpeg $ffmpeg --json
+python scripts/video_remix.py compile "$project\reference.mp4" assets/project-template/compiler.plan.example.json --project-root $project --output-dir template-compile --ffmpeg $ffmpeg --ffprobe $ffprobe --json
 
 # An approved S1 template with user-provided or pre-generated render-ready looks.
 python scripts/video_remix.py render "$project\template.ir.json" "$project\assets.json" --project-root $project --ffmpeg $ffmpeg --summary run-summary.json --json
@@ -95,13 +104,29 @@ Run the lightweight test suite from the repository root:
 python -m unittest discover -s tests -v
 ```
 
-The example uses `--allow-missing-files` because it contains placeholder paths. Production `render` always validates the Template IR and Asset Manifest with file checks before it writes frames, then performs a complete FFmpeg decode plus dimensions, cadence, exact frame count, audio-presence, and duration checks for every requested output. A technical QA failure returns a non-zero result and is included in the optional run summary.
+The example uses `--allow-missing-files` because it contains placeholder paths.
+`compile` first validates the Compiler Plan and performs media-dependent
+semantic preflight before publishing its output directory. Its exit code is
+`0` when `review_required` is false, `1` when artifacts exist but review is
+required, and `2` for validation or operational errors. CLI JSON remains
+compact: it reports paths and review facts, never a full Template IR or a
+per-frame score dump. See the [Compiler Plan contract](skills/reference-video-rebuilder/references/compiler-contract.md).
+
+Production `render` always validates the Template IR and Asset Manifest with
+file checks and rejects `support.review_required: true` before it writes
+frames, then performs a complete FFmpeg decode
+plus dimensions, cadence, exact frame count, audio-presence, and duration
+checks for every requested output. A technical QA failure returns a non-zero
+result and is included in the optional run summary.
 
 Before rendering, an agent must turn the survey into a reviewed Template IR and provide a render-ready model/look image for each garment layer (or the user must supply it). The CLI does not decide what is a model, garment, product, background, platform UI, comment, or watermark, and it cannot recover pixels hidden behind an overlay. Human/agent visual review remains required for identity, garment fidelity, residual platform elements, and commercial rights.
 
 ## Privacy and rights
 
-The workflow must obtain confirmation that the user has permission to use the reference video, likenesses, products, logos, and audio. Local-only and cloud-assisted generation are separate execution profiles; cloud-assisted mode must never upload assets without explicit user authorization.
+The workflow must obtain confirmation that the user has permission to use the
+reference video, likenesses, products, logos, and audio. This alpha is
+`local-only`; it has no cloud-assisted execution profile and never uploads
+media or derived evidence.
 
 ## License
 

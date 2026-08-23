@@ -609,6 +609,40 @@ class RendererTests(unittest.TestCase):
         with self.assertRaises(rrv_render.UnsupportedFeatureError):
             rrv_render.S1Renderer(document, assets)
 
+    def test_unresolved_review_blocks_render_and_encode_before_writes(self):
+        image = self.image("assets/review-required.png", "#336699")
+        slots = [{"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template(
+            slots,
+            tracks,
+            [layer("image", "main", "image", ranges=[{"start_frame": 0, "end_frame": 2}])],
+            duration=2,
+        )
+        document["support"]["review_required"] = True
+        manifest = self.manifest({"image": image})
+
+        self.assertEqual(video_remix.validate_template_data(document), [])
+        assets = rrv_render.resolve_local_assets(document, manifest, self.root)
+        with self.assertRaisesRegex(rrv_render.RenderInputError, "review_required"):
+            rrv_render.S1Renderer(document, assets)
+
+        self.assert_zero_write_project_failure(
+            document,
+            manifest,
+            "review-required",
+            rrv_render.RenderInputError,
+        )
+        self.assertFalse((self.root / "render" / "master-frames").exists())
+        with self.assertRaisesRegex(rrv_render.RenderInputError, "review_required"):
+            rrv_render.encode_outputs(
+                document,
+                assets,
+                self.root,
+                self.root / "render" / "master-frames",
+                runner=lambda arguments: self.fail(f"encoder was called: {arguments}"),
+            )
+
     def test_project_preflight_rejects_schema_legal_unsupported_output_profiles_without_writes(self):
         image = self.image("assets/preflight-profile.png", "#336699")
         slots = [{"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}]

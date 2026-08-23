@@ -1,0 +1,42 @@
+{
+  "schema_version": "0.3.0",
+  "template_id": "authorized-gold-carousel",
+  "family": "fixed-subject-carousel",
+  "authorization": {
+    "reference_rights_confirmed": true,
+    "audio_rights_confirmed": true
+  },
+  "privacy": "local-only",
+  "geometry": {
+    "source_rect": {"x": 0, "y": 128, "width": 576, "height": 1024},
+    "carousel_rect": {"x": 0, "y": 0, "width": 576, "height": 200},
+    "subject_rect": {"x": 0, "y": 200, "width": 576, "height": 824}
+  },
+  "timing": {
+    "slot_count": 12,
+    "mode": "uniform",
+    "min_segment_frames": 1
+  },
+  "carousel": {
+    "origin": {"x": 8, "y": 40},
+    "item_width": 128,
+    "item_height": 120,
+    "gap": 8,
+    "end_offset_x": -1040
+  },
+  "background": {
+    "color": "#FFFFFF",
+    "replaceable": true
+  },
+  "audio": {
+    "mode": "preserve",
+    "required": true
+  },
+  "output_profiles": ["720x1280", "1080x1920"],
+  "analysis": {
+    "width": 96,
+    "snap_window_frames": 4,
+    "min_prominence": 3,
+    "max_evidence_frames": 24
+  }
+}

@@ -101,6 +101,7 @@ class CommandAndProbeTests(unittest.TestCase):
         audio_command = rrv_analyze.build_audio_extraction_command(source, "ffmpeg.exe", output)
         self.assertEqual(audio_command[audio_command.index("-map") + 1], "0:a:0")
         self.assertEqual(audio_command[audio_command.index("-c:a") + 1], "copy")
+        self.assertEqual(audio_command[audio_command.index("-fflags") + 1], "+bitexact")
         self.assertEqual(audio_command[audio_command.index("-f") + 1], "matroska")
         self.assertEqual(audio_command[audio_command.index("-map_metadata") + 1], "-1")
         self.assertEqual(audio_command[audio_command.index("-map_chapters") + 1], "-1")
@@ -114,6 +115,7 @@ class CommandAndProbeTests(unittest.TestCase):
             root = Path(directory)
             source = root / "identified-source.mka"
             extracted = root / "audio-original.mka"
+            extracted_again = root / "audio-original-again.mka"
             source_command = [
                 ffmpeg,
                 "-hide_banner",
@@ -145,6 +147,14 @@ class CommandAndProbeTests(unittest.TestCase):
                 text=True,
                 timeout=20,
             )
+            subprocess.run(
+                rrv_analyze.build_audio_extraction_command(source, ffmpeg, extracted_again),
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            self.assertEqual(extracted.read_bytes(), extracted_again.read_bytes())
             if ffprobe:
                 probe = subprocess.run(
                     [ffprobe, "-v", "error", "-show_entries", "format_tags", "-of", "json", str(extracted)],
@@ -244,6 +254,100 @@ class CommandAndProbeTests(unittest.TestCase):
         self.assertTrue(result["probe"]["limitations"])
         self.assertEqual(result["media"]["streams"][0]["width"], 1920)
         self.assertEqual(result["media"]["streams"][1]["type"], "audio")
+
+    def test_exact_timing_uses_nb_read_frames_and_rejects_vfr_mutations(self):
+        raw = {
+            "streams": [
+                {
+                    "index": 0,
+                    "codec_type": "video",
+                    "nb_read_frames": "3",
+                    "nb_frames": "99",
+                    "r_frame_rate": "10/1",
+                    "avg_frame_rate": "10/1",
+                    "time_base": "1/10",
+                }
+            ],
+            "frames": [
+                {"best_effort_timestamp": "0", "duration": "1"},
+                {"best_effort_timestamp": "1", "duration": "1"},
+                {"best_effort_timestamp": "2", "duration": "1"},
+            ],
+        }
+        timing = rrv_runtime.parse_ffprobe_exact_timing_json(raw)
+        self.assertEqual(timing["frame_count"], 3)
+        self.assertEqual(timing["frame_count_source"], "ffprobe-nb_read_frames")
+        self.assertEqual(timing["fps"], 10.0)
+        self.assertTrue(timing["cfr_confirmed"])
+
+        packet_duration_fallback = json.loads(json.dumps(raw))
+        for frame in packet_duration_fallback["frames"]:
+            frame["pkt_duration"] = frame.pop("duration")
+        self.assertEqual(
+            rrv_runtime.parse_ffprobe_exact_timing_json(packet_duration_fallback)["frame_count"],
+            3,
+        )
+
+        vfr = json.loads(json.dumps(raw))
+        vfr["frames"][2]["best_effort_timestamp"] = "3"
+        with self.assertRaises(rrv_runtime.RRVError) as raised:
+            rrv_runtime.parse_ffprobe_exact_timing_json(vfr)
+        self.assertEqual(raised.exception.code, rrv_runtime.ERR_PROBE_FAILED)
+        self.assertEqual(raised.exception.details["capability"], "exact_cfr_frame_timing")
+
+        uncounted = json.loads(json.dumps(raw))
+        del uncounted["streams"][0]["nb_read_frames"]
+        with self.assertRaises(rrv_runtime.RRVError):
+            rrv_runtime.parse_ffprobe_exact_timing_json(uncounted)
+
+    def test_exact_timing_command_is_argv_safe_and_uses_frame_counting(self):
+        temporary, source = self._source_file()
+        self.addCleanup(temporary.cleanup)
+        command = rrv_runtime.build_ffprobe_exact_timing_command(source, "ffprobe; inert")
+        self.assertIsInstance(command, list)
+        self.assertEqual(command[0], "ffprobe; inert")
+        self.assertEqual(command[command.index("-select_streams") + 1], "v:0")
+        self.assertIn("-count_frames", command)
+        self.assertIn("-show_frames", command)
+        self.assertIn("frame=best_effort_timestamp,duration,pkt_duration", command[command.index("-show_entries") + 1])
+        self.assertEqual(command[-1], str(source.resolve()))
+
+    def test_real_exact_timing_command_on_cfr_fixture_when_tools_are_available(self):
+        ffmpeg = os.environ.get("RRV_FFMPEG") or shutil.which("ffmpeg")
+        ffprobe = os.environ.get("RRV_FFPROBE") or shutil.which("ffprobe")
+        if not ffmpeg or not ffprobe:
+            self.skipTest("ffmpeg and ffprobe are not available for the exact-timing integration assertion")
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "five-frames.mp4"
+            subprocess.run(
+                [
+                    ffmpeg,
+                    "-hide_banner",
+                    "-loglevel",
+                    "error",
+                    "-nostdin",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "color=c=black:s=16x16:r=10:d=0.5",
+                    "-frames:v",
+                    "5",
+                    "-c:v",
+                    "mpeg4",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-y",
+                    str(source),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            timing = rrv_runtime.probe_exact_video_timing(source, ffprobe, timeout_seconds=20)
+        self.assertEqual(timing["frame_count"], 5)
+        self.assertEqual(timing["fps"], 10.0)
+        self.assertTrue(timing["cfr_confirmed"])
 
     def test_subprocess_timeout_and_error_are_bounded(self):
         with self.assertRaises(rrv_runtime.RRVError) as timed_out:

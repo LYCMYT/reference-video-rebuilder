@@ -162,6 +162,7 @@
       "properties": {
         "level": {"enum": ["S1", "S2", "S3", "S4"]},
         "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "review_required": {"type": "boolean"},
         "warnings": {"type": "array", "items": {"type": "string"}}
       }
     },
