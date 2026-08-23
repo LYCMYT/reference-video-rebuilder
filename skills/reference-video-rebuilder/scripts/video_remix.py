@@ -20,7 +20,7 @@ import re
 import shutil
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from collections.abc import Mapping, Sequence
 from typing import Any, Iterable
 
@@ -37,10 +37,17 @@ ASSET_MANIFEST_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-manifest.schema.json"
 COMPILER_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "compiler-plan.schema.json"
 PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "compiler-plan-proposal.schema.json"
 REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "review-decision.schema.json"
+# Asset-pack packets are intentionally separate from the v0.4 Compiler Plan
+# proposal/review contracts above.  Keep both descriptive spellings public so
+# callers can select the right contract without overloading the old aliases.
+ASSET_PACK_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-pack-proposal.schema.json"
+ASSET_MAPPING_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-mapping-review.schema.json"
 # Descriptive aliases remain public for callers that name the artifact type.
 COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.4.0-alpha"
+ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
+ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
+CLI_VERSION = "0.5.0-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 __version__ = CLI_VERSION
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -59,6 +66,7 @@ MEDIA_TYPES = {
     "audio/x-matroska",
 }
 SHA256_CHUNK_SIZE = 1024 * 1024
+ASSET_MANIFEST_SCHEMA_VERSIONS = frozenset({"0.1.0", "0.2.0"})
 
 _schema_validators: dict[Path, Any] = {}
 _schema_validator_errors: dict[Path, str] = {}
@@ -112,6 +120,12 @@ def _propose_module() -> Any:
     return _lazy_module("rrv_propose")
 
 
+def _assets_module() -> Any:
+    """Load the local asset-pack workflow only when an asset command needs it."""
+
+    return _lazy_module("rrv_assets")
+
+
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
     text = " ".join(str(value).strip().split())
     if not text:
@@ -131,6 +145,18 @@ class _ContractNonfiniteNumberError(ValueError):
     """A v0.4 packet uses JSON's non-standard non-finite number spelling."""
 
 
+class _PublicJsonDuplicateKeyError(ValueError):
+    """A security-decisive public JSON document has duplicate members."""
+
+
+class _PublicJsonNonfiniteNumberError(ValueError):
+    """A security-decisive public JSON document has a non-finite number."""
+
+
+class _PublicJsonInvalidError(ValueError):
+    """A public JSON document cannot be decoded without exposing its input."""
+
+
 def _reject_contract_nonfinite_json(value: str) -> None:
     # Never retain the spelling in an exception: it is public packet input.
     raise _ContractNonfiniteNumberError()
@@ -146,6 +172,74 @@ def _reject_duplicate_contract_members(pairs: list[tuple[str, Any]]) -> dict[str
             raise _ContractDuplicateKeyError()
         result[key] = value
     return result
+
+
+def _reject_public_nonfinite_json(value: str) -> None:
+    """Reject non-standard JSON numbers without retaining their spelling."""
+
+    raise _PublicJsonNonfiniteNumberError()
+
+
+def _reject_duplicate_public_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Build one public JSON object while rejecting recursive duplicate keys."""
+
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            # Keys can be source-controlled labels, so never include one in a
+            # public diagnostic.
+            raise _PublicJsonDuplicateKeyError()
+        result[key] = value
+    return result
+
+
+def _contains_nonfinite_json_number(value: Any) -> bool:
+    """Catch decoder overflow (for example ``1e9999``) as well as NaN tokens."""
+
+    if isinstance(value, float):
+        return not math.isfinite(value)
+    if isinstance(value, Mapping):
+        return any(_contains_nonfinite_json_number(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_contains_nonfinite_json_number(item) for item in value)
+    return False
+
+
+def _load_public_json_snapshot(path: Path) -> tuple[Any, str]:
+    """Strict-load a public JSON input and return the exact bytes' digest.
+
+    Template IR and Asset Manifest documents affect rendering decisions.  The
+    parser must therefore reject duplicate members at every nesting level and
+    the later provenance record must describe the very bytes that were parsed,
+    rather than a path re-read after rendering has begun.
+    """
+
+    try:
+        raw = Path(path).read_bytes()
+        value = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=_reject_public_nonfinite_json,
+            object_pairs_hook=_reject_duplicate_public_members,
+        )
+        if _contains_nonfinite_json_number(value):
+            raise _PublicJsonNonfiniteNumberError()
+    except (_PublicJsonDuplicateKeyError, _PublicJsonNonfiniteNumberError):
+        raise
+    except Exception as exc:
+        # Do not expose the path, parser location, invalid value, or decoder
+        # text through a public validation/render surface.
+        raise _PublicJsonInvalidError() from exc
+    return value, hashlib.sha256(raw).hexdigest()
+
+
+def _public_json_error(error: BaseException) -> str:
+    """Map strict JSON loading failures to the fixed public vocabulary."""
+
+    if isinstance(error, _PublicJsonDuplicateKeyError):
+        return "$: json.duplicate_key"
+    if isinstance(error, _PublicJsonNonfiniteNumberError):
+        return "$: json.finite_number"
+    return "$: json.invalid"
 
 
 def load_json(path: Path) -> Any:
@@ -192,6 +286,100 @@ def sha256_file(path: Path, chunk_size: int = SHA256_CHUNK_SIZE) -> str:
         while chunk := handle.read(chunk_size):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _asset_path_segments(value: Any) -> tuple[str, ...] | None:
+    """Return a canonical manifest-relative POSIX path, or ``None``.
+
+    Asset manifests travel between Windows and POSIX workers.  A path that is
+    harmless on the host running this validator can be absolute, rooted, or a
+    traversal on the other platform, so the contract deliberately accepts a
+    small common subset only.  Keep this lexical check independent from file
+    existence so ``check_files=False`` is never a path-policy bypass.
+    """
+
+    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+        return None
+    windows = PureWindowsPath(value)
+    posix = PurePosixPath(value)
+    if windows.is_absolute() or windows.drive or windows.root or posix.is_absolute():
+        return None
+    parts = tuple(value.split("/"))
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    # Portable manifests cannot rely on POSIX-only filename affordances such
+    # as NTFS alternate streams, reserved devices, trailing dots/spaces, or
+    # control characters.  Those spellings are either unsafe or normalize to
+    # a different file on a Windows worker.
+    reserved_windows_names = {"CON", "PRN", "AUX", "NUL"}
+    for part in parts:
+        stem = part.split(".", 1)[0].upper()
+        if (
+            any(ord(character) < 32 or character in '<>:"|?*' for character in part)
+            or part.endswith((" ", "."))
+            or stem in reserved_windows_names
+            or (len(stem) == 4 and stem[:3] in {"COM", "LPT"} and stem[3] in "123456789")
+        ):
+            return None
+    # A manifest path is specified in POSIX spelling.  This final check keeps
+    # future changes to the earlier rules from accepting a non-normalized form.
+    if PurePosixPath(*parts).as_posix() != value:
+        return None
+    return parts
+
+
+def _safe_asset_path(root: Path, value: Any) -> Path | None:
+    """Resolve a lexically safe asset path without exposing it in errors."""
+
+    parts = _asset_path_segments(value)
+    if parts is None:
+        return None
+    candidate = root.joinpath(*parts)
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    return resolved
+
+
+def _safe_legacy_asset_path(root: Path, value: Any) -> Path | None:
+    """Resolve one v0.1.0 host-native relative asset path safely.
+
+    Asset Manifest 0.1.0 predates the portable frozen contract.  In
+    particular, a Windows project legitimately names a child as
+    ``assets\\legacy.png``.  Continue rejecting absolute and traversal forms
+    on either supported platform, but let ``Path`` apply the current host's
+    ordinary relative-path spelling.  Version 0.2.0 intentionally keeps the
+    stricter POSIX-only helper above.
+    """
+
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return None
+    native = Path(value)
+    windows = PureWindowsPath(value)
+    posix = PurePosixPath(value)
+    if (
+        native.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or bool(windows.root)
+        or posix.is_absolute()
+    ):
+        return None
+    if (
+        ".." in native.parts
+        or ".." in windows.parts
+        or ".." in posix.parts
+    ):
+        return None
+    candidate = root / native
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return None
+    return resolved
 
 
 def command_version(command: str, args: list[str]) -> str | None:
@@ -256,6 +444,14 @@ def doctor_payload(
     review_schema_available = has_jsonschema and (
         _get_schema_validator(REVIEW_SCHEMA_PATH, "review decision") is not None
     )
+    asset_pack_proposal_schema_available = has_jsonschema and (
+        _get_schema_validator(ASSET_PACK_PROPOSAL_SCHEMA_PATH, "asset pack proposal")
+        is not None
+    )
+    asset_mapping_review_schema_available = has_jsonschema and (
+        _get_schema_validator(ASSET_MAPPING_REVIEW_SCHEMA_PATH, "asset mapping review")
+        is not None
+    )
     # A discovered regular file is not evidence that it is an executable
     # media tool.  Advertise every operational capability only after the
     # bounded version probe succeeds.
@@ -265,6 +461,9 @@ def doctor_payload(
     compiler_core_available = _compiler_module_available()
     proposal_core_available = _propose_module_available("propose_reference")
     freeze_core_available = _propose_module_available("freeze_plan")
+    asset_proposal_core_available = _assets_module_available("propose_asset_pack")
+    asset_freeze_core_available = _assets_module_available("freeze_assets")
+    asset_bound_render_core_available = _asset_bound_render_available()
     compiler_prerequisites = (
         has_ffmpeg
         and has_ffprobe
@@ -290,6 +489,28 @@ def doctor_payload(
         and proposal_schema_available
         and review_schema_available
         and freeze_core_available
+    )
+    asset_proposal_prerequisites = (
+        has_jsonschema
+        and has_pillow
+        and has_ffprobe
+        and asset_pack_proposal_schema_available
+        and asset_mapping_review_schema_available
+        and asset_proposal_core_available
+    )
+    asset_freeze_prerequisites = (
+        has_jsonschema
+        and has_pillow
+        and has_ffprobe
+        and asset_pack_proposal_schema_available
+        and asset_mapping_review_schema_available
+        and asset_freeze_core_available
+    )
+    asset_bound_render_prerequisites = (
+        has_ffmpeg
+        and has_pillow
+        and asset_manifest_schema_available
+        and asset_bound_render_core_available
     )
     return {
         "status": "ok",
@@ -329,6 +550,9 @@ def doctor_payload(
             "compiler_plan_freeze": freeze_prerequisites,
             "asset_path_policy_validation": True,
             "asset_media_probe_validation": False,
+            "asset_pack_proposal": asset_proposal_prerequisites,
+            "asset_review_freeze": asset_freeze_prerequisites,
+            "asset_bound_render": asset_bound_render_prerequisites,
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
             "reference_analysis": compiler_prerequisites,
@@ -346,6 +570,7 @@ def doctor_payload(
         "notes": [
             "S1 survey, deterministic local render, and technical video QA are available only when their reported tools are present.",
             "Compiler Plan proposal and freeze are limited to authorized local fixed-subject-carousel S1 work and always require explicit human review before freeze.",
+            "Asset-pack proposal and freeze require local Pillow, FFprobe, both asset packet schemas, and their guarded local core.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
         ],
@@ -418,6 +643,35 @@ def _propose_module_available(operation: str) -> bool:
 
     try:
         return callable(getattr(_propose_module(), operation, None))
+    except Exception:
+        return False
+
+
+def _assets_module_available(operation: str) -> bool:
+    """Check one asset-pack core entry point without surfacing import details."""
+
+    try:
+        return callable(getattr(_assets_module(), operation, None))
+    except Exception:
+        return False
+
+
+def _asset_bound_render_available() -> bool:
+    """Return whether the renderer exposes the frozen-byte snapshot surface.
+
+    Frozen Asset Manifest 0.2.0 rendering must bind the verified bytes once
+    and close that private snapshot after rendering.  Checking both functions
+    keeps ``doctor`` from advertising the new path against an older renderer
+    that only resolves mutable filenames.
+    """
+
+    try:
+        renderer = _render_module()
+        return (
+            callable(getattr(renderer, "render_project", None))
+            and callable(getattr(renderer, "resolve_local_assets", None))
+            and callable(getattr(renderer, "close_resolved_assets", None))
+        )
     except Exception:
         return False
 
@@ -1356,6 +1610,224 @@ def _validate_packet_file(path: Path, validator: Any, label: str) -> list[str]:
         return ["$: validation.unavailable"]
 
 
+# v0.5 asset packets have a deliberately separate diagnostic vocabulary from
+# the v0.4 Compiler Plan packets.  Core validation is pure, but it owns the
+# full schemas and semantic checks.  Normalize its result here before a public
+# CLI response so an unexpected core/import failure cannot reflect a private
+# filename, packet value, or FFprobe diagnostic.
+_ASSET_PACKET_POINTER_COMPONENTS = frozenset(
+    {
+        "schema_version",
+        "privacy_profile",
+        "analysis_rights_confirmed",
+        "review_required",
+        "template_path",
+        "template_sha256",
+        "template_id",
+        "asset_pack",
+        "scanner_policy_version",
+        "inventory",
+        "inventory_sha256",
+        "slot_candidates",
+        "evidence",
+        "asset_contact_sheet",
+        "asset_id",
+        "source_path",
+        "sha256",
+        "size_bytes",
+        "media_type",
+        "facts",
+        "kind",
+        "width",
+        "height",
+        "pixels",
+        "duration_seconds",
+        "audio_stream_count",
+        "video_stream_count",
+        "slot_id",
+        "required",
+        "type",
+        "accepted_media",
+        "representation_requirement",
+        "status",
+        "candidate_asset_ids",
+        "proposal_sha256",
+        "decision",
+        "contact_sheet_reviewed",
+        "local_only_confirmed",
+        "mappings",
+        "action",
+        "content_reviewed",
+        "media_compatibility_confirmed",
+        "render_ready_confirmed",
+        "rights_confirmed",
+        "processor",
+        "omit_confirmed",
+    }
+)
+_ASSET_SCHEMA_RULES = frozenset(
+    {
+        "additionalProperties",
+        "allOf",
+        "const",
+        "enum",
+        "exclusiveMinimum",
+        "maxItems",
+        "maxLength",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minimum",
+        "oneOf",
+        "pattern",
+        "required",
+        "type",
+        "uniqueItems",
+        "invalid",
+    }
+)
+_ASSET_SEMANTIC_RULES = frozenset(
+    {
+        "finite_number",
+        "normalized_relative_path",
+        "direct_child",
+        "stable_sequence",
+        "direct_asset_pack_file",
+        "accepted_media",
+        "image_facts",
+        "image_bounds",
+        "media_kind",
+        "audio_bounds",
+        "kind",
+        "stable_source_order",
+        "canonical_inventory_hash",
+        "asset_ids",
+        "stable_unique_order",
+        "candidate_count",
+        "unknown_asset",
+        "exact_filename_only",
+        "stable_slot_order",
+        "approved_review_confirmations",
+        "unique",
+        "safe_slug",
+        "use_confirmations",
+        "required",
+        "unresolved_approved",
+        "semantic.invalid",
+        "validation.unavailable",
+        "validation.invalid",
+    }
+)
+
+
+def _safe_asset_packet_pointer(value: str) -> str:
+    """Collapse a core pointer to known packet members and numeric indexes."""
+
+    if not value.startswith("$"):
+        return "$"
+    result = "$"
+    offset = 1
+    while offset < len(value):
+        if value[offset] == ".":
+            match = re.match(r"\.([A-Za-z_][A-Za-z0-9_]*)", value[offset:])
+            if match is None or match.group(1) not in _ASSET_PACKET_POINTER_COMPONENTS:
+                return "$"
+            result += f".{match.group(1)}"
+            offset += len(match.group(0))
+        elif value[offset] == "[":
+            match = re.match(r"\[([0-9]+)\]", value[offset:])
+            if match is None:
+                return "$"
+            result += f"[{int(match.group(1))}]"
+            offset += len(match.group(0))
+        else:
+            return "$"
+    return result
+
+
+def _safe_asset_validation_error(error: Any) -> str:
+    """Return one fixed public asset-packet diagnostic class."""
+
+    if not isinstance(error, str):
+        return "$: validation.invalid"
+    compact = _compact_error_text(error, limit=_MAX_CONTRACT_ERROR_LENGTH)
+    if compact in {
+        "asset proposal: validation_unavailable",
+        "asset review: validation_unavailable",
+    }:
+        return "$: validation.unavailable"
+    if ": " not in compact:
+        return "$: validation.invalid"
+    pointer, rule = compact.split(": ", 1)
+    safe_pointer = _safe_asset_packet_pointer(pointer)
+    if rule.startswith("schema."):
+        schema_rule = rule.removeprefix("schema.")
+        if schema_rule in _ASSET_SCHEMA_RULES:
+            return f"{safe_pointer}: schema.{schema_rule}"
+    elif rule in _ASSET_SEMANTIC_RULES:
+        return f"{safe_pointer}: {rule}"
+    return "$: validation.invalid"
+
+
+def _bounded_asset_errors(errors: Any) -> list[str]:
+    """Bound and deduplicate only the v0.5 fixed diagnostic vocabulary."""
+
+    if isinstance(errors, (str, bytes)) or not isinstance(errors, Iterable):
+        return ["$: validation.unavailable"]
+    result: list[str] = []
+    seen: set[str] = set()
+    for error in errors:
+        safe = _safe_asset_validation_error(error)
+        if safe in seen:
+            continue
+        seen.add(safe)
+        result.append(safe)
+        if len(result) >= _MAX_CONTRACT_ERRORS:
+            break
+    return result
+
+
+def validate_asset_proposal_data(data: Any) -> list[str]:
+    """Run the pure v0.5 proposal validator without probing or writing media."""
+
+    try:
+        validator = getattr(_assets_module(), "validate_asset_proposal_data", None)
+        if not callable(validator):
+            return ["$: validation.unavailable"]
+        return _bounded_asset_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def validate_asset_review_data(data: Any) -> list[str]:
+    """Run the pure v0.5 review validator without probing or writing media."""
+
+    try:
+        validator = getattr(_assets_module(), "validate_asset_review_data", None)
+        if not callable(validator):
+            return ["$: validation.unavailable"]
+        return _bounded_asset_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def _validate_asset_packet_file(path: Path, validator: Any) -> list[str]:
+    """Strict-load and validate a v0.5 packet without relaying input text."""
+
+    try:
+        data = _load_contract_json(path)
+    except _ContractDuplicateKeyError:
+        return ["$: json.duplicate_key"]
+    except _ContractNonfiniteNumberError:
+        return ["$: json.finite_number"]
+    except Exception:
+        return ["$: json.invalid"]
+    try:
+        return _bounded_asset_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
 def require_dict(value: Any, path: str, errors: list[str]) -> dict[str, Any]:
     if not isinstance(value, dict):
         errors.append(f"{path} must be an object")
@@ -1397,10 +1869,19 @@ def validate_assets_data(
     mapped_slots: set[str] = set()
     if root["template_id"] != template.get("template_id"):
         errors.append("$.template_id does not match the Template IR")
-    privacy_profile = root["privacy_profile"]
+    schema_version = root.get("schema_version")
+    # The schema enforces this too.  Repeating the closed version set here
+    # documents the execution contract and keeps this semantic validator safe
+    # if its schema is ever refactored.
+    if schema_version not in ASSET_MANIFEST_SCHEMA_VERSIONS:
+        errors.append("$.schema_version is not a supported Asset Manifest version")
+    frozen_local_only = schema_version == "0.2.0"
+    if frozen_local_only and root.get("privacy_profile") != "local-only":
+        errors.append("$.privacy_profile must be local-only for Asset Manifest 0.2.0")
     root_path = (project_root or manifest_path.parent).resolve()
-    if not root_path.is_dir():
-        errors.append(f"project root does not exist or is not a directory: {root_path}")
+    root_exists = root_path.is_dir()
+    if not root_exists:
+        errors.append("project root does not exist or is not a directory")
     for index, item in enumerate(assets):
         asset = item
         slot_id = asset.get("slot_id")
@@ -1416,20 +1897,49 @@ def validate_assets_data(
                 f"$.assets[{index}].media_type {media_type} is not accepted by slot {slot_id}"
             )
         path_value = asset.get("path")
-        if isinstance(path_value, str):
-            raw_path = Path(path_value)
-            resolved = raw_path.resolve() if raw_path.is_absolute() else (root_path / raw_path).resolve()
+        if frozen_local_only:
+            if not isinstance(path_value, str):
+                errors.append(f"$.assets[{index}].path is required for Asset Manifest 0.2.0")
+            if not isinstance(asset.get("sha256"), str):
+                errors.append(f"$.assets[{index}].sha256 is required for Asset Manifest 0.2.0")
+            if "provider_asset_id" in asset:
+                errors.append(f"$.assets[{index}].provider_asset_id is forbidden for Asset Manifest 0.2.0")
+            if asset.get("cloud_upload_allowed") is not False:
+                errors.append(
+                    f"$.assets[{index}].cloud_upload_allowed must be false for Asset Manifest 0.2.0"
+                )
+
+        resolved = (
+            _safe_asset_path(root_path, path_value)
+            if frozen_local_only
+            else _safe_legacy_asset_path(root_path, path_value)
+        )
+        if isinstance(path_value, str) and resolved is None:
+            errors.append(f"$.assets[{index}].path violates the project-relative path policy")
+            continue
+        if not isinstance(path_value, str):
+            # A provider-only v0.1 entry remains schema-legal.  It is not a
+            # local file to preflight here; the renderer rejects it explicitly.
+            continue
+        if not root_exists or resolved is None:
+            continue
+        if check_files:
             try:
-                resolved.relative_to(root_path)
-            except ValueError:
-                errors.append(f"$.assets[{index}].path escapes the project root: {path_value}")
-            else:
-                if check_files and not resolved.is_file():
-                    errors.append(f"$.assets[{index}].path does not exist: {resolved}")
-                elif check_files and asset.get("sha256") is not None:
-                    expected_sha256 = asset["sha256"]
-                    if sha256_file(resolved).lower() != expected_sha256.lower():
-                        errors.append(f"$.assets[{index}].sha256 does not match {resolved}")
+                available = resolved.is_file()
+            except OSError:
+                available = False
+            if not available:
+                errors.append(f"$.assets[{index}].path is unavailable")
+                continue
+            expected_sha256 = asset.get("sha256")
+            if isinstance(expected_sha256, str):
+                try:
+                    actual_sha256 = sha256_file(resolved)
+                except OSError:
+                    errors.append(f"$.assets[{index}].path is unavailable")
+                    continue
+                if actual_sha256.lower() != expected_sha256.lower():
+                    errors.append(f"$.assets[{index}].sha256 does not match file content")
     for slot_id in sorted(slot_id for slot_id, slot in declared_slots.items() if slot.get("required") is True and slot_id not in mapped_slots):
         errors.append(f"required slot is not mapped: {slot_id}")
     return errors
@@ -1499,6 +2009,42 @@ def _template_requires_review(template: Mapping[str, Any]) -> bool:
     return isinstance(support, Mapping) and support.get("review_required") is True
 
 
+def _consumed_json_sha256(value: Any) -> str:
+    """Hash an already-consumed JSON value without reopening its source path."""
+
+    try:
+        encoded = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        raise ValueError("render input JSON cannot be hashed") from exc
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _legacy_renderer_path_is_safe(value: Any) -> bool:
+    """Accept a renderer-reported v0.1 relative path without resolving it."""
+
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return False
+    native = Path(value)
+    windows = PureWindowsPath(value)
+    posix = PurePosixPath(value)
+    return not (
+        native.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or bool(windows.root)
+        or posix.is_absolute()
+        or ".." in native.parts
+        or ".." in windows.parts
+        or ".." in posix.parts
+    )
+
+
 def _render_hashes(
     template_path: Path,
     manifest_path: Path,
@@ -1506,36 +2052,103 @@ def _render_hashes(
     manifest: Mapping[str, Any],
     project_root: Path,
     runtime: Any,
+    *,
+    renderer_summary: Mapping[str, Any] | None = None,
+    template_sha256: str | None = None,
+    manifest_sha256: str | None = None,
 ) -> dict[str, Any]:
-    """Record the immutable inputs that produced a deterministic delivery."""
+    """Record the inputs actually consumed by a deterministic delivery.
+
+    ``template_path`` and ``manifest_path`` remain in the public helper's
+    historical signature, but deliberately are never reopened here.  Normal
+    CLI rendering supplies raw-byte digests captured before validation; the
+    in-memory fallback preserves compatibility for direct callers that have
+    already supplied parsed documents.
+    """
+
+    del template_path, manifest_path, project_root, runtime
+    if template_sha256 is None:
+        template_sha256 = _consumed_json_sha256(template)
+    if manifest_sha256 is None:
+        manifest_sha256 = _consumed_json_sha256(manifest)
+    if (
+        re.fullmatch(r"[0-9a-f]{64}", template_sha256) is None
+        or re.fullmatch(r"[0-9a-f]{64}", manifest_sha256) is None
+    ):
+        raise ValueError("render input hashes are invalid")
 
     source = template.get("source") if isinstance(template.get("source"), Mapping) else {}
     asset_rows: list[dict[str, Any]] = []
     raw_assets = manifest.get("assets") if isinstance(manifest.get("assets"), list) else []
-    for asset in sorted(
-        (item for item in raw_assets if isinstance(item, Mapping)),
-        key=lambda item: str(item.get("slot_id", "")),
-    ):
-        path_value = asset.get("path")
-        if not isinstance(path_value, str):
-            # Provider-only assets are not accepted by the local renderer, but
-            # keeping this branch makes the provenance function total.
-            continue
-        raw_path = Path(path_value)
-        resolved = raw_path.resolve() if raw_path.is_absolute() else (project_root / raw_path).resolve()
-        asset_rows.append(
-            {
-                "slot_id": asset.get("slot_id"),
-                "path": runtime.relative_output_path(project_root, resolved),
-                "sha256": sha256_file(resolved),
-            }
-        )
-    return {
-        "template_sha256": sha256_file(template_path),
-        "manifest_sha256": sha256_file(manifest_path),
+    result = {
+        "template_sha256": template_sha256,
+        "manifest_sha256": manifest_sha256,
         "source_sha256": source.get("source_sha256"),
         "assets": asset_rows,
     }
+    if manifest.get("schema_version") == "0.2.0":
+        # Frozen assets are verified while resolving and may be replaced or
+        # deleted immediately afterwards.  Provenance must therefore consume
+        # the renderer's bound snapshot digest, never hash the mutable path a
+        # second time.
+        if not isinstance(renderer_summary, Mapping):
+            raise ValueError("renderer did not return bound asset provenance")
+        summary_assets = renderer_summary.get("assets")
+        if not isinstance(summary_assets, list):
+            raise ValueError("renderer did not return bound asset provenance")
+        expected_paths: dict[str, str] = {}
+        for item in raw_assets:
+            if not isinstance(item, Mapping):
+                raise ValueError("frozen manifest contains an invalid asset")
+            slot_id = item.get("slot_id")
+            path_value = item.get("path")
+            if not isinstance(slot_id, str) or _asset_path_segments(path_value) is None:
+                raise ValueError("frozen manifest contains an invalid asset")
+            expected_paths[slot_id] = str(path_value)
+
+        returned_slots: set[str] = set()
+        for item in summary_assets:
+            if not isinstance(item, Mapping):
+                raise ValueError("renderer returned invalid bound asset provenance")
+            slot_id = item.get("slot_id")
+            path_value = item.get("path")
+            digest = item.get("sha256")
+            if (
+                not isinstance(slot_id, str)
+                or expected_paths.get(slot_id) != path_value
+                or slot_id in returned_slots
+                or _asset_path_segments(path_value) is None
+                or not isinstance(digest, str)
+                or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            ):
+                raise ValueError("renderer returned invalid bound asset provenance")
+            returned_slots.add(slot_id)
+            asset_rows.append({"slot_id": slot_id, "path": path_value, "sha256": digest})
+        if returned_slots != set(expected_paths):
+            raise ValueError("renderer returned incomplete bound asset provenance")
+        asset_rows.sort(key=lambda item: str(item["slot_id"]))
+        return result
+
+    # Legacy rendering does not bind source asset bytes.  Use the renderer's
+    # already-produced relative paths for provenance and omit a misleading
+    # post-render file hash.  A lightweight mock may omit ``assets`` entirely.
+    summary_assets = renderer_summary.get("assets", []) if isinstance(renderer_summary, Mapping) else []
+    if not isinstance(summary_assets, list):
+        raise ValueError("renderer returned invalid asset provenance")
+    for item in summary_assets:
+        if not isinstance(item, Mapping):
+            raise ValueError("renderer returned invalid asset provenance")
+        slot_id = item.get("slot_id")
+        path_value = item.get("path")
+        if not isinstance(slot_id, str) or not _legacy_renderer_path_is_safe(path_value):
+            raise ValueError("renderer returned invalid asset provenance")
+        row: dict[str, Any] = {"slot_id": slot_id, "path": path_value}
+        digest = item.get("sha256")
+        if isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest) is not None:
+            row["sha256"] = digest
+        asset_rows.append(row)
+    asset_rows.sort(key=lambda item: str(item["slot_id"]))
+    return result
 
 
 def _provenance_source_type(value: object) -> str | None:
@@ -1606,22 +2219,84 @@ def _write_summary(
     return runtime.relative_output_path(project_root, output)
 
 
+_RENDER_TEMPLATE_SHA256_ATTRIBUTE = "_rrv_template_input_sha256"
+_RENDER_MANIFEST_SHA256_ATTRIBUTE = "_rrv_manifest_input_sha256"
+
+
+def _clear_render_input_hashes(args: argparse.Namespace) -> None:
+    """Prevent a reused Namespace from carrying a prior request's digest."""
+
+    for attribute in (_RENDER_TEMPLATE_SHA256_ATTRIBUTE, _RENDER_MANIFEST_SHA256_ATTRIBUTE):
+        try:
+            delattr(args, attribute)
+        except (AttributeError, TypeError):
+            pass
+
+
+def _set_render_input_hashes(args: argparse.Namespace, template_sha256: str, manifest_sha256: str) -> None:
+    """Attach byte-snapshot digests without requiring a custom args type."""
+
+    try:
+        setattr(args, _RENDER_TEMPLATE_SHA256_ATTRIBUTE, template_sha256)
+        setattr(args, _RENDER_MANIFEST_SHA256_ATTRIBUTE, manifest_sha256)
+    except (AttributeError, TypeError):
+        # Direct programmatic callers may provide a frozen namespace-like
+        # object.  ``run_render`` then hashes its already-consumed mappings,
+        # still without reopening either input path.
+        pass
+
+
+def _render_input_hash(args: argparse.Namespace, attribute: str, data: Mapping[str, Any]) -> str:
+    """Return the raw snapshot digest, with a no-reread compatibility fallback."""
+
+    candidate = getattr(args, attribute, None)
+    if isinstance(candidate, str) and re.fullmatch(r"[0-9a-f]{64}", candidate) is not None:
+        return candidate
+    return _consumed_json_sha256(data)
+
+
+def _safe_render_validation_errors(errors: Iterable[str]) -> list[str]:
+    """Return only fixed render-validation diagnostics safe for public JSON."""
+
+    safe: list[str] = []
+    for error in errors:
+        compact = _compact_error_text(error)
+        # This one gate is an intentional workflow instruction rather than a
+        # schema diagnostic, and contains no source-controlled field/value.
+        if compact == "$.support.review_required must be false before rendering":
+            safe.append(compact)
+        else:
+            # Schema and semantic validators can quote invalid values,
+            # filenames, and relative or absolute local paths.  Never return
+            # any of that public input through the render command.
+            safe.append("$: validation.invalid")
+    return _deduplicate_errors(safe)
+
+
 def _require_render_inputs(
     args: argparse.Namespace,
     runtime: Any,
 ) -> tuple[Path, dict[str, Any], dict[str, Any], list[str]]:
     """Load and fully validate a render request before creating output files."""
 
+    _clear_render_input_hashes(args)
     project_root = runtime.require_project_root(args.project_root)
     # Reject an unsafe or existing optional summary before inspecting a project
     # further.  This is read-only and ensures a bad path can never be reached
     # after a costly render.
     if args.summary is not None:
         runtime.resolve_output_path(project_root, args.summary, must_not_exist=True)
-    template = load_json(args.template)
-    manifest = load_json(args.manifest)
+    try:
+        template, template_sha256 = _load_public_json_snapshot(args.template)
+    except Exception as exc:
+        return project_root, {}, {}, [_public_json_error(exc)]
+    try:
+        manifest, manifest_sha256 = _load_public_json_snapshot(args.manifest)
+    except Exception as exc:
+        return project_root, {}, {}, [_public_json_error(exc)]
     if not isinstance(template, dict) or not isinstance(manifest, dict):
-        return project_root, {}, {}, ["template and manifest must be JSON objects"]
+        return project_root, {}, {}, ["$: validation.invalid"]
+    _set_render_input_hashes(args, template_sha256, manifest_sha256)
     template_errors = validate_template_data(template)
     if not template_errors and _template_requires_review(template):
         # A compiler may publish a technically valid Template IR while asking
@@ -1637,7 +2312,7 @@ def _require_render_inputs(
         check_files=True,
         project_root=project_root,
     )
-    errors = _deduplicate_errors([*template_errors, *asset_errors])
+    errors = _safe_render_validation_errors([*template_errors, *asset_errors])
     if not errors:
         runtime.validate_timeout(args.timeout)
     return project_root, template, manifest, errors
@@ -1735,7 +2410,6 @@ def run_render(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         raise runtime.RRVError(
             runtime.ERR_TOOL_EXECUTION,
             "deterministic render failed",
-            {"reason": _compact_error_text(exc)},
         ) from exc
     qa_summary = _render_qa(
         renderer_summary,
@@ -1751,7 +2425,19 @@ def run_render(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         "renderer": renderer_summary,
         "qa": qa_summary,
         "hashes": _render_hashes(
-            args.template, args.manifest, template, manifest, project_root, runtime
+            args.template,
+            args.manifest,
+            template,
+            manifest,
+            project_root,
+            runtime,
+            renderer_summary=renderer_summary,
+            template_sha256=_render_input_hash(
+                args, _RENDER_TEMPLATE_SHA256_ATTRIBUTE, template
+            ),
+            manifest_sha256=_render_input_hash(
+                args, _RENDER_MANIFEST_SHA256_ATTRIBUTE, manifest
+            ),
         ),
         "provenance": {"runtime": _render_runtime_provenance(tools)},
     }
@@ -1967,6 +2653,72 @@ def _compile_error_payload(runtime: Any, error: BaseException) -> dict[str, Any]
             details,
         )
     )
+
+
+def _public_validation_errors(errors: Any) -> list[str]:
+    """Collapse Template/Manifest diagnostics to a fixed safe public class."""
+
+    if isinstance(errors, (str, bytes)) or not isinstance(errors, Iterable):
+        return ["$: validation.unavailable"]
+    return [] if not list(errors) else ["$: validation.invalid"]
+
+
+def _validate_public_template_document(data: Any) -> list[str]:
+    """Validate a strict-loaded Template IR without reflecting its values."""
+
+    try:
+        return _public_validation_errors(validate_template_data(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def _validate_public_asset_documents(
+    template: Any,
+    manifest: Any,
+    manifest_path: Path,
+    *,
+    check_files: bool,
+    project_root: Path | None,
+) -> list[str]:
+    """Validate strict-loaded manifest inputs without relaying local paths."""
+
+    try:
+        return _public_validation_errors(
+            validate_assets_data(
+                template,
+                manifest,
+                manifest_path,
+                check_files=check_files,
+                project_root=project_root,
+            )
+        )
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+_SAFE_RENDER_ERROR_CODES = frozenset(
+    {
+        "invalid_argument",
+        "project_root_invalid",
+        "output_path_outside_project_root",
+        "output_already_exists",
+        "source_not_found",
+        "tool_not_found",
+        "tool_execution_failed",
+        "tool_timeout",
+        "probe_failed",
+        "capability_unavailable",
+    }
+)
+
+
+def _render_error_payload(runtime: Any, error: BaseException) -> dict[str, Any]:
+    """Return a render failure that cannot disclose input or tool paths."""
+
+    code = getattr(error, "code", None)
+    if not isinstance(code, str) or code not in _SAFE_RENDER_ERROR_CODES:
+        code = runtime.ERR_TOOL_EXECUTION
+    return runtime.error_payload(runtime.RRVError(code, "render request failed"))
 
 
 def run_compile(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
@@ -2213,6 +2965,130 @@ def run_freeze(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     return run_freeze_plan(args)
 
 
+_ASSET_PROPOSAL_COUNT_KEYS = (
+    "inventory_entries",
+    "template_slots",
+    "suggested_slots",
+)
+_ASSET_FREEZE_COUNT_KEYS = (
+    "inventory_entries",
+    "mapped_slots",
+    "omitted_slots",
+    "copied_assets",
+)
+
+
+def _compact_asset_counts(value: Any, count_keys: Sequence[str]) -> dict[str, int]:
+    """Expose only bounded, known asset-workflow count fields."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("asset workflow returned invalid counts")
+    compact: dict[str, int] = {}
+    for key in count_keys:
+        item = value.get(key)
+        if not _is_int(item) or not 0 <= item <= 1_000_000:
+            raise TypeError(f"asset workflow returned invalid counts.{key}")
+        compact[key] = item
+    return compact
+
+
+def _compact_asset_workflow_result(
+    result: Mapping[str, Any],
+    *,
+    review_required: bool,
+    count_keys: Sequence[str],
+    artifact_names: Sequence[str],
+) -> dict[str, Any]:
+    """Return only the v0.5 handoff facts safe for public CLI JSON."""
+
+    schema_version = result.get("schema_version")
+    if not isinstance(schema_version, str) or not SCHEMA_VERSION_PATTERN.fullmatch(schema_version):
+        raise TypeError("asset workflow returned an invalid schema_version")
+    returned_review_required = result.get("review_required")
+    if returned_review_required is not review_required:
+        raise TypeError("asset workflow returned an invalid review_required state")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        raise TypeError("asset workflow returned invalid artifacts")
+    return {
+        "schema_version": schema_version,
+        "review_required": review_required,
+        "counts": _compact_asset_counts(result.get("counts"), count_keys),
+        "artifacts": {
+            name: _compact_workflow_artifact(artifacts.get(name), f"artifacts.{name}")
+            for name in artifact_names
+        },
+    }
+
+
+def run_propose_assets(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Delegate a raw Template path to the guarded v0.5 asset-pack core."""
+
+    # argparse normally enforces this flag before dispatch.  Retaining the
+    # check here makes programmatic callers fail before the asset core is even
+    # imported, which preserves the no-analysis-without-rights boundary.
+    if getattr(args, "asset_pack_rights_confirmed", False) is not True:
+        return _error_payload(
+            CliArgumentError("--asset-pack-rights-confirmed is required"),
+            invalid_argument=True,
+        ), 2
+    try:
+        result = _assets_module().propose_asset_pack(
+            args.template,
+            project_root=args.project_root,
+            asset_pack=args.asset_pack,
+            asset_pack_rights_confirmed=args.asset_pack_rights_confirmed,
+            output_dir=args.output_dir,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("asset workflow returned an invalid result")
+        runtime = _runtime_module()
+        return runtime.success_payload(
+            _compact_asset_workflow_result(
+                result,
+                review_required=True,
+                count_keys=_ASSET_PROPOSAL_COUNT_KEYS,
+                artifact_names=("proposal", "review_template", "contact_sheet"),
+            )
+        ), 0
+    except Exception as exc:
+        return _workflow_error_payload("asset pack proposal", exc), 2
+
+
+def run_freeze_assets(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Delegate raw packets to the guarded core without a CLI TOCTOU read.
+
+    The core binds proposal/review snapshots, validates their hashes, and
+    rescans media before it creates its staging directory.  Do not resolve,
+    open, or validate either packet in this wrapper.
+    """
+
+    try:
+        result = _assets_module().freeze_assets(
+            args.proposal,
+            args.review,
+            project_root=args.project_root,
+            output_dir=args.output_dir,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("asset workflow returned an invalid result")
+        runtime = _runtime_module()
+        return runtime.success_payload(
+            _compact_asset_workflow_result(
+                result,
+                review_required=False,
+                count_keys=_ASSET_FREEZE_COUNT_KEYS,
+                artifact_names=("assets_manifest", "freeze_report"),
+            )
+        ), 0
+    except Exception as exc:
+        return _workflow_error_payload("asset review freeze", exc), 2
+
+
 def _add_runtime_arguments(
     parser: argparse.ArgumentParser,
     *,
@@ -2274,6 +3150,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_review.add_argument("review", type=Path)
     validate_review.add_argument("--json", action="store_true", dest="as_json")
+    validate_asset_proposal = subparsers.add_parser(
+        "validate-asset-proposal",
+        help="Validate a v0.5 local asset-pack proposal packet",
+    )
+    validate_asset_proposal.add_argument("proposal", type=Path)
+    validate_asset_proposal.add_argument("--json", action="store_true", dest="as_json")
+    validate_asset_review = subparsers.add_parser(
+        "validate-asset-review",
+        help="Validate a v0.5 local asset-mapping review packet",
+    )
+    validate_asset_review.add_argument("review", type=Path)
+    validate_asset_review.add_argument("--json", action="store_true", dest="as_json")
 
     probe = subparsers.add_parser("probe", help="Probe one local media source")
     probe.add_argument("source", type=Path)
@@ -2351,6 +3239,40 @@ def build_parser() -> argparse.ArgumentParser:
     freeze_plan.add_argument("--output-dir", type=Path, default=Path("frozen-plan"))
     freeze_plan.add_argument("--json", action="store_true", dest="as_json")
 
+    propose_assets = subparsers.add_parser(
+        "propose-assets",
+        help="Create a local review-required asset-pack proposal",
+    )
+    propose_assets.add_argument("template", type=Path)
+    propose_assets.add_argument("--project-root", type=Path, required=True)
+    propose_assets.add_argument(
+        "--asset-pack",
+        type=Path,
+        required=True,
+        help="Direct child of project root; verified by the guarded asset core",
+    )
+    propose_assets.add_argument("--output-dir", type=Path, default=Path("asset-proposal"))
+    propose_assets.add_argument(
+        "--asset-pack-rights-confirmed",
+        action="store_true",
+        required=True,
+    )
+    propose_assets.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    propose_assets.add_argument("--timeout", type=float, default=60.0)
+    propose_assets.add_argument("--json", action="store_true", dest="as_json")
+
+    freeze_assets = subparsers.add_parser(
+        "freeze-assets",
+        help="Freeze an approved local asset mapping after a guarded rescan",
+    )
+    freeze_assets.add_argument("proposal", type=Path)
+    freeze_assets.add_argument("review", type=Path)
+    freeze_assets.add_argument("--project-root", type=Path, required=True)
+    freeze_assets.add_argument("--output-dir", type=Path, default=Path("frozen-assets"))
+    freeze_assets.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    freeze_assets.add_argument("--timeout", type=float, default=60.0)
+    freeze_assets.add_argument("--json", action="store_true", dest="as_json")
+
     render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
     render.add_argument("template", type=Path)
     render.add_argument("manifest", type=Path)
@@ -2406,8 +3328,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, status = run_freeze(args)
             _emit_stable_json(payload)
             return status
+        if args.command == "propose-assets":
+            payload, status = run_propose_assets(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "freeze-assets":
+            payload, status = run_freeze_assets(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "render":
-            payload, status = run_render(args)
+            try:
+                payload, status = run_render(args)
+            except Exception as exc:
+                _emit_stable_json(_render_error_payload(_runtime_module(), exc))
+                return 2
             _emit_stable_json(payload)
             return status
         if args.command == "qa":
@@ -2416,8 +3350,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             return status
 
         if args.command == "validate-template":
-            template = load_json(args.template)
-            errors = validate_template_data(template)
+            try:
+                template, _template_sha256 = _load_public_json_snapshot(args.template)
+            except Exception as exc:
+                errors = [_public_json_error(exc)]
+            else:
+                errors = _validate_public_template_document(template)
         elif args.command == "validate-compiler-plan":
             errors = validate_compiler_plan_data(load_json(args.plan))
         elif args.command == "validate-proposal":
@@ -2426,15 +3364,32 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
         elif args.command == "validate-review":
             errors = _validate_packet_file(args.review, validate_review_data, "review")
-        else:
-            template = load_json(args.template)
-            errors = validate_assets_data(
-                template,
-                load_json(args.manifest),
-                args.manifest,
-                check_files=not args.allow_missing_files,
-                project_root=args.project_root,
+        elif args.command == "validate-asset-proposal":
+            errors = _validate_asset_packet_file(
+                args.proposal, validate_asset_proposal_data
             )
+        elif args.command == "validate-asset-review":
+            errors = _validate_asset_packet_file(
+                args.review, validate_asset_review_data
+            )
+        else:
+            try:
+                template, _template_sha256 = _load_public_json_snapshot(args.template)
+            except Exception as exc:
+                errors = [_public_json_error(exc)]
+            else:
+                try:
+                    manifest, _manifest_sha256 = _load_public_json_snapshot(args.manifest)
+                except Exception as exc:
+                    errors = [_public_json_error(exc)]
+                else:
+                    errors = _validate_public_asset_documents(
+                        template,
+                        manifest,
+                        args.manifest,
+                        check_files=not args.allow_missing_files,
+                        project_root=args.project_root,
+                    )
     except (ValueError, OSError, TypeError) as exc:
         errors = [str(exc)]
     except Exception as exc:

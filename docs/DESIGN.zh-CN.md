@@ -1,11 +1,16 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.4.0-alpha
+版本：0.5.0-alpha（在 0.4.0-alpha 基础上的增量）
 日期：2026-08-23
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
 
 当前实现状态：本地 Alpha 已具备 FFmpeg/ffprobe 媒体探测、受限参考调查、Compiler Plan/Template IR/资产合同校验、固定 S1 确定性合成和逐输出技术 QA。0.4.0-alpha 新增已授权、本地 fixed-subject-carousel S1 的 propose -> review -> freeze-plan -> compile -> render 工作流：propose 只产生严格 0.4.0 Proposal 与待审工件，Review 显式绑定 Proposal 哈希，freeze-plan 才生成既有编译器消费的规范 Compiler Plan。Frozen Compiler Plan schema 保持 0.3.0 以兼容 v0.3，编译输出的 Template IR schema 仍为 0.2.0。
+
+0.5.0-alpha 在不改变上述 v0.4 计划冻结路径的前提下，增加严格的本地
+asset-pack 路径：对已验证 Template IR 执行 propose-assets，人工审核每个
+映射，再以 freeze-assets 发布可渲染的本地冻结资产。该增量不自动理解资产
+语义、不生成资产，也不扩大 S1 或本地边界。
 
 > **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现、没有云端执行、没有素材/换装资产生成。propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素；它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。本文后文出现的 OCR、检测、云端 adapter、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
@@ -35,6 +40,7 @@ Skill 名称：`reference-video-rebuilder`
 22. [已知未知与未知的未知](#22-已知未知与未知的未知)
 23. [当前视频的首个金标准](#23-当前视频的首个金标准)
 24. [最终决策](#24-最终决策)
+25. [v0.5 严格本地资产包增量](#25-v05-严格本地资产包增量)
 
 ## 1. 执行摘要
 
@@ -136,9 +142,10 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 ## 6. 总体架构
 
 本节描述目标架构；图中的 OCR、检测、生成 adapter、云端和高级 QA
-组件不是 0.4.0-alpha 的已实现能力。当前可执行路径仅为本地、已授权的
-fixed-subject-carousel S1 的 propose -> review -> freeze-plan -> compile 和
-已审核 Template IR 的确定性渲染。
+组件不是 0.5.0-alpha 的已实现能力。当前可执行路径仅为本地、已授权的
+fixed-subject-carousel S1 的 propose -> review -> freeze-plan -> compile，
+以及已验证 Template IR 的 propose-assets -> 人工审核 -> freeze-assets ->
+确定性渲染。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -529,7 +536,10 @@ NEW
 
 ## 10. 命令行和工具接口
 
-`0.4.0-alpha` 提供以下稳定 JSON CLI；Codex 不应依赖自然语言日志。产品/CLI 版本为 `0.4.0-alpha`，Proposal schema 为 `0.4.0`，Frozen Compiler Plan schema 保持 `0.3.0`，编译输出的 Template IR schema 保持 `0.2.0`：
+当前产品/CLI 版本为 `0.5.0-alpha`，并保留下列在 v0.4 引入的稳定 JSON
+参考计划命令；Codex 不应依赖自然语言日志。参考 Proposal schema 为
+`0.4.0`，Frozen Compiler Plan schema 保持 `0.3.0`，编译输出的 Template IR
+schema 保持 `0.2.0`。v0.5 的资产命令和 schema 版本见第 25 节：
 
 ```text
 video-remix doctor [--ffmpeg <path>] [--ffprobe <path>] --json
@@ -996,6 +1006,17 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
 - Template IR 0.2.0、既有 deterministic compile/render 与技术 QA 回归不变；
 - 不声明任意视频 family 发现、OCR、云端、资产生成、自动批准或隐藏像素恢复。
 
+### 0.5.0-alpha
+
+- 新增严格本地 asset-pack 的 propose-assets、显式 Review 与 freeze-assets；
+- exact filename stem 是唯一候选规则，missing、ambiguous、incompatible 与
+  unresolved 都不能冻结；
+- 发布 Asset Manifest 0.2.0、opaque flat copies 与 freeze report，renderer
+  从哈希绑定 snapshot 读取图片并以 pipe:0 读取音频；
+- Manifest/report 是本机审计记录而非可信签名，renderer 输出路径也不承诺
+  抵抗恶意并发文件系统替换；
+- Asset Manifest 0.1.0 仅保留 legacy 兼容。
+
 ### 1.0.0
 
 - 定义清楚的 S1 支持域；
@@ -1057,3 +1078,106 @@ freeze-plan。该启发式不等于 platform chrome/UI 语义检测或移除，�
 项目应以自研 `reference-video-rebuilder` Skill 为核心，而不是 fork 某一个现有视频仓库。官方 Remotion Skills 和 FFmpeg 作为外部基础层；分析、Template IR、槽位映射、生成路由、平台元素排除、身份/服装 QA、运行状态和可重复模板必须自行实现。
 
 产品战略必须坚持“先模板、后编译器、再通用化”：先让当前视频和第二组素材达到可靠复用，再扩展同类型模板族，最后进入 S2 跟踪和生成式视频。这样第一阶段能产出真实可用结果，同时保留向通用 Skill 扩展的架构。
+
+## 25. v0.5 严格本地资产包增量
+
+### 25.1 范围与状态
+
+本节是对保留的 v0.4 内容的增量，不替换其 reference Proposal、Review、
+freeze-plan 或编译器合同。v0.5.0-alpha 只在一个已经验证的 Template IR 后，
+增加本地素材包的 propose-assets -> 人工审核 -> freeze-assets -> render 路径。
+
+它解决的是“把已提供的本地字节安全地冻结到模板槽位”，而不是识别素材含义。
+当前实现没有 OCR、视觉识别、模糊文件名匹配、任意视频、动画支持、云端、
+上传、生成资产或 GUI。asset-contact-sheet.png 加 JSON Review 是本地审核证据，
+不是图形界面，也不是自动批准。
+
+### 25.2 命令和路径边界
+
+对 v0.5 使用下列稳定 JSON CLI：
+
+~~~text
+video-remix validate-asset-proposal <proposal.json> --json
+video-remix validate-asset-review <review.json> --json
+video-remix propose-assets <TEMPLATE> --project-root <project-dir> --asset-pack <pack-direct-child> --output-dir <output-direct-child> --asset-pack-rights-confirmed --ffprobe <path> --timeout <seconds> --json
+video-remix freeze-assets <PROPOSAL> <REVIEW> --project-root <project-dir> --output-dir <output-direct-child> --ffprobe <path> --timeout <seconds> --json
+~~~
+
+TEMPLATE、PROPOSAL 和 REVIEW 必须是相对 project-root 的规范化路径；绝对路径、
+盘符根、UNC、越界和不安全路径必须在读取 packet 之前失败。asset-pack 和
+output-dir 只能命名 project-root 下的一级子目录；不得使用绝对路径、嵌套
+路径、点段或已存在的输出目录。
+
+propose-assets 在扫描 project 或 asset pack 前必须收到
+asset-pack-rights-confirmed。该确认只表示用户已确认本地处理权利，绝不授权
+云端上传、资产生成或自动批准。
+
+### 25.3 扫描、候选和人工审核
+
+asset pack 只扫描一级普通文件。允许的输入是静态 JPEG、PNG、WebP，以及可由
+本地 ffprobe 通过 pipe:0 读取的 WAV、MP3、M4A、MKA 音频。任何未知文件、
+视频、动画、sidecar、目录、链接、reparse point 或探测失败都使整个 pack
+fail closed；不得静默跳过。
+
+候选只能满足 filename stem 等于 Template slot_id，并且已探测媒体类型位于该
+slot 的 accepted_media。零个、多个或不兼容的候选必须保留为 missing、
+ambiguous 或 incompatible，不能由 OCR、视觉、关键词、相似文件名或人工
+推断自动补齐。
+
+propose-assets 发布三个本地审核工件：
+
+- asset-pack-proposal.json；
+- asset-review-decision.template.json；
+- asset-contact-sheet.png。
+
+Proposal 始终需要审核。审核者必须逐 slot 作出明确决定；每个 use 映射都要
+确认内容、媒体兼容性、render-ready 状态和权利。仅可显式 omit 可选 slot；
+required、unresolved、missing、ambiguous 或 incompatible 都不得冻结。
+
+### 25.4 冻结、Manifest 和渲染
+
+freeze-assets 绑定 Proposal、Template 和 inventory 的 SHA-256，并绑定已审核
+Review；它随后安全重扫 pack，拒绝任何 inventory drift，并以原子方式发布：
+
+~~~text
+frozen-assets/
+├── assets.json
+├── asset-freeze-report.json
+└── asset-0001.<canonical-extension>
+~~~
+
+assets.json 是 Asset Manifest schema 0.2.0：固定为 local-only，所有映射有
+SHA-256，且引用不含来源语义的扁平副本。它不支持 provider asset 或云端
+路径。Asset Manifest schema 没有 quality constraints 字段；质量阈值属于
+Template IR 和人工 QA。
+
+validate-assets 校验声明的 Manifest、slot 接受媒体、项目路径和适用哈希，
+但不对媒体字节执行 sniff。严格的媒体识别只发生在 propose-assets 的扫描和
+freeze-assets 的安全重扫。
+
+Renderer 0.2.0 仅从经验证字节 snapshot 读取冻结图片，并将冻结音频只作为
+FFmpeg 的 pipe:0 输入。Asset Manifest 0.1.0 的路径式渲染保留为 legacy
+兼容，不构成 v0.5 的安全或可复现承诺。
+
+Manifest 0.2.0 与 freeze report 是本机声明、哈希绑定的审计记录，不是审核者
+签名，也不能证明工件一定由 freeze-assets 产生。拥有项目写权限的进程可以同时
+改写 Proposal、Review、Manifest 和 report。受治理的工作流应保留整套工件；若
+需要抵抗项目写入者并强制可信审批，必须另加可信签名或访问控制的不可变存储。
+
+### 25.5 P0 和平台安全界限
+
+在任何 render 之前，P0 至少要求：权利 flag 在分析前存在；路径和 direct-child
+规则成立；完整 pack 仅含允许媒体；精确 stem 匹配；人工确认全部 use；Proposal/
+Review/Template/inventory 绑定且重扫无漂移；冻结 Manifest 为 local-only
+0.2.0 并包含所有 SHA-256；以及 renderer 使用 snapshot 和 pipe:0。任一失败
+不得留下部分 frozen-assets 发布物。
+
+Windows 强边界只覆盖 asset-pack 扫描、安全重扫和 frozen-assets 发布，包含
+reparse-point 拒绝和 guarded snapshot/copy。Renderer 0.2 会把实际消费的资产
+字节绑定到 Manifest 哈希，但帧目录和输出目录的 containment 假设渲染期间没有
+恶意并发文件系统替换；本 Alpha 不是针对不可信本机写入者的沙箱。非 Windows
+平台维持可观测、尽量 fail-closed 的检查，但不声称等价的 NT no-delete 保证。
+validate-assets 只是声明式预检，不等同于 renderer 的运行时 link/reparse
+边界。详细 P0 列表和最终媒体/人工验收见 QA gates；
+controller_current 保留语义、权利和发布判断，Terra max 只能在合同冻结后
+实施有界代码或测试任务。

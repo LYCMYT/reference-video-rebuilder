@@ -1,4 +1,4 @@
 interface:
-  display_name: "Reference Video Rebuilder"
-  short_description: "Propose, review, freeze, and render bounded local S1 templates"
-  default_prompt: "Use $reference-video-rebuilder to propose a bounded local fixed-subject-carousel S1 plan, review it explicitly, freeze the approved plan, then compile and render it with my approved assets."
+  display_name: "reference-video-rebuilder"
+  short_description: "Strict local asset-pack freeze and S1 rendering"
+  default_prompt: "Use $reference-video-rebuilder to propose, explicitly review, freeze, render, and QA an authorized local S1 reference template or strict replacement asset pack."

@@ -15,14 +15,18 @@ must already point at a render-ready local asset.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath, PureWindowsPath
 import re
+import stat
 import subprocess
-from typing import Any
+import tempfile
+import threading
+from typing import Any, BinaryIO
 
 import rrv_runtime
 
@@ -38,11 +42,15 @@ RENDERER_ID = "rrv-s1-pillow-0.1"
 FRAME_FILENAME_PATTERN = "frame_%06d.png"
 DEFAULT_MASTER_DIRECTORY = Path("render") / "master-frames"
 DEFAULT_ENCODER_TIMEOUT_SECONDS = 300.0
+ASSET_COPY_CHUNK_SIZE = 1024 * 1024
+ASSET_SNAPSHOT_MEMORY_LIMIT = 8 * 1024 * 1024
+ENCODER_STDERR_LIMIT_BYTES = 8 * 1024
 SUPPORTED_IMAGE_MEDIA_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 SUPPORTED_AUDIO_MEDIA_TYPES = frozenset({"audio/wav", "audio/mpeg", "audio/mp4", "audio/x-matroska"})
 SUPPORTED_OUTPUT_SIZES = frozenset({(720, 1280), (1080, 1920)})
 SUPPORTED_MASK_TYPES = frozenset({"rect", "polygon"})
 _MASTER_FRAME_NAME_RE = re.compile(r"^frame_(\d+)\.png$")
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 class RenderError(RuntimeError):
@@ -71,12 +79,87 @@ class EncoderError(RenderError):
 
 @dataclass(frozen=True)
 class ResolvedAsset:
-    """A manifest asset whose local path has passed the project-root policy."""
+    """A manifest asset whose local path has passed the project-root policy.
+
+    The first four fields are the legacy v0.1.0 public shape.  A v0.2.0
+    resolver additionally records its normalized manifest path, declared and
+    observed digests, and a private seekable byte snapshot.  Keeping those
+    additions optional preserves callers which still construct the four-field
+    legacy form directly.
+    """
 
     slot_id: str
     path: Path
     media_type: str
     processor: str
+    relative_path: str | None = None
+    expected_sha256: str | None = None
+    bound_sha256: str | None = None
+    snapshot: BinaryIO | None = field(default=None, repr=False, compare=False)
+    _snapshot_closed: bool = field(default=False, init=False, repr=False, compare=False)
+
+    def close(self) -> None:
+        """Close the private v0.2.0 snapshot once; repeated calls are safe."""
+
+        if self._snapshot_closed:
+            return
+        object.__setattr__(self, "_snapshot_closed", True)
+        if self.snapshot is not None:
+            try:
+                self.snapshot.close()
+            except OSError:
+                # There is no recoverable action after a private temporary
+                # snapshot close failure.  Marking it closed remains safer
+                # than retrying an unknown descriptor during cleanup.
+                pass
+
+
+def close_resolved_assets(assets: Mapping[str, ResolvedAsset]) -> None:
+    """Idempotently close every unique private snapshot in an asset mapping."""
+
+    closed_snapshots: set[int] = set()
+    for asset in assets.values():
+        snapshot = asset.snapshot
+        if snapshot is not None and id(snapshot) in closed_snapshots:
+            continue
+        if snapshot is not None:
+            closed_snapshots.add(id(snapshot))
+        asset.close()
+
+
+def _is_frozen_asset(asset: ResolvedAsset) -> bool:
+    """Return whether an asset carries any v0.2.0 binding state."""
+
+    return any(
+        value is not None
+        for value in (asset.relative_path, asset.expected_sha256, asset.bound_sha256, asset.snapshot)
+    )
+
+
+def _bound_snapshot(
+    asset: ResolvedAsset, context: str, *, rewind: bool = False
+) -> BinaryIO:
+    """Return a complete, verified v0.2.0 snapshot or fail closed."""
+
+    if not _is_frozen_asset(asset):
+        raise RenderInputError(f"{context} is not a frozen asset")
+    if (
+        _asset_relative_path_parts(asset.relative_path) is None
+        or not isinstance(asset.expected_sha256, str)
+        or _SHA256_RE.fullmatch(asset.expected_sha256) is None
+        or not isinstance(asset.bound_sha256, str)
+        or _SHA256_RE.fullmatch(asset.bound_sha256) is None
+        or asset.expected_sha256.lower() != asset.bound_sha256.lower()
+        or asset.snapshot is None
+        or bool(getattr(asset.snapshot, "closed", False))
+    ):
+        raise RenderInputError(f"{context} has no valid bound snapshot")
+    if rewind:
+        try:
+            asset.snapshot.seek(0)
+        except (AttributeError, OSError, ValueError) as exc:
+            raise RenderInputError(f"{context} has no valid bound snapshot") from exc
+    return asset.snapshot
 
 
 @dataclass(frozen=True)
@@ -169,7 +252,7 @@ def _round_pixel(value: float) -> int:
 def _project_root(project_root: str | Path) -> Path:
     root = Path(project_root).resolve()
     if not root.is_dir():
-        raise PathPolicyError(f"project root does not exist or is not a directory: {root}")
+        raise PathPolicyError("project root does not exist or is not a directory")
     return root
 
 
@@ -188,6 +271,187 @@ def _has_parent_traversal(path_text: str) -> bool:
     # Checking both forms makes a manifest authored on Windows safe to inspect
     # on a non-Windows worker, and vice versa.
     return ".." in PureWindowsPath(path_text).parts or ".." in PurePosixPath(path_text).parts
+
+
+def _asset_relative_path_parts(value: Any) -> tuple[str, ...] | None:
+    """Accept only the common safe POSIX subset for manifest asset paths.
+
+    This intentionally differs from general renderer output paths.  Manifests
+    are portable contracts, so asset paths never accept host-native spelling,
+    drive-qualified paths, UNC paths, rooted paths, a backslash, or a dot
+    segment.  It mirrors ``video_remix._asset_path_segments`` without importing
+    the CLI module into this runtime layer.
+    """
+
+    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+        return None
+    windows = PureWindowsPath(value)
+    posix = PurePosixPath(value)
+    if windows.is_absolute() or windows.drive or windows.root or posix.is_absolute():
+        return None
+    parts = tuple(value.split("/"))
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        return None
+    reserved_windows_names = {"CON", "PRN", "AUX", "NUL"}
+    for part in parts:
+        stem = part.split(".", 1)[0].upper()
+        if (
+            any(ord(character) < 32 or character in '<>:"|?*' for character in part)
+            or part.endswith((" ", "."))
+            or stem in reserved_windows_names
+            or (len(stem) == 4 and stem[:3] in {"COM", "LPT"} and stem[3] in "123456789")
+        ):
+            return None
+    if PurePosixPath(*parts).as_posix() != value:
+        return None
+    return parts
+
+
+def _legacy_asset_relative_path_parts(value: Any) -> tuple[str, ...] | None:
+    """Return one safe v0.1.0 path in the current host's native spelling.
+
+    The legacy manifest contract permits a Windows-relative path such as
+    ``assets\\legacy.png``.  It still rejects absolute, drive-qualified, UNC,
+    and traversal forms on either Windows or POSIX, while leaving the final
+    segment interpretation to ``Path`` on the machine that consumes it.
+    Frozen v0.2.0 assets never use this helper.
+    """
+
+    if not isinstance(value, str) or not value or "\x00" in value:
+        return None
+    native = Path(value)
+    windows = PureWindowsPath(value)
+    posix = PurePosixPath(value)
+    if (
+        native.is_absolute()
+        or windows.is_absolute()
+        or bool(windows.drive)
+        or bool(windows.root)
+        or posix.is_absolute()
+    ):
+        return None
+    if ".." in native.parts or ".." in windows.parts or ".." in posix.parts:
+        return None
+    parts = tuple(str(part) for part in native.parts)
+    return parts or None
+
+
+def _resolve_manifest_asset_path(root: Path, value: Any, pointer: str) -> tuple[Path, Path, str]:
+    """Resolve a safe manifest path while keeping public errors path-free."""
+
+    parts = _legacy_asset_relative_path_parts(value)
+    if parts is None:
+        raise PathPolicyError(f"{pointer} violates the project-relative path policy")
+    candidate = root.joinpath(*parts)
+    try:
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise PathPolicyError(f"{pointer} violates the project-relative path policy") from exc
+    return candidate, resolved, str(value)
+
+
+def _is_reparse_point(stat_result: os.stat_result) -> bool:
+    """Detect Windows reparse points without assuming the host platform."""
+
+    reparse_point = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x0400)
+    return bool(getattr(stat_result, "st_file_attributes", 0) & reparse_point)
+
+
+def _safe_frozen_asset_lstat(
+    root: Path, parts: tuple[str, ...], pointer: str
+) -> tuple[Path, os.stat_result]:
+    """Walk every lexical component and reject links before opening the file."""
+
+    candidate = root
+    final_stat: os.stat_result | None = None
+    for index, part in enumerate(parts):
+        candidate = candidate / part
+        try:
+            observed = os.lstat(candidate)
+        except OSError as exc:
+            raise RenderInputError(f"{pointer} is unavailable") from exc
+        if stat.S_ISLNK(observed.st_mode) or _is_reparse_point(observed):
+            raise PathPolicyError(f"{pointer} must not traverse a link or reparse point")
+        if index + 1 == len(parts):
+            if not stat.S_ISREG(observed.st_mode):
+                raise RenderInputError(f"{pointer} must name a regular file")
+            if observed.st_nlink > 1:
+                raise PathPolicyError(f"{pointer} must not name a hard-linked file")
+            final_stat = observed
+        elif not stat.S_ISDIR(observed.st_mode):
+            raise RenderInputError(f"{pointer} has a non-directory parent")
+    assert final_stat is not None  # ``parts`` is non-empty by construction.
+    return candidate, final_stat
+
+
+def _bind_frozen_asset_snapshot(
+    root: Path, relative_path: str, pointer: str, expected_sha256: str
+) -> tuple[Path, BinaryIO, str]:
+    """Bind a v0.2.0 asset to one verified private byte snapshot.
+
+    The named source is opened once after an lstat/open/fstat identity check.
+    Its descriptor is streamed directly into a seekable private snapshot while
+    computing the digest; code later in the render never hashes or reopens the
+    mutable manifest path.
+    """
+
+    parts = _asset_relative_path_parts(relative_path)
+    if parts is None:
+        raise PathPolicyError(f"{pointer} violates the project-relative path policy")
+    candidate, before = _safe_frozen_asset_lstat(root, parts, pointer)
+    flags = os.O_RDONLY
+    flags |= getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    snapshot: BinaryIO | None = None
+    try:
+        try:
+            descriptor = os.open(candidate, flags)
+        except OSError as exc:
+            raise RenderInputError(f"{pointer} is unavailable") from exc
+        try:
+            after = os.fstat(descriptor)
+        except OSError as exc:
+            raise RenderInputError(f"{pointer} is unavailable") from exc
+        if (
+            not stat.S_ISREG(after.st_mode)
+            or after.st_nlink > 1
+            or after.st_dev != before.st_dev
+            or after.st_ino != before.st_ino
+        ):
+            raise PathPolicyError(f"{pointer} changed while it was being opened")
+
+        source = os.fdopen(descriptor, "rb", closefd=True)
+        descriptor = None
+        with source:
+            snapshot = tempfile.SpooledTemporaryFile(
+                max_size=ASSET_SNAPSHOT_MEMORY_LIMIT, mode="w+b"
+            )
+            digest = hashlib.sha256()
+            while chunk := source.read(ASSET_COPY_CHUNK_SIZE):
+                digest.update(chunk)
+                snapshot.write(chunk)
+        bound_sha256 = digest.hexdigest()
+        if bound_sha256.lower() != expected_sha256.lower():
+            raise RenderInputError(f"{pointer.rsplit('.', 1)[0]}.sha256 does not match file content")
+        snapshot.seek(0)
+        # Keep the lexical project-root path for collision checks only.  The
+        # bound content and provenance below never reopen or resolve it again.
+        return candidate, snapshot, bound_sha256
+    except Exception:
+        if snapshot is not None:
+            try:
+                snapshot.close()
+            except OSError:
+                pass
+        raise
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
 
 
 def resolve_project_path(
@@ -246,13 +510,11 @@ def _slot_definitions(template: Mapping[str, Any]) -> dict[str, Mapping[str, Any
 def resolve_local_assets(
     template: Mapping[str, Any], manifest: Mapping[str, Any], project_root: str | Path
 ) -> dict[str, ResolvedAsset]:
-    """Resolve local manifest assets after the existing validator has passed.
+    """Resolve local assets and bind Asset Manifest 0.2.0 bytes once.
 
-    The existing validator owns full Template IR and manifest semantics.  This
-    runtime layer repeats only the safety-critical facts it needs: one local
-    file per slot, accepted media type, actual file availability, required slot
-    coverage, and project-root containment.  Provider assets are intentionally
-    unsupported in the local deterministic renderer.
+    This is deliberately safe when called directly instead of through the CLI:
+    it repeats the frozen-manifest invariants and enforces the portable path
+    contract itself.  Legacy v0.1.0 callers retain path-based behavior.
     """
     template = _require_mapping(template, "template")
     manifest = _require_mapping(manifest, "manifest")
@@ -263,42 +525,98 @@ def resolve_local_assets(
     if manifest.get("template_id") != template_id:
         raise RenderInputError("manifest.template_id does not match template.template_id")
 
+    schema_version = manifest.get("schema_version")
+    if schema_version not in {"0.1.0", "0.2.0"}:
+        raise RenderInputError("$.schema_version must be 0.1.0 or 0.2.0")
+    frozen = schema_version == "0.2.0"
+    if frozen and manifest.get("privacy_profile") != "local-only":
+        raise RenderInputError("$.privacy_profile must be local-only for Asset Manifest 0.2.0")
+
     slots = _slot_definitions(template)
     result: dict[str, ResolvedAsset] = {}
-    for index, raw_asset in enumerate(_require_list(manifest.get("assets"), "manifest.assets")):
-        asset = _require_mapping(raw_asset, f"manifest.assets[{index}]")
-        slot_id = asset.get("slot_id")
-        if not isinstance(slot_id, str) or slot_id not in slots:
-            raise RenderInputError(f"manifest.assets[{index}].slot_id references an unknown slot")
-        if slot_id in result:
-            raise RenderInputError(f"manifest.assets[{index}].slot_id duplicates mapping for {slot_id}")
-        if "provider_asset_id" in asset:
-            raise UnsupportedFeatureError(
-                f"slot {slot_id} uses provider_asset_id; local deterministic S1 rendering accepts local paths only"
-            )
-        raw_path = asset.get("path")
-        if not isinstance(raw_path, str):
-            raise RenderInputError(f"manifest.assets[{index}].path must be a local path")
-        path = resolve_project_path(root, raw_path, purpose=f"asset slot {slot_id}")
-        if not path.is_file():
-            raise RenderInputError(f"asset for slot {slot_id} does not exist or is not a file: {path}")
-        media_type = asset.get("media_type")
-        if not isinstance(media_type, str):
-            raise RenderInputError(f"manifest.assets[{index}].media_type must be a string")
-        accepted = slots[slot_id].get("accepted_media")
-        if not isinstance(accepted, list) or media_type not in accepted:
-            raise RenderInputError(f"asset media type {media_type} is not accepted by slot {slot_id}")
-        processor = asset.get("processor")
-        if not isinstance(processor, str):
-            raise RenderInputError(f"manifest.assets[{index}].processor must be a string")
-        result[slot_id] = ResolvedAsset(slot_id, path, media_type, processor)
+    try:
+        for index, raw_asset in enumerate(_require_list(manifest.get("assets"), "manifest.assets")):
+            pointer = f"$.assets[{index}]"
+            asset = _require_mapping(raw_asset, f"manifest.assets[{index}]")
+            slot_id = asset.get("slot_id")
+            if not isinstance(slot_id, str) or slot_id not in slots:
+                raise RenderInputError(f"{pointer}.slot_id references an unknown slot")
+            if slot_id in result:
+                raise RenderInputError(f"{pointer}.slot_id duplicates mapping for {slot_id}")
+            if "provider_asset_id" in asset:
+                if frozen:
+                    raise RenderInputError(f"{pointer}.provider_asset_id is forbidden for Asset Manifest 0.2.0")
+                raise UnsupportedFeatureError(
+                    f"slot {slot_id} uses provider_asset_id; local deterministic S1 rendering accepts local paths only"
+                )
+            raw_path = asset.get("path")
+            if not isinstance(raw_path, str):
+                if frozen:
+                    raise RenderInputError(f"{pointer}.path is required for Asset Manifest 0.2.0")
+                raise RenderInputError(f"{pointer}.path must be a local path")
+            if frozen:
+                expected_sha256 = asset.get("sha256")
+                if not isinstance(expected_sha256, str) or _SHA256_RE.fullmatch(expected_sha256) is None:
+                    raise RenderInputError(f"{pointer}.sha256 must be a 64-character hexadecimal digest")
+                if asset.get("rights_confirmed") is not True:
+                    raise RenderInputError(f"{pointer}.rights_confirmed must be true for Asset Manifest 0.2.0")
+                if asset.get("cloud_upload_allowed") is not False:
+                    raise RenderInputError(
+                        f"{pointer}.cloud_upload_allowed must be false for Asset Manifest 0.2.0"
+                    )
+                if _asset_relative_path_parts(raw_path) is None:
+                    raise PathPolicyError(f"{pointer}.path violates the project-relative path policy")
+                relative_path = raw_path
+                path: Path | None = None
+            else:
+                _candidate, path, relative_path = _resolve_manifest_asset_path(
+                    root, raw_path, f"{pointer}.path"
+                )
+            media_type = asset.get("media_type")
+            if not isinstance(media_type, str):
+                raise RenderInputError(f"{pointer}.media_type must be a string")
+            accepted = slots[slot_id].get("accepted_media")
+            if not isinstance(accepted, list) or media_type not in accepted:
+                raise RenderInputError(f"asset media type {media_type} is not accepted by slot {slot_id}")
+            processor = asset.get("processor")
+            if not isinstance(processor, str) or (frozen and not processor):
+                raise RenderInputError(f"{pointer}.processor must be a string")
 
-    missing = sorted(
-        slot_id for slot_id, slot in slots.items() if slot.get("required") is True and slot_id not in result
-    )
-    if missing:
-        raise RenderInputError(f"required slots are not mapped to local assets: {', '.join(missing)}")
-    return result
+            if frozen:
+                bound_path, snapshot, bound_sha256 = _bind_frozen_asset_snapshot(
+                    root, relative_path, f"{pointer}.path", expected_sha256
+                )
+                result[slot_id] = ResolvedAsset(
+                    slot_id,
+                    bound_path,
+                    media_type,
+                    processor,
+                    relative_path=relative_path,
+                    expected_sha256=expected_sha256.lower(),
+                    bound_sha256=bound_sha256,
+                    snapshot=snapshot,
+                )
+            else:
+                assert path is not None
+                try:
+                    available = path.is_file()
+                except OSError:
+                    available = False
+                if not available:
+                    raise RenderInputError(f"{pointer}.path is unavailable")
+                result[slot_id] = ResolvedAsset(slot_id, path, media_type, processor)
+
+        missing = sorted(
+            slot_id
+            for slot_id, slot in slots.items()
+            if slot.get("required") is True and slot_id not in result
+        )
+        if missing:
+            raise RenderInputError(f"required slots are not mapped to local assets: {', '.join(missing)}")
+        return result
+    except Exception:
+        close_resolved_assets(result)
+        raise
 
 
 def _rgba(color: Any, name: str) -> tuple[int, int, int, int]:
@@ -950,10 +1268,20 @@ class S1Renderer:
             if slot_id in self._images:
                 continue
             try:
-                with Image.open(asset.path) as opened:
-                    self._images[slot_id] = ImageOps.exif_transpose(opened).convert("RGBA")
-            except (OSError, UnidentifiedImageError) as exc:
-                raise RenderInputError(f"unable to read static image for slot {slot_id}: {asset.path}") from exc
+                if _is_frozen_asset(asset):
+                    snapshot = _bound_snapshot(asset, f"asset slot {slot_id}", rewind=True)
+                    with Image.open(snapshot) as opened:
+                        converted = ImageOps.exif_transpose(opened).convert("RGBA")
+                        # The constructor owns a fully decoded RGBA image.  It
+                        # must not retain PIL's lazy reference to the snapshot
+                        # or to the mutable source path.
+                        converted.load()
+                        self._images[slot_id] = converted
+                else:
+                    with Image.open(asset.path) as opened:
+                        self._images[slot_id] = ImageOps.exif_transpose(opened).convert("RGBA")
+            except (OSError, ValueError, UnidentifiedImageError) as exc:
+                raise RenderInputError(f"unable to read static image for slot {slot_id}") from exc
 
         for track_id in self.carousel_track_ids:
             if any(self._layer_slot_id(layer) in self._images for layer in self.layers_by_track.get(track_id, [])):
@@ -1400,10 +1728,20 @@ def _build_encode_command(
         str(frame_pattern),
     ]
     if audio_asset is not None:
+        audio_input = (
+            "pipe:0"
+            if _is_frozen_asset(audio_asset)
+            else str(audio_asset.path)
+        )
+        if _is_frozen_asset(audio_asset):
+            # Validate the binding at command construction time, before any
+            # output directory exists.  The actual rewind happens once per
+            # output immediately before the process is launched.
+            _bound_snapshot(audio_asset, f"audio slot {audio_asset.slot_id}")
         command.extend(
             [
                 "-i",
-                str(audio_asset.path),
+                audio_input,
                 "-filter_complex",
                 _audio_filter(template),
                 "-map",
@@ -1535,9 +1873,90 @@ def _preflight_encode_outputs(
     return frames, timeout, audio_asset, planned
 
 
-def _default_encoder_runner(command: list[str], *, timeout_seconds: float) -> None:
-    """Run FFmpeg through the shared argv-only, bounded local runtime."""
-    rrv_runtime.run_command(command, timeout_seconds=timeout_seconds, check=True)
+def _drain_bounded_stderr(stream: Any, sink: bytearray) -> None:
+    """Drain FFmpeg stderr without retaining an unbounded tool-controlled blob."""
+
+    try:
+        while True:
+            chunk = stream.read(64 * 1024)
+            if not chunk:
+                return
+            remaining = ENCODER_STDERR_LIMIT_BYTES - len(sink)
+            if remaining > 0:
+                sink.extend(chunk[:remaining])
+    except OSError:
+        # Process status remains authoritative.  Do not turn a diagnostic
+        # reader failure into a path-bearing external tool error.
+        return
+
+
+def _run_encoder_with_bound_stdin(
+    command: list[str], snapshot: BinaryIO, *, timeout_seconds: float
+) -> None:
+    """Run one argv-only FFmpeg encode using a verified audio snapshot.
+
+    ``rrv_runtime.run_command`` intentionally supplies ``DEVNULL`` as stdin,
+    which is correct for ordinary commands but cannot carry frozen media.  The
+    narrow implementation here preserves the same no-shell and bounded-time
+    properties while draining only a bounded diagnostic sample.
+    """
+
+    try:
+        process = subprocess.Popen(
+            command,
+            shell=False,
+            stdin=snapshot,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except OSError:
+        raise
+
+    stderr = bytearray()
+    assert process.stderr is not None
+    reader = threading.Thread(
+        target=_drain_bounded_stderr,
+        args=(process.stderr, stderr),
+        name="rrv-ffmpeg-stderr",
+        daemon=True,
+    )
+    reader.start()
+    try:
+        process.wait(timeout=timeout_seconds)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        reader.join()
+        raise
+    finally:
+        # The child closes its write end on exit; joining here keeps the
+        # captured diagnostic bounded and avoids a leaked reader thread.
+        if process.poll() is not None:
+            reader.join()
+            try:
+                process.stderr.close()
+            except (AttributeError, OSError):
+                pass
+
+    if process.returncode != 0:
+        diagnostic = bytes(stderr).decode("utf-8", errors="replace")
+        raise subprocess.CalledProcessError(
+            process.returncode,
+            command,
+            stderr=_bounded_error_text(diagnostic),
+        )
+
+
+def _default_encoder_runner(
+    command: list[str], *, timeout_seconds: float, input_snapshot: BinaryIO | None = None
+) -> None:
+    """Run FFmpeg locally; frozen audio is supplied only through stdin."""
+
+    if input_snapshot is None:
+        rrv_runtime.run_command(command, timeout_seconds=timeout_seconds, check=True)
+        return
+    _run_encoder_with_bound_stdin(command, input_snapshot, timeout_seconds=timeout_seconds)
 
 
 def encode_outputs(
@@ -1553,8 +1972,10 @@ def encode_outputs(
     """Call an externally installed ffmpeg to encode the requested profiles.
 
     No shell is used: every invocation is a parameter array.  ``runner`` is a
-    narrow test seam for a fake encoder; production callers normally leave it
-    unset and use the host's ``ffmpeg`` executable.
+    narrow one-argument test seam for a fake encoder; production callers
+    normally leave it unset and use the host's ``ffmpeg`` executable.  A fake
+    runner cannot receive the verified stdin stream, so it must never be used
+    as a secure production path for a frozen v0.2.0 audio asset.
     """
     template = _require_mapping(template, "template")
     root = _project_root(project_root)
@@ -1570,11 +1991,21 @@ def encode_outputs(
 
     encoded: list[EncodedOutput] = []
     for plan in planned_outputs:
+        input_snapshot: BinaryIO | None = None
+        if audio_asset is not None and _is_frozen_asset(audio_asset):
+            # Rewind exactly the verified private snapshot for every delivery
+            # profile.  Do this before creating its parent directory so a
+            # closed/bad snapshot cannot cause a new output-side write.
+            input_snapshot = _bound_snapshot(
+                audio_asset, f"audio slot {audio_asset.slot_id}", rewind=True
+            )
         plan.path.parent.mkdir(parents=True, exist_ok=True)
         command = list(plan.command)
         try:
             if runner is None:
-                _default_encoder_runner(command, timeout_seconds=timeout)
+                _default_encoder_runner(
+                    command, timeout_seconds=timeout, input_snapshot=input_snapshot
+                )
             else:
                 runner(command)
         except FileNotFoundError as exc:
@@ -1634,14 +2065,30 @@ def build_run_summary(
     frames = resolve_project_path(
         root, frame_directory, purpose="master frame directory", allow_absolute=True
     )
-    asset_rows = [
-        {
-            "slot_id": slot_id,
-            "media_type": asset.media_type,
-            "path": _relative_project_path(root, asset.path),
-        }
-        for slot_id, asset in sorted(assets.items())
-    ]
+    asset_rows: list[dict[str, Any]] = []
+    for slot_id, asset in sorted(assets.items()):
+        if _is_frozen_asset(asset):
+            _bound_snapshot(asset, f"asset slot {slot_id}")
+            assert asset.relative_path is not None  # Checked by _bound_snapshot.
+            assert asset.bound_sha256 is not None  # Checked by _bound_snapshot.
+            # Do not resolve or read the original path here: frozen provenance
+            # is the manifest spelling plus the digest of the consumed bytes.
+            asset_rows.append(
+                {
+                    "slot_id": slot_id,
+                    "media_type": asset.media_type,
+                    "path": asset.relative_path,
+                    "sha256": asset.bound_sha256.lower(),
+                }
+            )
+        else:
+            asset_rows.append(
+                {
+                    "slot_id": slot_id,
+                    "media_type": asset.media_type,
+                    "path": _relative_project_path(root, asset.path),
+                }
+            )
     skipped_optional_slots = sorted(
         slot_id
         for slot_id, slot in _slot_definitions(template).items()
@@ -1698,35 +2145,43 @@ def render_project(
 ) -> dict[str, Any]:
     """Resolve local assets, render one master sequence, encode, and summarize."""
     root = _project_root(project_root)
-    assets = resolve_local_assets(template, manifest, root)
-    _preflight_encode_outputs(
-        template,
-        assets,
-        root,
-        frame_directory,
-        ffmpeg_bin=ffmpeg_bin,
-        timeout_seconds=timeout_seconds,
-        require_master_sequence=False,
-    )
-    renderer = S1Renderer(template, assets)
-    renderer.write_master_frames(root, frame_directory, debug_bounds=debug_bounds)
-    outputs = encode_outputs(
-        template,
-        assets,
-        root,
-        frame_directory,
-        ffmpeg_bin=ffmpeg_bin,
-        runner=encoder_runner,
-        timeout_seconds=timeout_seconds,
-    )
-    return build_run_summary(
-        template,
-        assets,
-        root,
-        frame_directory,
-        outputs,
-        debug_bounds=debug_bounds,
-    )
+    assets: dict[str, ResolvedAsset] = {}
+    try:
+        # For a frozen manifest this performs all lstat/open/fstat/snapshot
+        # binding and digest comparison before any master/output destination is
+        # created.  Direct callers therefore get the same zero-write contract
+        # as the CLI validation path.
+        assets = resolve_local_assets(template, manifest, root)
+        _preflight_encode_outputs(
+            template,
+            assets,
+            root,
+            frame_directory,
+            ffmpeg_bin=ffmpeg_bin,
+            timeout_seconds=timeout_seconds,
+            require_master_sequence=False,
+        )
+        renderer = S1Renderer(template, assets)
+        renderer.write_master_frames(root, frame_directory, debug_bounds=debug_bounds)
+        outputs = encode_outputs(
+            template,
+            assets,
+            root,
+            frame_directory,
+            ffmpeg_bin=ffmpeg_bin,
+            runner=encoder_runner,
+            timeout_seconds=timeout_seconds,
+        )
+        return build_run_summary(
+            template,
+            assets,
+            root,
+            frame_directory,
+            outputs,
+            debug_bounds=debug_bounds,
+        )
+    finally:
+        close_resolved_assets(assets)
 
 
 # A compact alias is convenient to future orchestration code while preserving
@@ -1751,6 +2206,7 @@ __all__ = [
     "TransformState",
     "UnsupportedFeatureError",
     "build_run_summary",
+    "close_resolved_assets",
     "encode_outputs",
     "evaluate_transform",
     "render",

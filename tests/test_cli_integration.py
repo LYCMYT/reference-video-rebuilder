@@ -23,6 +23,7 @@ if str(SCRIPTS) not in sys.path:
 
 import rrv_runtime  # noqa: E402
 import rrv_propose  # noqa: E402
+import rrv_assets  # noqa: E402
 import video_remix  # noqa: E402
 
 
@@ -169,6 +170,63 @@ class PublicCliIntegrationTests(unittest.TestCase):
         values.update(overrides)
         return SimpleNamespace(**values)
 
+    def _asset_proposal_packet(self):
+        return {
+            "schema_version": "0.5.0",
+            "privacy_profile": "local-only",
+            "analysis_rights_confirmed": True,
+            "review_required": True,
+            "template_path": "template.ir.json",
+            "template_sha256": "a" * 64,
+            "template_id": "asset-pack-test",
+            "asset_pack": "asset-pack",
+            "scanner_policy_version": "0.5.0",
+            "inventory": [],
+            "inventory_sha256": hashlib.sha256(b"[]").hexdigest(),
+            "slot_candidates": [],
+            "evidence": {
+                "asset_contact_sheet": {
+                    "path": "asset-proposal/asset-contact-sheet.png",
+                    "sha256": "b" * 64,
+                }
+            },
+        }
+
+    def _asset_review_packet(self):
+        return {
+            "schema_version": "0.5.0",
+            "proposal_sha256": "a" * 64,
+            "decision": "pending",
+            "contact_sheet_reviewed": False,
+            "local_only_confirmed": False,
+            "mappings": [],
+        }
+
+    def _propose_assets_args(self, root: Path, **overrides):
+        values = {
+            "template": Path("template.ir.json"),
+            "project_root": root,
+            "asset_pack": Path("asset-pack"),
+            "asset_pack_rights_confirmed": True,
+            "output_dir": Path("asset-proposal"),
+            "ffprobe": Path("ffprobe"),
+            "timeout": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def _freeze_assets_args(self, root: Path, **overrides):
+        values = {
+            "proposal": Path("asset-proposal/asset-pack-proposal.json"),
+            "review": Path("asset-proposal/approved-review.json"),
+            "project_root": root,
+            "output_dir": Path("frozen-assets"),
+            "ffprobe": Path("ffprobe"),
+            "timeout": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
     def test_render_validates_template_and_assets_before_loading_renderer_or_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -183,7 +241,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 payload, status = video_remix.run_render(args)
             self.assertEqual(status, 2)
             self.assertEqual(payload["status"], "fail")
-            self.assertEqual(payload["errors"], ["template invalid", "asset invalid"])
+            self.assertEqual(payload["errors"], ["$: validation.invalid"])
             self.assertFalse((root / "render").exists())
 
     def test_render_rejects_unresolved_template_review_before_asset_or_renderer_work(self):
@@ -213,6 +271,163 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 ["$.support.review_required must be false before rendering"],
             )
             self.assertFalse((root / "render").exists())
+
+    def test_render_strict_loader_rejects_duplicate_decision_fields_before_writes(self):
+        """Duplicate review/rights gates are rejected before any renderer work."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = (
+                (
+                    '{"support":{"review_required":false,"review_required":true}}',
+                    "{}",
+                ),
+                (
+                    "{}",
+                    '{"assets":[{"rights_confirmed":false,"rights_confirmed":true}]}',
+                ),
+            )
+            for index, (template_text, manifest_text) in enumerate(cases):
+                with self.subTest(index=index):
+                    template = root / f"template-{index}.json"
+                    manifest = root / f"assets-{index}.json"
+                    template.write_text(template_text, encoding="utf-8")
+                    manifest.write_text(manifest_text, encoding="utf-8")
+                    args = self._render_args(root, template, manifest)
+                    with mock.patch.object(
+                        video_remix,
+                        "_render_module",
+                        side_effect=AssertionError("renderer must not load for duplicate JSON"),
+                    ):
+                        payload, status = video_remix.run_render(args)
+                    self.assertEqual(status, 2)
+                    self.assertEqual(payload, {"status": "fail", "errors": ["$: json.duplicate_key"]})
+            self.assertFalse((root / "render").exists())
+
+    def test_render_validation_errors_redact_input_values_and_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template.json"
+            manifest = root / "assets.json"
+            template.write_text("{}", encoding="utf-8")
+            manifest.write_text("{}", encoding="utf-8")
+            for private_error in (
+                "schema rejected C:/PRIVATE/source/template.json",
+                "schema rejected private-source-name.png with invalid value secret-label",
+            ):
+                with self.subTest(private_error=private_error):
+                    args = self._render_args(root, template, manifest)
+                    with mock.patch.object(
+                        video_remix,
+                        "validate_template_data",
+                        return_value=[private_error],
+                    ), mock.patch.object(
+                        video_remix,
+                        "_render_module",
+                        side_effect=AssertionError("renderer must not load for invalid input"),
+                    ):
+                        payload, status = video_remix.run_render(args)
+                    self.assertEqual(status, 2)
+                    self.assertEqual(payload, {"status": "fail", "errors": ["$: validation.invalid"]})
+                    self.assertNotIn("PRIVATE", json.dumps(payload))
+                    self.assertNotIn("private-source-name.png", json.dumps(payload))
+                    self.assertNotIn("secret-label", json.dumps(payload))
+            self.assertFalse((root / "render").exists())
+
+    def test_render_provenance_uses_original_strict_input_bytes_after_replacement(self):
+        """Renderer-side path replacement cannot alter consumed input hashes."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template.json"
+            manifest = root / "assets.json"
+            template_bytes = (
+                b'{\n  "source": {"source_sha256": "' + b"a" * 64 + b'"},\n  "name": "original"\n}\n'
+            )
+            manifest_bytes = b'{ "schema_version": "0.1.0", "assets": [], "name": "original" }\n'
+            template.write_bytes(template_bytes)
+            manifest.write_bytes(manifest_bytes)
+            expected_template_sha256 = hashlib.sha256(template_bytes).hexdigest()
+            expected_manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
+            args = self._render_args(root, template, manifest)
+            tools = rrv_runtime.RuntimeTools(
+                ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "ffmpeg", "PATH", "ffmpeg 7"),
+                ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
+            )
+
+            def replace_inputs(*_args, **_kwargs):
+                template.write_bytes(b'{"name":"replacement"}')
+                manifest.write_bytes(b'{"name":"replacement"}')
+                return {"assets": []}
+
+            render_module = SimpleNamespace(
+                RenderError=RuntimeError,
+                render_project=mock.Mock(side_effect=replace_inputs),
+            )
+            with mock.patch.object(video_remix, "validate_template_data", return_value=[]), mock.patch.object(
+                video_remix, "validate_assets_data", return_value=[]
+            ), mock.patch.object(rrv_runtime, "discover_tools", return_value=tools), mock.patch.object(
+                video_remix, "_render_module", return_value=render_module
+            ), mock.patch.object(video_remix, "_qa_module", return_value=SimpleNamespace()), mock.patch.object(
+                video_remix, "_render_qa", return_value={"passed": True, "outputs": []}
+            ), mock.patch.object(
+                video_remix,
+                "sha256_file",
+                side_effect=AssertionError("render provenance must not re-read input paths"),
+            ):
+                payload, status = video_remix.run_render(args)
+
+            self.assertEqual(status, 0)
+            hashes = payload["result"]["hashes"]
+            self.assertEqual(hashes["template_sha256"], expected_template_sha256)
+            self.assertEqual(hashes["manifest_sha256"], expected_manifest_sha256)
+            self.assertNotEqual(hashes["template_sha256"], hashlib.sha256(template.read_bytes()).hexdigest())
+            self.assertNotEqual(hashes["manifest_sha256"], hashlib.sha256(manifest.read_bytes()).hexdigest())
+
+    def test_render_errors_are_publicly_redacted(self):
+        class PrivateRenderError(RuntimeError):
+            pass
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template.json"
+            manifest = root / "assets.json"
+            template.write_text("{}", encoding="utf-8")
+            manifest.write_text("{}", encoding="utf-8")
+            args = self._render_args(root, template, manifest)
+            tools = rrv_runtime.RuntimeTools(
+                ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "ffmpeg", "PATH", "ffmpeg 7"),
+                ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
+            )
+            render_module = SimpleNamespace(
+                RenderError=PrivateRenderError,
+                render_project=mock.Mock(
+                    side_effect=PrivateRenderError("C:/PRIVATE/tools/ffmpeg.exe stderr secret")
+                ),
+            )
+            with mock.patch.object(
+                video_remix,
+                "_require_render_inputs",
+                return_value=(root, {}, {}, []),
+            ), mock.patch.object(rrv_runtime, "discover_tools", return_value=tools), mock.patch.object(
+                video_remix, "_render_module", return_value=render_module
+            ), mock.patch.object(video_remix, "_qa_module", return_value=SimpleNamespace()):
+                with self.assertRaises(rrv_runtime.RRVError) as raised:
+                    video_remix.run_render(args)
+            self.assertEqual(raised.exception.code, rrv_runtime.ERR_TOOL_EXECUTION)
+            self.assertEqual(raised.exception.details, {})
+            self.assertNotIn("PRIVATE", str(raised.exception))
+
+            output = io.StringIO()
+            with mock.patch.object(video_remix, "run_render", side_effect=raised.exception), contextlib.redirect_stdout(output):
+                status = video_remix.main(
+                    ["render", str(template), str(manifest), "--project-root", str(root), "--json"]
+                )
+            self.assertEqual(status, 2)
+            rendered = output.getvalue()
+            self.assertNotIn("PRIVATE", rendered)
+            self.assertNotIn("stderr secret", rendered)
+            self.assertNotIn('"reason"', rendered)
 
     def test_render_qa_failure_returns_one_and_keeps_complete_summary(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -600,6 +815,81 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 )
             self.assertEqual(status, 0)
             self.assertEqual(json.loads(output.getvalue())["status"], "pass")
+
+    def test_template_and_manifest_validation_strictly_redacts_hostile_json(self):
+        """The public Template/Manifest commands never echo parser input."""
+
+        secret = "C:/PRIVATE/project/secret-source.png"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            valid_template = root / "valid-template.json"
+            valid_template.write_text(TEMPLATE_PATH.read_text(encoding="utf-8"), encoding="utf-8")
+            template_duplicate = root / "template-duplicate.json"
+            template_duplicate.write_text(
+                '{"support":{"review_required":false,"review_required":"' + secret + '"}}',
+                encoding="utf-8",
+            )
+            template_nonfinite = root / "template-nonfinite.json"
+            template_nonfinite.write_text(
+                '{"support":{"review_required":NaN},"source_path":"' + secret + '"}',
+                encoding="utf-8",
+            )
+            template_invalid = root / "template-invalid.json"
+            template_invalid.write_text('{"source_path":"' + secret + '",', encoding="utf-8")
+            manifest_duplicate = root / "manifest-duplicate.json"
+            manifest_duplicate.write_text(
+                '{"assets":[{"rights_confirmed":false,"rights_confirmed":"' + secret + '"}]}',
+                encoding="utf-8",
+            )
+            manifest_nonfinite = root / "manifest-nonfinite.json"
+            manifest_nonfinite.write_text(
+                '{"assets":[{"rights_confirmed":Infinity,"path":"' + secret + '"}]}',
+                encoding="utf-8",
+            )
+            cases = (
+                (["validate-template", str(template_duplicate), "--json"], "$: json.duplicate_key"),
+                (["validate-template", str(template_nonfinite), "--json"], "$: json.finite_number"),
+                (["validate-template", str(template_invalid), "--json"], "$: json.invalid"),
+                (
+                    [
+                        "validate-assets",
+                        str(valid_template),
+                        str(manifest_duplicate),
+                        "--allow-missing-files",
+                        "--json",
+                    ],
+                    "$: json.duplicate_key",
+                ),
+                (
+                    [
+                        "validate-assets",
+                        str(valid_template),
+                        str(manifest_nonfinite),
+                        "--allow-missing-files",
+                        "--json",
+                    ],
+                    "$: json.finite_number",
+                ),
+            )
+            with mock.patch.object(
+                video_remix,
+                "validate_assets_data",
+                side_effect=AssertionError("strict JSON failures must not inspect assets"),
+            ) as validate_assets:
+                for command, expected_error in cases:
+                    with self.subTest(command=command[0], expected_error=expected_error):
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            status = video_remix.main(command)
+                        self.assertEqual(status, 2)
+                        self.assertEqual(
+                            json.loads(output.getvalue()),
+                            {"status": "fail", "errors": [expected_error]},
+                        )
+                        self.assertNotIn("PRIVATE", output.getvalue())
+                        self.assertNotIn("secret-source.png", output.getvalue())
+                validate_assets.assert_not_called()
+            self.assertFalse((root / "render").exists())
 
     def test_v04_public_validators_reject_unknown_nonfinite_paths_and_nested_plans(self):
         proposal = self._proposal_packet()
@@ -1076,6 +1366,400 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 project_root=root,
                 output_dir=Path("frozen-plan"),
             )
+
+    def test_v05_parser_exposes_asset_commands_defaults_and_version(self):
+        parser = video_remix.build_parser()
+        proposed = parser.parse_args(
+            [
+                "propose-assets",
+                "template.ir.json",
+                "--project-root",
+                "project",
+                "--asset-pack",
+                "asset-pack",
+                "--asset-pack-rights-confirmed",
+                "--json",
+            ]
+        )
+        self.assertEqual(proposed.command, "propose-assets")
+        self.assertEqual(proposed.output_dir, Path("asset-proposal"))
+        self.assertEqual(proposed.ffprobe, Path("ffprobe"))
+        self.assertEqual(proposed.timeout, 60.0)
+        self.assertTrue(proposed.asset_pack_rights_confirmed)
+
+        frozen = parser.parse_args(
+            [
+                "freeze-assets",
+                "asset-proposal/proposal.json",
+                "asset-proposal/review.json",
+                "--project-root",
+                "project",
+            ]
+        )
+        self.assertEqual(frozen.output_dir, Path("frozen-assets"))
+        self.assertEqual(frozen.ffprobe, Path("ffprobe"))
+        self.assertEqual(frozen.timeout, 60.0)
+
+        with self.assertRaises(video_remix.CliArgumentError):
+            parser.parse_args(
+                [
+                    "propose-assets",
+                    "template.ir.json",
+                    "--project-root",
+                    "project",
+                    "--asset-pack",
+                    "asset-pack",
+                ]
+            )
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
+            parser.parse_args(["--version"])
+        self.assertEqual(exited.exception.code, 0)
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.5.0-alpha")
+
+        with mock.patch.object(
+            video_remix,
+            "_assets_module",
+            side_effect=AssertionError("rights failure must not delegate"),
+        ):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = video_remix.main(
+                    [
+                        "propose-assets",
+                        "template.ir.json",
+                        "--project-root",
+                        "project",
+                        "--asset-pack",
+                        "asset-pack",
+                        "--json",
+                    ]
+                )
+        self.assertEqual(status, 2)
+        self.assertEqual(json.loads(output.getvalue())["error"]["code"], "invalid_argument")
+
+    def test_v05_propose_assets_delegates_raw_paths_and_compacts_result(self):
+        result = {
+            "schema_version": "0.5.0",
+            "review_required": True,
+            "counts": {
+                "inventory_entries": 2,
+                "template_slots": 3,
+                "suggested_slots": 1,
+                "private_count": 99,
+            },
+            "artifacts": {
+                "proposal": {
+                    "path": "asset-proposal/asset-pack-proposal.json",
+                    "sha256": "a" * 64,
+                    "source_filename": "C:/PRIVATE/source.png",
+                },
+                "review_template": {
+                    "path": "asset-proposal/asset-review-decision.template.json",
+                    "sha256": "b" * 64,
+                },
+                "contact_sheet": {
+                    "path": "asset-proposal/asset-contact-sheet.png",
+                    "sha256": "c" * 64,
+                    "tool_path": "C:/PRIVATE/ffprobe.exe",
+                },
+                "source": {"path": "C:/PRIVATE/source.png"},
+            },
+            "source_filename": "C:/PRIVATE/source.png",
+            "tool_stderr": "ffprobe: C:/PRIVATE/source.png",
+        }
+        core = SimpleNamespace(propose_asset_pack=mock.Mock(return_value=result))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = self._propose_assets_args(root)
+            with mock.patch.object(video_remix, "_assets_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ):
+                payload, status = video_remix.run_propose_assets(args)
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(
+            payload["result"],
+            {
+                "schema_version": "0.5.0",
+                "review_required": True,
+                "counts": {
+                    "inventory_entries": 2,
+                    "template_slots": 3,
+                    "suggested_slots": 1,
+                },
+                "artifacts": {
+                    "proposal": {
+                        "path": "asset-proposal/asset-pack-proposal.json",
+                        "sha256": "a" * 64,
+                    },
+                    "review_template": {
+                        "path": "asset-proposal/asset-review-decision.template.json",
+                        "sha256": "b" * 64,
+                    },
+                    "contact_sheet": {
+                        "path": "asset-proposal/asset-contact-sheet.png",
+                        "sha256": "c" * 64,
+                    },
+                },
+            },
+        )
+        self.assertNotIn("PRIVATE", json.dumps(payload))
+        core.propose_asset_pack.assert_called_once_with(
+            Path("template.ir.json"),
+            project_root=root,
+            asset_pack=Path("asset-pack"),
+            asset_pack_rights_confirmed=True,
+            output_dir=Path("asset-proposal"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+
+    def test_v05_freeze_assets_does_not_preread_packets_and_compacts_result(self):
+        result = {
+            "schema_version": "0.5.0",
+            "review_required": False,
+            "counts": {
+                "inventory_entries": 2,
+                "mapped_slots": 1,
+                "omitted_slots": 2,
+                "copied_assets": 1,
+                "private_count": 99,
+            },
+            "artifacts": {
+                "assets_manifest": {
+                    "path": "frozen-assets/assets.json",
+                    "sha256": "a" * 64,
+                    "source_filename": "C:/PRIVATE/source.png",
+                },
+                "freeze_report": {
+                    "path": "frozen-assets/asset-freeze-report.json",
+                    "sha256": "b" * 64,
+                    "tool_path": "C:/PRIVATE/ffprobe.exe",
+                },
+            },
+            "source_filename": "C:/PRIVATE/source.png",
+        }
+        core = SimpleNamespace(freeze_assets=mock.Mock(return_value=result))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = self._freeze_assets_args(root)
+            with mock.patch.object(video_remix, "_assets_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ), mock.patch.object(
+                video_remix,
+                "_load_contract_json",
+                side_effect=AssertionError("freeze-assets CLI must not read packets"),
+            ) as packet_loader, mock.patch.object(
+                video_remix,
+                "validate_asset_proposal_data",
+                side_effect=AssertionError("freeze-assets CLI must not validate proposal"),
+            ) as proposal_validator, mock.patch.object(
+                video_remix,
+                "validate_asset_review_data",
+                side_effect=AssertionError("freeze-assets CLI must not validate review"),
+            ) as review_validator:
+                payload, status = video_remix.run_freeze_assets(args)
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            payload["result"],
+            {
+                "schema_version": "0.5.0",
+                "review_required": False,
+                "counts": {
+                    "inventory_entries": 2,
+                    "mapped_slots": 1,
+                    "omitted_slots": 2,
+                    "copied_assets": 1,
+                },
+                "artifacts": {
+                    "assets_manifest": {
+                        "path": "frozen-assets/assets.json",
+                        "sha256": "a" * 64,
+                    },
+                    "freeze_report": {
+                        "path": "frozen-assets/asset-freeze-report.json",
+                        "sha256": "b" * 64,
+                    },
+                },
+            },
+        )
+        self.assertNotIn("PRIVATE", json.dumps(payload))
+        packet_loader.assert_not_called()
+        proposal_validator.assert_not_called()
+        review_validator.assert_not_called()
+        core.freeze_assets.assert_called_once_with(
+            Path("asset-proposal/asset-pack-proposal.json"),
+            Path("asset-proposal/approved-review.json"),
+            project_root=root,
+            output_dir=Path("frozen-assets"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+
+    def test_v05_freeze_assets_pending_or_rejected_core_failures_exit_two(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for decision in ("pending", "rejected"):
+                with self.subTest(decision=decision):
+                    core = SimpleNamespace(
+                        freeze_assets=mock.Mock(
+                            side_effect=rrv_runtime.RRVError(
+                                rrv_runtime.ERR_INVALID_ARGUMENT,
+                                f"review is {decision}: C:/PRIVATE/review.json",
+                            )
+                        )
+                    )
+                    with mock.patch.object(video_remix, "_assets_module", return_value=core), mock.patch.object(
+                        video_remix, "_runtime_module", return_value=rrv_runtime
+                    ):
+                        payload, status = video_remix.run_freeze_assets(
+                            self._freeze_assets_args(root)
+                        )
+                    self.assertEqual(status, 2)
+                    self.assertEqual(payload["status"], "error")
+                    self.assertEqual(payload["error"]["code"], rrv_runtime.ERR_INVALID_ARGUMENT)
+                    self.assertNotIn("PRIVATE", json.dumps(payload))
+                    self.assertFalse((root / "frozen-assets").exists())
+
+    def test_v05_asset_validate_commands_are_strict_pure_and_nonreflective(self):
+        secret = "C:/PRIVATE/asset-pack/secret-source.png"
+        stderr = f"ffprobe stderr: could not read {secret}"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            proposal = self._asset_proposal_packet()
+            proposal["template_path"] = secret
+            proposal["PRIVATE_source"] = stderr
+            proposal_path = root / "proposal.json"
+            proposal_path.write_text(json.dumps(proposal), encoding="utf-8")
+            review = self._asset_review_packet()
+            review["proposal_sha256"] = secret
+            review["PRIVATE_source"] = stderr
+            review_path = root / "review.json"
+            review_path.write_text(json.dumps(review), encoding="utf-8")
+            duplicate_path = root / "duplicate.json"
+            duplicate_path.write_text(
+                '{"schema_version":"0.5.0","schema_version":"C:/PRIVATE/secret.json"}',
+                encoding="utf-8",
+            )
+            nonfinite_path = root / "nonfinite.json"
+            nonfinite_path.write_text('{"schema_version":NaN}', encoding="utf-8")
+
+            with mock.patch.object(
+                rrv_assets,
+                "_run_ffprobe",
+                side_effect=AssertionError("validation must not probe media"),
+            ) as probe:
+                for command, path in (
+                    ("validate-asset-proposal", proposal_path),
+                    ("validate-asset-review", review_path),
+                    ("validate-asset-proposal", duplicate_path),
+                    ("validate-asset-review", nonfinite_path),
+                ):
+                    with self.subTest(command=command, path=path.name):
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            status = video_remix.main([command, str(path), "--json"])
+                        self.assertEqual(status, 2)
+                        rendered = output.getvalue()
+                        self.assertNotIn("PRIVATE", rendered)
+                        self.assertNotIn("secret-source.png", rendered)
+                        self.assertNotIn("ffprobe stderr", rendered)
+                probe.assert_not_called()
+            duplicate_output = io.StringIO()
+            with contextlib.redirect_stdout(duplicate_output):
+                duplicate_status = video_remix.main(
+                    ["validate-asset-proposal", str(duplicate_path), "--json"]
+                )
+            self.assertEqual(duplicate_status, 2)
+            self.assertEqual(
+                json.loads(duplicate_output.getvalue()),
+                {"status": "fail", "errors": ["$: json.duplicate_key"]},
+            )
+            nonfinite_output = io.StringIO()
+            with contextlib.redirect_stdout(nonfinite_output):
+                nonfinite_status = video_remix.main(
+                    ["validate-asset-review", str(nonfinite_path), "--json"]
+                )
+            self.assertEqual(nonfinite_status, 2)
+            self.assertEqual(
+                json.loads(nonfinite_output.getvalue()),
+                {"status": "fail", "errors": ["$: json.finite_number"]},
+            )
+            self.assertFalse((root / "asset-proposal").exists())
+            self.assertFalse((root / "frozen-assets").exists())
+
+    def test_v05_doctor_gates_asset_capabilities_independently(self):
+        executable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
+        assets = SimpleNamespace(propose_asset_pack=mock.Mock(), freeze_assets=mock.Mock())
+        snapshot_renderer = SimpleNamespace(
+            render_project=mock.Mock(),
+            resolve_local_assets=mock.Mock(),
+            close_resolved_assets=mock.Mock(),
+        )
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+            video_remix, "_pillow_available", return_value=True
+        ), mock.patch.object(video_remix, "_assets_module", return_value=assets), mock.patch.object(
+            video_remix, "_render_module", return_value=snapshot_renderer
+        ):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertTrue(capabilities["asset_pack_proposal"])
+        self.assertTrue(capabilities["asset_review_freeze"])
+        self.assertTrue(capabilities["asset_bound_render"])
+        self.assertFalse(capabilities["asset_media_probe_validation"])
+
+        no_probe = rrv_runtime.RuntimeTools(
+            ffmpeg=executable_tools.ffmpeg,
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", None),
+        )
+        with mock.patch.object(
+            video_remix,
+            "_runtime_module",
+            return_value=SimpleNamespace(discover_tools=mock.Mock(return_value=no_probe)),
+        ), mock.patch.object(video_remix, "_pillow_available", return_value=True), mock.patch.object(
+            video_remix, "_assets_module", return_value=assets
+        ), mock.patch.object(video_remix, "_render_module", return_value=snapshot_renderer):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertFalse(capabilities["asset_pack_proposal"])
+        self.assertFalse(capabilities["asset_review_freeze"])
+        self.assertTrue(capabilities["asset_bound_render"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            missing_schema = Path(directory) / "missing-asset-proposal.schema.json"
+            with mock.patch.object(video_remix, "ASSET_PACK_PROPOSAL_SCHEMA_PATH", missing_schema), mock.patch.object(
+                video_remix, "_runtime_module", return_value=runtime
+            ), mock.patch.object(video_remix, "_pillow_available", return_value=True), mock.patch.object(
+                video_remix, "_assets_module", return_value=assets
+            ), mock.patch.object(video_remix, "_render_module", return_value=snapshot_renderer):
+                capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertFalse(capabilities["asset_pack_proposal"])
+        self.assertFalse(capabilities["asset_review_freeze"])
+        self.assertTrue(capabilities["asset_bound_render"])
+
+        nonexecutable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", None),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", None),
+        )
+        no_snapshot_renderer = SimpleNamespace(
+            render_project=mock.Mock(), resolve_local_assets=mock.Mock()
+        )
+        with mock.patch.object(
+            video_remix,
+            "_runtime_module",
+            return_value=SimpleNamespace(
+                discover_tools=mock.Mock(return_value=nonexecutable_tools)
+            ),
+        ), mock.patch.object(video_remix, "_pillow_available", return_value=True), mock.patch.object(
+            video_remix, "_assets_module", return_value=assets
+        ), mock.patch.object(video_remix, "_render_module", return_value=no_snapshot_renderer):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertFalse(capabilities["asset_pack_proposal"])
+        self.assertFalse(capabilities["asset_review_freeze"])
+        self.assertFalse(capabilities["asset_bound_render"])
 
 
 if __name__ == "__main__":

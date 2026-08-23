@@ -6,7 +6,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "template_id", "privacy_profile", "assets"],
   "properties": {
-    "schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
+    "schema_version": {"enum": ["0.1.0", "0.2.0"]},
     "template_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
     "privacy_profile": {"enum": ["local-only", "cloud-assisted", "gpu-worker"]},
     "assets": {
@@ -54,7 +54,28 @@
   },
   "allOf": [
     {
-      "if": {"properties": {"privacy_profile": {"const": "local-only"}}},
+      "if": {
+        "required": ["schema_version"],
+        "properties": {"schema_version": {"const": "0.2.0"}}
+      },
+      "then": {
+        "properties": {
+          "privacy_profile": {"const": "local-only"},
+          "assets": {
+            "items": {
+              "required": ["path", "sha256"],
+              "properties": {"cloud_upload_allowed": {"const": false}},
+              "not": {"required": ["provider_asset_id"]}
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": ["privacy_profile"],
+        "properties": {"privacy_profile": {"const": "local-only"}}
+      },
       "then": {
         "properties": {
           "assets": {

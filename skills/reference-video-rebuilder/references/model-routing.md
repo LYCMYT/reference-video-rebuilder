@@ -2,6 +2,23 @@
 
 Use role-based routing. Treat a model choice as an implementation detail that must not weaken product acceptance criteria.
 
+## v0.5 asset-pack decision boundary
+
+controller_current owns the decisions that the strict local scanner cannot make:
+whether a Template slot means the intended content, whether a candidate is
+render-ready for that slot, whether rights are sufficient, whether a human
+review is approved, and whether the completed render is acceptable. Exact
+filename matching, a contact sheet, and a passing JSON validator do not answer
+those questions.
+
+Freeze the v0.5 asset contract before implementation: normalized
+project-root-relative packet paths, direct-child pack/output names, allowed
+media, exact stem matching, required review confirmations, local-only Asset
+Manifest 0.2.0, snapshot rendering, P0 tests, and no-cloud/no-generation
+boundary. After that freeze, use gpt-5.6-terra with reasoning.effort max for a
+bounded implementation or deterministic test task. Terra must escalate rather
+than turn an unresolved mapping or visual/rights judgement into code.
+
 ## Roles
 
 Use logical profiles in orchestration code so product logic is not coupled to a

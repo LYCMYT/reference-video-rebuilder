@@ -22,7 +22,7 @@ class SkillMetadataTests(unittest.TestCase):
 
     def test_openai_metadata_matches_skill(self):
         text = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
-        self.assertIn('display_name: "Reference Video Rebuilder"', text)
+        self.assertIn('display_name: "reference-video-rebuilder"', text)
         self.assertIn('$reference-video-rebuilder', text)
 
 

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/asset-mapping-review.schema.json",
+  "title": "Local Asset Mapping Review",
+  "description": "Strict explicit human decision packet for asset pack workflow 0.5.0.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "proposal_sha256",
+    "decision",
+    "contact_sheet_reviewed",
+    "local_only_confirmed",
+    "mappings"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.5.0"},
+    "proposal_sha256": {"$ref": "#/$defs/sha256"},
+    "decision": {"enum": ["pending", "approved", "rejected"]},
+    "contact_sheet_reviewed": {"type": "boolean"},
+    "local_only_confirmed": {"type": "boolean"},
+    "mappings": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/mapping"}}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"decision": {"const": "approved"}}},
+      "then": {
+        "properties": {
+          "contact_sheet_reviewed": {"const": true},
+          "local_only_confirmed": {"const": true},
+          "mappings": {"type": "array", "maxItems": 256, "items": {"$ref": "#/$defs/approvedMapping"}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "slotId": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "assetId": {"type": "string", "pattern": "^asset\\.[0-9]{4}$"},
+    "processor": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+    "useMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot_id",
+        "action",
+        "asset_id",
+        "content_reviewed",
+        "media_compatibility_confirmed",
+        "render_ready_confirmed",
+        "rights_confirmed",
+        "processor"
+      ],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/slotId"},
+        "action": {"const": "use"},
+        "asset_id": {"$ref": "#/$defs/assetId"},
+        "content_reviewed": {"type": "boolean"},
+        "media_compatibility_confirmed": {"type": "boolean"},
+        "render_ready_confirmed": {"type": "boolean"},
+        "rights_confirmed": {"type": "boolean"},
+        "processor": {"$ref": "#/$defs/processor"}
+      }
+    },
+    "omitMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot_id", "action", "omit_confirmed"],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/slotId"},
+        "action": {"const": "omit"},
+        "omit_confirmed": {"type": "boolean"}
+      }
+    },
+    "unresolvedMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot_id", "action"],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/slotId"},
+        "action": {"const": "unresolved"}
+      }
+    },
+    "approvedUseMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot_id",
+        "action",
+        "asset_id",
+        "content_reviewed",
+        "media_compatibility_confirmed",
+        "render_ready_confirmed",
+        "rights_confirmed",
+        "processor"
+      ],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/slotId"},
+        "action": {"const": "use"},
+        "asset_id": {"$ref": "#/$defs/assetId"},
+        "content_reviewed": {"const": true},
+        "media_compatibility_confirmed": {"const": true},
+        "render_ready_confirmed": {"const": true},
+        "rights_confirmed": {"const": true},
+        "processor": {"$ref": "#/$defs/processor"}
+      }
+    },
+    "approvedOmitMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["slot_id", "action", "omit_confirmed"],
+      "properties": {
+        "slot_id": {"$ref": "#/$defs/slotId"},
+        "action": {"const": "omit"},
+        "omit_confirmed": {"const": true}
+      }
+    },
+    "approvedMapping": {"oneOf": [{"$ref": "#/$defs/approvedUseMapping"}, {"$ref": "#/$defs/approvedOmitMapping"}]},
+    "mapping": {"oneOf": [{"$ref": "#/$defs/useMapping"}, {"$ref": "#/$defs/omitMapping"}, {"$ref": "#/$defs/unresolvedMapping"}]}
+  }
+}

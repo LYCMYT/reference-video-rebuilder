@@ -38,6 +38,8 @@ proposal/
 frozen-plan/
 .rrv-proposal-*/
 .rrv-freeze-*/
+.rrv-asset-proposal-*/
+.rrv-asset-freeze-*/
 .template-compile*.staging-*/
 .template-compile*.analysis-*/
 render/
@@ -52,6 +54,13 @@ outputs/
 *.mp3
 *.m4a
 *.mka
+
+# Private v0.5 asset-pack review packets and frozen local snapshots
+asset-pack/
+asset-inbox/
+asset-review/
+asset-proposal/
+frozen-assets/
 
 # Models and checkpoints
 models/

@@ -1,4 +1,4 @@
-# Codex Reference Video Rebuilder
+# reference-video-rebuilder
 
 reference-video-rebuilder is a Codex Skill and local CLI for rebuilding one
 authorized, bounded reference-video family as a reusable template. It treats a
@@ -6,11 +6,34 @@ reference as a structure and timing specification, never as pixels to copy.
 Platform UI, comments, account information, and watermarks are excluded from
 the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-> Status: 0.4.0-alpha. The supported new-reference path is local and bounded:
-> propose -> review -> freeze-plan -> compile -> render. It is limited to an
-> authorized fixed-subject-carousel S1 reference. It is not an arbitrary-video
-> family-discovery, semantic-classification, OCR, cloud, or asset-generation
-> product.
+> Status: 0.5.0-alpha. The local, bounded new-reference path remains
+> propose -> review -> freeze-plan -> compile. v0.5 adds a strict local asset
+> path: propose-assets -> human review -> freeze-assets -> render. It is limited
+> to authorized fixed-subject-carousel S1 work, not arbitrary-video discovery,
+> semantic classification, OCR, cloud processing, asset generation, or automatic
+> approval.
+
+## What 0.5 adds
+
+For an existing local Template IR, v0.5 provides a strict asset-pack workflow.
+propose-assets scans one direct-child pack containing only static JPEG, PNG, or
+WebP images and locally probeable WAV, MP3, M4A, or MKA audio. Unknown files,
+videos, animation, sidecars, and unsafe entries fail the entire pack.
+
+Candidate selection is deliberately mechanical: a file can be proposed only
+when its exact filename stem equals a Template IR slot_id and its inspected
+media type is accepted by that slot. It does not use OCR, visual recognition,
+or fuzzy naming. propose-assets always writes a review-required
+asset-pack-proposal.json, asset-review-decision.template.json, and
+asset-contact-sheet.png; the contact sheet plus JSON review is not a GUI.
+
+freeze-assets requires an explicitly approved review, binds Proposal, Template,
+and inventory hashes, safely rescans the source pack, and atomically publishes
+frozen-assets/assets.json as a local-only Asset Manifest 0.2.0. The manifest
+contains SHA-256-bound opaque flat copies; the paired asset-freeze-report.json
+records the freeze evidence. Renderer 0.2.0 reads frozen image snapshots and
+feeds frozen audio through pipe:0. Asset Manifest 0.1.0 remains legacy
+compatibility only.
 
 ## What 0.4 adds
 
@@ -45,10 +68,12 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Product and CLI | 0.4.0-alpha |
+| Product and CLI | 0.5.0-alpha |
 | Proposal JSON | 0.4.0 |
+| Asset Pack Proposal and Review | 0.5.0 |
 | Frozen Compiler Plan | 0.3.0 |
 | Template IR | 0.2.0 |
+| Frozen Asset Manifest | 0.2.0 |
 
 The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
 consumers remain compatible. Deterministic compilation, rendering, Template
@@ -65,16 +90,29 @@ does not provide:
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
 
-Windows is the audited release platform for v0.4.0-alpha. Other operating
-systems retain fail-closed identity and reparse-point checks, but this release
-does not claim the same directory-handle race guarantees outside Windows.
+Windows is the audited release platform for v0.5.0-alpha. It provides the
+strong reparse-point and guarded snapshot/copy boundary for asset-pack scan,
+rescan, and frozen-assets publication. Other operating systems remain
+observable and fail closed where supported, but this release does not claim
+an equivalent Windows NT no-delete guarantee. Renderer 0.2 binds each asset's
+consumed bytes to its declared SHA-256; output-directory containment assumes
+no hostile concurrent filesystem mutation during render and encode.
 
-Raw source and evidence remain local. Proposal artifacts must not contain source
-or tool absolute paths, filenames, container tags, title/artist/comments,
-account identity, raw probes, raw media, or private evidence payloads. The only
-allowed technical source fingerprint is SHA-256, width, height, exact frame
-count, fps, and audio presence. Bounded evidence references are for local
-review only.
+Asset Manifest 0.2.0 and its freeze report are locally asserted, hash-bound
+records, not cryptographic proof of an approver or workflow provenance. The
+governed workflow keeps the Proposal, Review, and freeze report together, but
+a process that can rewrite the project can also author those JSON artifacts.
+Use trusted signatures or access-controlled immutable storage if independent
+approval must be enforceable.
+
+Raw source and evidence remain local. Reference-video Proposal artifacts must
+not contain the source-video or tool absolute paths, source-video filename,
+container tags, title/artist/comments, account identity, raw probes, raw media,
+or private evidence payloads. Their only allowed technical source fingerprint
+is SHA-256, width, height, exact frame count, fps, and audio presence. The
+separate local Asset Pack Proposal necessarily inventories normalized pack
+filenames so exact slot stems can be reviewed; it still excludes absolute
+paths and raw media. Bounded evidence references are for local review only.
 
 ## Install the Skill and runtime dependencies
 
@@ -97,7 +135,79 @@ After installing the Skill by itself, run the same runtime install command from
 the installed directory that contains SKILL.md. FFmpeg and ffprobe are external
 local executables.
 
-## 0.4.0-alpha quick start
+## 60-second Windows asset-pack quick start
+
+This v0.5 path starts with an already validated Template IR from the existing
+v0.4 propose, review, freeze-plan, and compile flow. Run it from a fresh local
+project so asset-proposal and frozen-assets do not already exist.
+
+~~~powershell
+Set-Location .\skills\reference-video-rebuilder
+
+$project = 'D:\video-projects\outfit-reel'
+$ffmpeg = 'C:\tools\ffmpeg.exe'
+$ffprobe = 'C:\tools\ffprobe.exe'
+$templatePacket = 'template-compile/template.ir.json'
+$template = Join-Path $project $templatePacket
+~~~
+
+Place approved user-supplied bytes in one direct child named asset-pack. The
+filenames below are examples only: each stem must exactly equal a slot_id in
+the Template IR. The workflow does not infer that model.identity means a model
+or that an outfit file is visually correct.
+
+~~~text
+asset-pack/
+├── model.identity.png
+├── outfit.01.png
+├── …
+├── outfit.12.png
+├── product.01.png
+├── …
+├── product.12.png
+├── background.png
+└── audio.mka
+~~~
+
+Confirm rights before the command. The flag is mandatory before any asset-pack
+analysis; it does not authorize a cloud upload or generated asset.
+
+~~~powershell
+python scripts/video_remix.py propose-assets "$templatePacket" --project-root $project --asset-pack asset-pack --output-dir asset-proposal --asset-pack-rights-confirmed --ffprobe $ffprobe --timeout 60 --json
+
+$proposal = Join-Path $project 'asset-proposal\asset-pack-proposal.json'
+$review = Join-Path $project 'asset-proposal\asset-review-decision.template.json'
+$proposalPacket = 'asset-proposal/asset-pack-proposal.json'
+$reviewPacket = 'asset-proposal/asset-review-decision.template.json'
+python scripts/video_remix.py validate-asset-proposal "$proposal" --json
+~~~
+
+Review locally, not in a GUI:
+
+1. Inspect asset-contact-sheet.png and the proposal inventory/candidates.
+2. For every use mapping in the review JSON, explicitly confirm its content,
+   media compatibility, render readiness, and rights.
+3. Resolve every slot. An optional omission needs its explicit confirmation;
+   required, missing, ambiguous, incompatible, or unresolved slots cannot
+   freeze.
+4. Mark the contact-sheet and local-only confirmations, then approve only the
+   exact Proposal hash you reviewed.
+
+~~~powershell
+python scripts/video_remix.py validate-asset-review "$review" --json
+python scripts/video_remix.py freeze-assets "$proposalPacket" "$reviewPacket" --project-root $project --output-dir frozen-assets --ffprobe $ffprobe --timeout 60 --json
+
+$assets = Join-Path $project 'frozen-assets\assets.json'
+python scripts/video_remix.py validate-assets "$template" "$assets" --project-root $project --json
+python scripts/video_remix.py render "$template" "$assets" --project-root $project --ffmpeg $ffmpeg --summary run-summary.json --json
+~~~
+
+Template, Proposal, and Review paths above are normalized project-root-relative
+paths. asset-pack and both output directories are direct child names, not
+paths: absolute, nested, dot-segment, and existing output targets fail. The
+workflow accepts no videos, animation, sidecars, or arbitrary media.
+
+## 0.4.0-alpha reference-plan quick start
 
 Run these commands from the repository checkout. The proposal command is the
 only new-reference entry point; do not hand-author a Compiler Plan in place of
@@ -161,9 +271,12 @@ python scripts/video_remix.py validate-compiler-plan "$plan" --json
 python scripts/video_remix.py compile "$source" "$plan" --project-root $project --output-dir template-compile --ffmpeg $ffmpeg --ffprobe $ffprobe --json
 
 $template = Join-Path $project 'template-compile\template.ir.json'
-$assets = Join-Path $project 'assets.json'
 python scripts/video_remix.py validate-template "$template" --json
-python scripts/video_remix.py validate-assets "$template" "$assets" --json
+
+# Follow the v0.5 asset-pack quick start above. Do not hand-author a mutable
+# assets.json in place of the human-reviewed frozen asset snapshot.
+$assets = Join-Path $project 'frozen-assets\assets.json'
+python scripts/video_remix.py validate-assets "$template" "$assets" --project-root $project --json
 python scripts/video_remix.py render "$template" "$assets" --project-root $project --ffmpeg $ffmpeg --summary run-summary.json --json
 ~~~
 
@@ -194,11 +307,12 @@ review. A successful media decode does not establish identity consistency,
 garment/product fidelity, correct carousel semantics, absence of residual
 platform elements, or commercial rights.
 
-Confirm permission for the reference video, likenesses, products, logos, and
-audio before proposal. This alpha is local-only: it does not upload media,
-evidence, proposal artifacts, or derived data.
+Confirm permission for the reference video, likenesses, products, logos, audio,
+and every asset-pack file before proposal. This alpha is local-only: it does
+not upload media, evidence, proposal artifacts, or derived data.
 
 See the [Compiler Plan contract](skills/reference-video-rebuilder/references/compiler-contract.md),
+[asset contract](skills/reference-video-rebuilder/references/asset-contract.md),
 [QA gates](skills/reference-video-rebuilder/references/qa-gates.md), and the
 complete Chinese [design](docs/DESIGN.zh-CN.md).
 

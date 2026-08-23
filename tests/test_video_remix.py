@@ -29,6 +29,13 @@ class TemplateIRValidationTests(unittest.TestCase):
     def validate(self, template):
         return video_remix.validate_template_data(template)
 
+    def frozen_assets(self):
+        manifest = copy.deepcopy(self.assets)
+        manifest["schema_version"] = "0.2.0"
+        for asset in manifest["assets"]:
+            asset["sha256"] = "0" * 64
+        return manifest
+
     def test_schema_example_passes_and_models_renderer_contract(self):
         self.assertEqual(self.validate(self.template), [])
         self.assertEqual(self.template["schema_version"], "0.2.0")
@@ -206,6 +213,7 @@ class TemplateIRValidationTests(unittest.TestCase):
                 video_remix.load_json(path)
 
     def test_example_assets_are_valid_without_path_checks(self):
+        # Asset Manifest 0.1.0 keeps its original path-only compatibility.
         self.assertEqual(
             video_remix.validate_assets_data(self.template, self.assets, ASSETS_PATH, check_files=False),
             [],
@@ -235,7 +243,117 @@ class TemplateIRValidationTests(unittest.TestCase):
         broken = copy.deepcopy(self.assets)
         broken["assets"][0]["path"] = "../escape.png"
         errors = video_remix.validate_assets_data(self.template, broken, ASSETS_PATH, check_files=False)
-        self.assertIn("$.assets[0].path escapes the project root: ../escape.png", errors)
+        self.assertIn("$.assets[0].path violates the project-relative path policy", errors)
+
+    def test_legacy_manifest_accepts_host_native_backslash_relative_path(self):
+        """Asset Manifest 0.1.0 retains Windows project path compatibility."""
+
+        legacy = copy.deepcopy(self.assets)
+        legacy["assets"][0]["path"] = "assets\\legacy.png"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            candidate = root / Path("assets\\legacy.png")
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            candidate.write_bytes(b"legacy")
+            errors = video_remix.validate_assets_data(
+                self.template,
+                legacy,
+                ASSETS_PATH,
+                check_files=True,
+                project_root=root,
+            )
+        self.assertNotIn("$.assets[0].path violates the project-relative path policy", errors)
+
+    def test_frozen_manifest_requires_local_bound_assets_and_safe_paths(self):
+        """0.2.0 rejects every path/schema escape even without file checks."""
+
+        cases = []
+
+        def missing_sha256(manifest):
+            manifest["assets"][0].pop("sha256")
+
+        def provider_asset(manifest):
+            manifest["assets"][0]["provider_asset_id"] = "remote-asset"
+
+        def cloud_upload(manifest):
+            manifest["assets"][0]["cloud_upload_allowed"] = True
+
+        def nonlocal_profile(manifest):
+            manifest["privacy_profile"] = "cloud-assisted"
+
+        def unknown_version(manifest):
+            manifest["schema_version"] = "9.9.9"
+
+        cases.extend(
+            [
+                ("missing-sha256", missing_sha256),
+                ("provider", provider_asset),
+                ("cloud", cloud_upload),
+                ("nonlocal", nonlocal_profile),
+                ("unknown-version", unknown_version),
+            ]
+        )
+        for unsafe_path in (
+            "/private/absolute.png",
+            "C:/private/drive.png",
+            "//server/share/unc.png",
+            "assets\\windows.png",
+            "../traversal.png",
+            "assets/./dot.png",
+            "assets/stream:alternate-data.png",
+            "assets/CON",
+        ):
+            cases.append((unsafe_path, lambda manifest, value=unsafe_path: manifest["assets"][0].update(path=value)))
+
+        for name, mutate in cases:
+            with self.subTest(case=name):
+                broken = self.frozen_assets()
+                mutate(broken)
+                errors = video_remix.validate_assets_data(
+                    self.template, broken, ASSETS_PATH, check_files=False
+                )
+                self.assertTrue(errors, name)
+                if name == "/private/absolute.png":
+                    self.assertNotIn("private", "\n".join(errors))
+
+    def test_frozen_render_hashes_use_renderer_bound_digest_after_path_disappears(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template_path = root / "template.json"
+            manifest_path = root / "assets.json"
+            template_path.write_text("{}", encoding="utf-8")
+            manifest_path.write_text("{}", encoding="utf-8")
+            bound_digest = "a" * 64
+            manifest = {
+                "schema_version": "0.2.0",
+                "assets": [
+                    {
+                        "slot_id": "image",
+                        "path": "assets/image.png",
+                        "sha256": bound_digest,
+                    }
+                ],
+            }
+            # The source is deliberately absent: using the old post-render
+            # path hash would fail, while frozen provenance uses this summary.
+            hashes = video_remix._render_hashes(
+                template_path,
+                manifest_path,
+                {"source": {"source_sha256": "b" * 64}},
+                manifest,
+                root,
+                SimpleNamespace(),
+                renderer_summary={
+                    "assets": [
+                        {
+                            "slot_id": "image",
+                            "path": "assets/image.png",
+                            "sha256": bound_digest,
+                        }
+                    ]
+                },
+            )
+            self.assertEqual(hashes["assets"], [{"slot_id": "image", "path": "assets/image.png", "sha256": bound_digest}])
 
     def test_streaming_sha256_file_uses_known_digest(self):
         with tempfile.TemporaryDirectory() as directory:

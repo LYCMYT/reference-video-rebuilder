@@ -1,7 +1,9 @@
 import copy
+import shutil
 import sys
 import tempfile
 import unittest
+import wave
 from pathlib import Path
 from unittest.mock import patch
 
@@ -160,6 +162,13 @@ class RendererTests(unittest.TestCase):
                 for slot_id, path in paths.items()
             ],
         }
+
+    def frozen_manifest(self, paths):
+        manifest = self.manifest(paths)
+        manifest["schema_version"] = "0.2.0"
+        for asset in manifest["assets"]:
+            asset["sha256"] = video_remix.sha256_file(self.root / asset["path"])
+        return manifest
 
     def renderer(self, document, manifest):
         self.assertEqual(video_remix.validate_template_data(document), [])
@@ -577,6 +586,109 @@ class RendererTests(unittest.TestCase):
         with self.assertRaises(rrv_render.PathPolicyError):
             rrv_render.resolve_project_path(self.root, "../out.mp4", purpose="output")
 
+    def test_legacy_resolver_accepts_host_native_backslash_relative_path(self):
+        """The direct v0.1.0 resolver mirrors legacy Windows path spelling."""
+
+        image = self.image(Path("assets\\legacy.png"), "#ff0000")
+        slot = {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template([slot], tracks, [layer("image", "main", "image")])
+        manifest = self.manifest({"image": image})
+        manifest["assets"][0]["path"] = "assets\\legacy.png"
+
+        assets = rrv_render.resolve_local_assets(document, manifest, self.root)
+        self.assertEqual(assets["image"].path.resolve(), image.resolve())
+
+    def test_frozen_resolver_enforces_contract_when_called_directly(self):
+        image = self.image("assets/frozen.png", "#ff0000")
+        slot = {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template([slot], tracks, [layer("image", "main", "image")])
+        cases = []
+
+        def missing_hash(manifest):
+            manifest["assets"][0].pop("sha256")
+
+        def provider(manifest):
+            manifest["assets"][0]["provider_asset_id"] = "remote"
+
+        def cloud(manifest):
+            manifest["assets"][0]["cloud_upload_allowed"] = True
+
+        def nonlocal_profile(manifest):
+            manifest["privacy_profile"] = "cloud-assisted"
+
+        def unknown_version(manifest):
+            manifest["schema_version"] = "3.0.0"
+
+        cases.extend(
+            [
+                missing_hash,
+                provider,
+                cloud,
+                nonlocal_profile,
+                unknown_version,
+            ]
+        )
+        for unsafe_path in (
+            "/private/asset.png",
+            "C:/private/asset.png",
+            "//server/share/asset.png",
+            "assets\\asset.png",
+            "../asset.png",
+        ):
+            cases.append(
+                lambda manifest, value=unsafe_path: manifest["assets"][0].update(path=value)
+            )
+
+        for mutate in cases:
+            with self.subTest(mutate=mutate):
+                manifest = self.frozen_manifest({"image": image})
+                mutate(manifest)
+                with self.assertRaises(rrv_render.RenderError):
+                    rrv_render.resolve_local_assets(document, manifest, self.root)
+
+    def test_frozen_image_uses_verified_snapshot_after_source_replacement(self):
+        red = self.image("assets/frozen-red.png", "#ff0000")
+        slot = {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template([slot], tracks, [layer("image", "main", "image")])
+        assets = rrv_render.resolve_local_assets(
+            document, self.frozen_manifest({"image": red}), self.root
+        )
+        try:
+            replacement = Image.new("RGBA", (2, 2), "#0000ff")
+            try:
+                replacement.save(red)
+            finally:
+                replacement.close()
+            renderer = rrv_render.S1Renderer(document, assets)
+            frame = renderer.render_frame(0)
+            try:
+                self.assertEqual(frame.getpixel((4, 2)), (255, 0, 0, 255))
+            finally:
+                frame.close()
+        finally:
+            rrv_render.close_resolved_assets(assets)
+
+    def test_frozen_hash_mismatch_fails_before_master_write(self):
+        image = self.image("assets/hash-mismatch.png", "#ff0000")
+        slot = {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template([slot], tracks, [layer("image", "main", "image")])
+        manifest = self.frozen_manifest({"image": image})
+        manifest["assets"][0]["sha256"] = "0" * 64
+        document["outputs"][0]["filename"] = "preflight/frozen-hash/result.mp4"
+        with self.assertRaises(rrv_render.RenderInputError):
+            rrv_render.render_project(
+                document,
+                manifest,
+                self.root,
+                frame_directory="preflight/frozen-hash/master",
+                encoder_runner=lambda arguments: self.fail(f"encoder was called: {arguments}"),
+            )
+        self.assertFalse((self.root / "preflight" / "frozen-hash").exists())
+
     def test_unsupported_blend_and_mask_fail_closed(self):
         image = self.image("assets/image.png", "#ff0000")
         slots = [{"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}]
@@ -873,6 +985,150 @@ class RendererTests(unittest.TestCase):
             with self.assertRaisesRegex(rrv_render.EncoderError, "timed out"):
                 rrv_render.encode_outputs(document, {}, self.root, frame_dir, timeout_seconds=3)
 
+    def test_frozen_audio_uses_pipe_without_exposing_original_path(self):
+        frame_dir = self.master_sequence(2)
+        audio_file = self.root / "assets" / "frozen-source.wav"
+        audio_file.parent.mkdir(parents=True, exist_ok=True)
+        audio_file.write_bytes(b"fake-audio-for-runner")
+        slots = [{"id": "audio", "type": "audio", "required": True, "accepted_media": ["audio/wav"]}]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template(slots, tracks, [], duration=2)
+        manifest = {
+            "schema_version": "0.2.0",
+            "template_id": "render-test",
+            "privacy_profile": "local-only",
+            "assets": [
+                {
+                    "slot_id": "audio",
+                    "path": "assets/frozen-source.wav",
+                    "sha256": video_remix.sha256_file(audio_file),
+                    "media_type": "audio/wav",
+                    "rights_confirmed": True,
+                    "cloud_upload_allowed": False,
+                    "processor": "direct",
+                }
+            ],
+        }
+        assets = rrv_render.resolve_local_assets(document, manifest, self.root)
+        calls = []
+        try:
+            rrv_render.encode_outputs(
+                document, assets, self.root, frame_dir, runner=lambda arguments: calls.append(arguments)
+            )
+            inputs = [
+                calls[0][index + 1]
+                for index, value in enumerate(calls[0][:-1])
+                if value == "-i"
+            ]
+            self.assertEqual(inputs[-1], "pipe:0")
+            self.assertNotIn(str(audio_file), calls[0])
+        finally:
+            rrv_render.close_resolved_assets(assets)
+
+    def test_frozen_audio_snapshot_rewinds_for_each_output(self):
+        frame_dir = self.master_sequence(2)
+        audio_file = self.root / "assets" / "rewind-source.wav"
+        audio_file.parent.mkdir(parents=True, exist_ok=True)
+        audio_file.write_bytes(b"frozen-audio")
+        slots = [{"id": "audio", "type": "audio", "required": True, "accepted_media": ["audio/wav"]}]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template(slots, tracks, [], duration=2)
+        copied_output = copy.deepcopy(document["outputs"][0])
+        copied_output.update({"id": "vertical-720-copy", "filename": "deliveries/copy.mp4"})
+        document["outputs"].append(copied_output)
+        manifest = {
+            "schema_version": "0.2.0",
+            "template_id": "render-test",
+            "privacy_profile": "local-only",
+            "assets": [
+                {
+                    "slot_id": "audio",
+                    "path": "assets/rewind-source.wav",
+                    "sha256": video_remix.sha256_file(audio_file),
+                    "media_type": "audio/wav",
+                    "rights_confirmed": True,
+                    "cloud_upload_allowed": False,
+                    "processor": "direct",
+                }
+            ],
+        }
+        assets = rrv_render.resolve_local_assets(document, manifest, self.root)
+        positions = []
+        try:
+            def runner(arguments):
+                del arguments
+                snapshot = assets["audio"].snapshot
+                assert snapshot is not None
+                positions.append(snapshot.tell())
+                snapshot.read(1)
+
+            rrv_render.encode_outputs(document, assets, self.root, frame_dir, runner=runner)
+            self.assertEqual(positions, [0, 0])
+        finally:
+            rrv_render.close_resolved_assets(assets)
+
+    def test_frozen_summary_uses_bound_digest_without_reopening_source_path(self):
+        image = self.image("assets/summary-bound.png", "#ff0000")
+        slot = {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template([slot], tracks, [layer("image", "main", "image")])
+        assets = rrv_render.resolve_local_assets(
+            document, self.frozen_manifest({"image": image}), self.root
+        )
+        expected = assets["image"].bound_sha256
+        try:
+            image.unlink()
+            summary = rrv_render.build_run_summary(
+                document,
+                assets,
+                self.root,
+                "render/bound-summary",
+                [],
+                debug_bounds=False,
+            )
+            self.assertEqual(
+                summary["assets"],
+                [
+                    {
+                        "slot_id": "image",
+                        "media_type": "image/png",
+                        "path": "assets/summary-bound.png",
+                        "sha256": expected,
+                    }
+                ],
+            )
+        finally:
+            rrv_render.close_resolved_assets(assets)
+
+    def test_render_project_closes_frozen_snapshots(self):
+        image = self.image("assets/close-snapshot.png", "#663399")
+        slot = {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template([slot], tracks, [layer("image", "main", "image")], duration=2)
+        document["outputs"][0]["filename"] = "close-snapshot/result.mp4"
+        manifest = self.frozen_manifest({"image": image})
+        original_resolve = rrv_render.resolve_local_assets
+        captured = []
+
+        def capture_assets(*arguments, **keywords):
+            assets = original_resolve(*arguments, **keywords)
+            captured.extend(assets.values())
+            return assets
+
+        with patch.object(rrv_render, "resolve_local_assets", side_effect=capture_assets):
+            rrv_render.render_project(
+                document,
+                manifest,
+                self.root,
+                frame_directory="close-snapshot/master",
+                encoder_runner=lambda arguments: None,
+            )
+        self.assertTrue(captured)
+        self.assertTrue(all(asset.snapshot is not None and asset.snapshot.closed for asset in captured))
+        # The public helper is deliberately idempotent after render ownership
+        # has already closed its snapshots.
+        rrv_render.close_resolved_assets({asset.slot_id: asset for asset in captured})
+
     def test_fake_encoder_receives_parameter_array_with_audio_trim_and_reframe(self):
         frame_dir = self.master_sequence(2)
         audio_file = self.root / "assets" / "source.wav"
@@ -911,6 +1167,12 @@ class RendererTests(unittest.TestCase):
         )
         self.assertEqual(len(encoded), 1)
         self.assertEqual(calls[0][0], "fake ffmpeg; never-a-shell-command")
+        audio_inputs = [
+            calls[0][index + 1]
+            for index, value in enumerate(calls[0][:-1])
+            if value == "-i"
+        ]
+        self.assertEqual(audio_inputs[-1], str(audio_file))
         self.assertIn("-n", calls[0])
         self.assertIn("-nostdin", calls[0])
         self.assertNotIn("-y", calls[0])
@@ -924,6 +1186,50 @@ class RendererTests(unittest.TestCase):
         summary = rrv_render.build_run_summary(document, assets, self.root, frame_dir, encoded, debug_bounds=False)
         self.assertEqual(rrv_render.stable_summary_json(summary), rrv_render.stable_summary_json(summary))
         self.assertNotIn(str(self.root), rrv_render.stable_summary_json(summary))
+
+    @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is required for frozen stdin integration")
+    def test_frozen_wav_is_demuxed_from_verified_stdin(self):
+        """At least one real FFmpeg container path proves ``pipe:0`` works."""
+
+        image = self.image("assets/ffmpeg-image.png", "#2288cc")
+        audio_file = self.root / "assets" / "ffmpeg-audio.wav"
+        with wave.open(str(audio_file), "wb") as writer:
+            writer.setnchannels(1)
+            writer.setsampwidth(2)
+            writer.setframerate(8_000)
+            writer.writeframes(b"\x00\x00" * 2_400)
+        slots = [
+            {"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]},
+            {"id": "audio", "type": "audio", "required": True, "accepted_media": ["audio/wav"]},
+        ]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = template(
+            slots,
+            tracks,
+            [layer("image", "main", "image", ranges=[{"start_frame": 0, "end_frame": 2}])],
+            duration=2,
+        )
+        manifest = self.frozen_manifest({"image": image})
+        manifest["assets"].append(
+            {
+                "slot_id": "audio",
+                "path": "assets/ffmpeg-audio.wav",
+                "sha256": video_remix.sha256_file(audio_file),
+                "media_type": "audio/wav",
+                "rights_confirmed": True,
+                "cloud_upload_allowed": False,
+                "processor": "direct",
+            }
+        )
+        summary = rrv_render.render_project(
+            document,
+            manifest,
+            self.root,
+            frame_directory="ffmpeg-pipe/master",
+            ffmpeg_bin=shutil.which("ffmpeg") or "ffmpeg",
+        )
+        self.assertTrue(summary["outputs"][0]["audio_muxed"])
+        self.assertTrue((self.root / "deliveries" / "default.mp4").is_file())
 
 
 if __name__ == "__main__":
