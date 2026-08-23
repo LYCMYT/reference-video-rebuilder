@@ -207,6 +207,127 @@ class AssetPackTests(unittest.TestCase):
         )
         return review
 
+    def test_portable_asset_pack_components_reject_windows_aliases_before_scan_or_output(self):
+        self.write_template()
+        self.image("hero.png")
+        rejected = (
+            "asset-pack.",
+            "asset-pack ",
+            "CON",
+            "NUL.txt",
+            "COM1",
+            "LPT9.webp",
+            "COM¹.png",
+            "LPT³.txt",
+            "CONIN$.png",
+            "bad<name",
+            "bad\x1fname",
+        )
+        for name in rejected:
+            with self.subTest(name=repr(name)), mock.patch.object(
+                rrv_assets, "_scan_asset_pack", side_effect=AssertionError("must not scan")
+            ):
+                with self.assertRaises(rrv_runtime.RRVError):
+                    rrv_assets.propose_asset_pack(
+                        "template.ir.json",
+                        project_root=self.root,
+                        asset_pack=name,
+                        asset_pack_rights_confirmed=True,
+                        output_dir="portable-path-rejected",
+                    )
+            self.assertFalse((self.root / "portable-path-rejected").exists())
+
+        self.assertEqual(rrv_assets._relative_path_parts("look.01.png"), ("look.01.png",))
+        self.assertEqual(rrv_assets._relative_path_parts("nested/.keep"), ("nested", ".keep"))
+
+    def test_unsafe_or_casefold_colliding_pack_entries_fail_before_open_or_publish(self):
+        self.write_template()
+        cases = (
+            ("trailing-dot", ("unsafe.",)),
+            ("trailing-space", ("unsafe ",)),
+            ("reserved-con", ("CON",)),
+            ("reserved-nul-extension", ("NUL.txt",)),
+            ("reserved-com", ("COM1.png",)),
+            ("reserved-com-superscript", ("COM².png",)),
+            ("reserved-lpt-superscript", ("LPT³.txt",)),
+            ("control", ("bad\x1fname.png",)),
+            ("casefold-collision", ("A.png", "a.png")),
+        )
+        for label, names in cases:
+            entries = []
+            for name in names:
+                entry = mock.Mock()
+                entry.name = name
+                entries.append(entry)
+            scanner = mock.MagicMock()
+            scanner.__enter__.return_value = entries
+            with self.subTest(label=label), mock.patch.object(
+                rrv_assets.os, "scandir", return_value=scanner
+            ), mock.patch.object(
+                rrv_assets, "_safe_regular_file", side_effect=AssertionError("must not open")
+            ):
+                with self.assertRaises(rrv_runtime.RRVError):
+                    self.proposal(output_dir="unsafe-pack-entry-rejected")
+            self.assertFalse((self.root / "unsafe-pack-entry-rejected").exists())
+
+        self.image("A.png")
+        accepted = self.proposal(output_dir="single-uppercase-entry")
+        self.assertEqual(accepted["counts"]["inventory_entries"], 1)
+
+    def test_thumbnail_applies_exif_orientation_and_reconstructs_metadata_free_pixels(self):
+        source = Image.new("RGB", (2, 3))
+        source.putdata(
+            [
+                (255, 0, 0),
+                (0, 255, 0),
+                (0, 0, 255),
+                (255, 255, 0),
+                (255, 0, 255),
+                (0, 255, 255),
+            ]
+        )
+        exif = Image.Exif()
+        exif[274] = 6
+        try:
+            source.save(self.pack / "oriented.png", format="PNG", exif=exif)
+        finally:
+            source.close()
+
+        scanned = []
+        thumbnail = None
+        try:
+            with rrv_assets._root_guard(self.root) as root_identity:
+                with rrv_assets._asset_pack_guard(self.root, root_identity, "asset-pack") as (pack, pack_identity):
+                    scanned, _ = rrv_assets._scan_asset_pack(
+                        root_identity,
+                        pack,
+                        pack_identity,
+                        "asset-pack",
+                        ffprobe="ignored",
+                        timeout_seconds=1,
+                    )
+                    thumbnail = rrv_assets._thumbnail_for_asset(scanned[0], maximum=(100, 100))
+            self.assertIsNotNone(thumbnail)
+            assert thumbnail is not None
+            self.assertEqual(thumbnail.size, (3, 2))
+            self.assertEqual(
+                list(thumbnail.getdata()),
+                [
+                    (255, 0, 255),
+                    (0, 0, 255),
+                    (255, 0, 0),
+                    (0, 255, 255),
+                    (255, 255, 0),
+                    (0, 255, 0),
+                ],
+            )
+            self.assertEqual(thumbnail.info, {})
+            self.assertEqual(dict(thumbnail.getexif()), {})
+        finally:
+            if thumbnail is not None:
+                thumbnail.close()
+            rrv_assets._close_scanned_assets(scanned)
+
     def test_happy_path_freezes_opaque_assets_and_current_validator_consumes_it(self):
         template_path, template = self.write_template()
         source = self.image("hero.png")

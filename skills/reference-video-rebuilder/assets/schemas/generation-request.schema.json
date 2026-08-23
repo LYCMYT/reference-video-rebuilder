@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/generation-request.schema.json",
+  "title": "Local Generation Request",
+  "description": "Private, bounded request for a controller to create still replacement assets. The local core never executes a generator.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "privacy_profile", "execution_profile", "adapter_id", "adapter_version", "cloud_upload_confirmed", "tasks"],
+  "properties": {
+    "schema_version": {"const": "0.6.0"},
+    "privacy_profile": {"enum": ["local-only", "controller-cloud"]},
+    "execution_profile": {"enum": ["local-file-drop", "controller-managed"]},
+    "adapter_id": {"$ref": "#/$defs/adapterId"},
+    "adapter_version": {"$ref": "#/$defs/adapterVersion"},
+    "controller_label": {"$ref": "#/$defs/controllerLabel"},
+    "cloud_upload_confirmed": {"type": "boolean"},
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 128,
+      "items": {"$ref": "#/$defs/task"}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"privacy_profile": {"const": "controller-cloud"}}},
+      "then": {"required": ["cloud_upload_confirmed"], "properties": {"cloud_upload_confirmed": {"const": true}, "execution_profile": {"const": "controller-managed"}}}
+    },
+    {
+      "if": {"properties": {"privacy_profile": {"const": "local-only"}}},
+      "then": {"properties": {"cloud_upload_confirmed": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"execution_profile": {"const": "controller-managed"}}},
+      "then": {"required": ["controller_label"]}
+    },
+    {
+      "if": {"properties": {"execution_profile": {"const": "local-file-drop"}}},
+      "then": {"not": {"required": ["controller_label"]}}
+    }
+  ],
+  "$defs": {
+    "slotId": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "adapterId": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+    "adapterVersion": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "controllerLabel": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$"},
+    "directChildName": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^/:\\\\]*[^/:\\\\. ]$"},
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_filename", "role"],
+      "properties": {
+        "source_filename": {"$ref": "#/$defs/directChildName"},
+        "role": {"enum": ["identity", "garment", "product", "background", "reference", "audio"]}
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target_slot_id", "kind", "references", "instructions", "passthrough", "omit"],
+      "properties": {
+        "target_slot_id": {"$ref": "#/$defs/slotId"},
+        "kind": {"enum": ["identity-try-on", "product-still", "background-still", "reference-guided-still"]},
+        "references": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/reference"}},
+        "instructions": {"type": "string", "maxLength": 2000},
+        "passthrough": {"type": "boolean"},
+        "omit": {"type": "boolean"}
+      }
+    }
+  }
+}

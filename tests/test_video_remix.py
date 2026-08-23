@@ -399,6 +399,8 @@ class TemplateIRValidationTests(unittest.TestCase):
         )
         self.assertFalse(capabilities["semantic_slot_analysis"])
         self.assertFalse(capabilities["asset_generation"])
+        self.assertFalse(capabilities["network_generation"])
+        self.assertFalse(capabilities["cloud_generation"])
         self.assertIsInstance(payload["runtime"]["jsonschema_version"], str)
         self.assertIsInstance(payload["runtime"]["pillow_version"], str)
         # Deterministic S1 rendering is implemented; availability truthfully

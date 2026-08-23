@@ -2,22 +2,25 @@
 
 Use role-based routing. Treat a model choice as an implementation detail that must not weaken product acceptance criteria.
 
-## v0.5 asset-pack decision boundary
+## v0.6 generation and asset decision boundary
 
-controller_current owns the decisions that the strict local scanner cannot make:
-whether a Template slot means the intended content, whether a candidate is
-render-ready for that slot, whether rights are sufficient, whether a human
-review is approved, and whether the completed render is acceptable. Exact
-filename matching, a contact sheet, and a passing JSON validator do not answer
-those questions.
+controller_current owns the decisions that the strict local scanner and v0.6
+generation bridge cannot make: whether a Template slot means the intended
+content; whether an identity, body/pose, garment, product, background, or logo
+is visually faithful; whether an external controller/privacy profile is
+acceptable; whether rights and cloud consent are sufficient; whether a human
+review is approved; and whether the completed render is acceptable. Exact
+filename matching, a contact sheet, a bounded controller declaration, media metadata, and a
+passing JSON validator do not answer those questions.
 
-Freeze the v0.5 asset contract before implementation: normalized
-project-root-relative packet paths, direct-child pack/output names, allowed
-media, exact stem matching, required review confirmations, local-only Asset
-Manifest 0.2.0, snapshot rendering, P0 tests, and no-cloud/no-generation
-boundary. After that freeze, use gpt-5.6-terra with reasoning.effort max for a
-bounded implementation or deterministic test task. Terra must escalate rather
-than turn an unresolved mapping or visual/rights judgement into code.
+Freeze the v0.6 contract before implementation: normalized packet paths,
+direct-child reference/result/output names, external-only execution modes,
+explicit `controller-cloud` consent, no CLI shell/network/model/download
+operation, hash-bound plan/result reviews, metadata-free image assembly,
+media-only handoff, v0.5 snapshot rendering, and P0 tests. After that freeze,
+use gpt-5.6-terra with reasoning.effort max for a bounded implementation or
+deterministic test task. Terra must escalate rather than turn an unresolved
+mapping, controller policy, visual judgement, or rights judgement into code.
 
 ## Roles
 
@@ -39,7 +42,11 @@ Use the current primary session model for:
 - assigning S1–S4 support levels;
 - deciding keep, remove, and replace boundaries;
 - approving Template IR architecture and schema changes;
-- selecting privacy, rights, and provider policies;
+- selecting privacy, rights, and controller policies;
+- approving a Generation Request/Plan, controller declaration, and any cloud
+  consent before an external controller receives assets;
+- judging every generated result's identity consistency, garment/product/logo
+  fidelity, background correctness, hands/artifacts, and retry decision;
 - judging identity, garment, product, and final-video quality;
 - accepting warnings and declaring a release ready.
 
@@ -130,8 +137,13 @@ Promote a lower configuration only after A/B evaluation against the current acce
 Escalate to the current primary model when:
 
 - the reference-video meaning or layer ownership is ambiguous;
-- the change affects path safety, privacy, licenses, cache isolation, or provider uploads;
+- an external controller, cloud consent, upload scope, retention, or licensing
+  declaration is ambiguous;
+- the change affects path safety, privacy, licenses, cache isolation, or
+  controller uploads;
 - a schema change can alter rendering semantics;
+- a generation plan changes executor mode, privacy profile, consent, paths, or
+  media-normalization semantics;
 - frame timing, masking, occlusion, identity, garment, or product fidelity is involved;
 - generated results disagree with deterministic metrics or human review;
 - the same worker failure recurs twice;

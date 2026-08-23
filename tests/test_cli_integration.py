@@ -227,6 +227,48 @@ class PublicCliIntegrationTests(unittest.TestCase):
         values.update(overrides)
         return SimpleNamespace(**values)
 
+    def _prepare_generation_args(self, root: Path, **overrides):
+        values = {
+            "template": Path("template.ir.json"),
+            "request": Path("generation-request.json"),
+            "project_root": root,
+            "reference_pack": Path("reference-pack"),
+            "generation_rights_confirmed": True,
+            "output_dir": Path("generation-plan"),
+            "ffprobe": Path("ffprobe"),
+            "timeout": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def _propose_generation_results_args(self, root: Path, **overrides):
+        values = {
+            "plan": Path("generation-plan/generation-plan.json"),
+            "plan_review": Path("generation-plan/approved-review.json"),
+            "project_root": root,
+            "result_pack": Path("generated-results"),
+            "generation_results_rights_confirmed": True,
+            "output_dir": Path("generation-results-proposal"),
+            "ffprobe": Path("ffprobe"),
+            "timeout": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def _assemble_generation_pack_args(self, root: Path, **overrides):
+        values = {
+            "plan": Path("generation-plan/generation-plan.json"),
+            "plan_review": Path("generation-plan/approved-review.json"),
+            "results_proposal": Path("generation-results-proposal/results-proposal.json"),
+            "results_review": Path("generation-results-proposal/approved-review.json"),
+            "project_root": root,
+            "output_dir": Path("generation-asset-pack"),
+            "ffprobe": Path("ffprobe"),
+            "timeout": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
     def test_render_validates_template_and_assets_before_loading_renderer_or_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1367,7 +1409,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 output_dir=Path("frozen-plan"),
             )
 
-    def test_v05_parser_exposes_asset_commands_defaults_and_version(self):
+    def test_v06_parser_exposes_asset_and_generation_commands_defaults_and_version(self):
         parser = video_remix.build_parser()
         proposed = parser.parse_args(
             [
@@ -1400,6 +1442,56 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertEqual(frozen.ffprobe, Path("ffprobe"))
         self.assertEqual(frozen.timeout, 60.0)
 
+        generation_plan = parser.parse_args(
+            [
+                "prepare-generation",
+                "template.ir.json",
+                "generation-request.json",
+                "--project-root",
+                "project",
+                "--reference-pack",
+                "reference-pack",
+                "--generation-rights-confirmed",
+                "--json",
+            ]
+        )
+        self.assertEqual(generation_plan.command, "prepare-generation")
+        self.assertEqual(generation_plan.output_dir, Path("generation-plan"))
+        self.assertEqual(generation_plan.ffprobe, Path("ffprobe"))
+        self.assertEqual(generation_plan.timeout, 60.0)
+        self.assertTrue(generation_plan.generation_rights_confirmed)
+
+        generation_results = parser.parse_args(
+            [
+                "propose-generation-results",
+                "generation-plan/plan.json",
+                "generation-plan/review.json",
+                "--project-root",
+                "project",
+                "--result-pack",
+                "generated-results",
+                "--generation-results-rights-confirmed",
+            ]
+        )
+        self.assertEqual(generation_results.output_dir, Path("generation-results-proposal"))
+        self.assertEqual(generation_results.ffprobe, Path("ffprobe"))
+        self.assertEqual(generation_results.timeout, 60.0)
+
+        generation_assembly = parser.parse_args(
+            [
+                "assemble-generation-pack",
+                "generation-plan/plan.json",
+                "generation-plan/review.json",
+                "generation-results/proposal.json",
+                "generation-results/review.json",
+                "--project-root",
+                "project",
+            ]
+        )
+        self.assertEqual(generation_assembly.output_dir, Path("generation-asset-pack"))
+        self.assertEqual(generation_assembly.ffprobe, Path("ffprobe"))
+        self.assertEqual(generation_assembly.timeout, 60.0)
+
         with self.assertRaises(video_remix.CliArgumentError):
             parser.parse_args(
                 [
@@ -1411,11 +1503,23 @@ class PublicCliIntegrationTests(unittest.TestCase):
                     "asset-pack",
                 ]
             )
+        with self.assertRaises(video_remix.CliArgumentError):
+            parser.parse_args(
+                [
+                    "prepare-generation",
+                    "template.ir.json",
+                    "generation-request.json",
+                    "--project-root",
+                    "project",
+                    "--reference-pack",
+                    "reference-pack",
+                ]
+            )
         output = io.StringIO()
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
             parser.parse_args(["--version"])
         self.assertEqual(exited.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "video-remix 0.5.0-alpha")
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.6.0-alpha")
 
         with mock.patch.object(
             video_remix,
@@ -1622,6 +1726,398 @@ class PublicCliIntegrationTests(unittest.TestCase):
                     self.assertNotIn("PRIVATE", json.dumps(payload))
                     self.assertFalse((root / "frozen-assets").exists())
 
+    def test_v06_prepare_generation_delegates_raw_inputs_and_compacts_result(self):
+        result = {
+            "schema_version": "0.6.0",
+            "review_required": True,
+            "execution_profile": "controller-managed",
+            "adapter_id": "PRIVATE-adapter",
+            "counts": {
+                "reference_inventory_entries": 2,
+                "tasks": 3,
+                "generation_tasks": 1,
+                "passthrough_tasks": 1,
+                "omitted_tasks": 1,
+                "private_count": 99,
+            },
+            "artifacts": {
+                "generation_plan": {
+                    "path": "generation-plan/generation-plan.json",
+                    "sha256": "a" * 64,
+                    "prompt": "PRIVATE prompt",
+                },
+                "review_template": {
+                    "path": "generation-plan/generation-plan-review.template.json",
+                    "sha256": "b" * 64,
+                },
+                "input_contact_sheet": {
+                    "path": "generation-plan/generation-input-contact-sheet.png",
+                    "sha256": "c" * 64,
+                    "provider": "PRIVATE provider",
+                },
+            },
+        }
+        core = SimpleNamespace(prepare_generation=mock.Mock(return_value=result))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = self._prepare_generation_args(root)
+            with mock.patch.object(video_remix, "_generation_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ):
+                payload, status = video_remix.run_prepare_generation(args)
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            payload["result"],
+            {
+                "schema_version": "0.6.0",
+                "review_required": True,
+                "counts": {
+                    "reference_inventory_entries": 2,
+                    "tasks": 3,
+                    "generation_tasks": 1,
+                    "passthrough_tasks": 1,
+                    "omitted_tasks": 1,
+                },
+                "artifacts": {
+                    "generation_plan": {
+                        "path": "generation-plan/generation-plan.json",
+                        "sha256": "a" * 64,
+                    },
+                    "review_template": {
+                        "path": "generation-plan/generation-plan-review.template.json",
+                        "sha256": "b" * 64,
+                    },
+                    "input_contact_sheet": {
+                        "path": "generation-plan/generation-input-contact-sheet.png",
+                        "sha256": "c" * 64,
+                    },
+                },
+            },
+        )
+        self.assertNotIn("PRIVATE", json.dumps(payload))
+        core.prepare_generation.assert_called_once_with(
+            Path("template.ir.json"),
+            Path("generation-request.json"),
+            project_root=root,
+            reference_pack=Path("reference-pack"),
+            generation_rights_confirmed=True,
+            output_dir=Path("generation-plan"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+
+    def test_v06_generation_rights_gates_before_lazy_core_load(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            args = self._prepare_generation_args(root, generation_rights_confirmed=False)
+            with mock.patch.object(
+                video_remix,
+                "_generation_module",
+                side_effect=AssertionError("rights failure must not delegate"),
+            ):
+                payload, status = video_remix.run_prepare_generation(args)
+            self.assertEqual(status, 2)
+            self.assertEqual(payload["error"]["code"], "invalid_argument")
+
+            results_args = self._propose_generation_results_args(
+                root, generation_results_rights_confirmed=False
+            )
+            with mock.patch.object(
+                video_remix,
+                "_generation_module",
+                side_effect=AssertionError("rights failure must not delegate"),
+            ):
+                payload, status = video_remix.run_propose_generation_results(results_args)
+            self.assertEqual(status, 2)
+            self.assertEqual(payload["error"]["code"], "invalid_argument")
+
+    def test_v06_main_dispatches_generation_workflows_and_keeps_core_lazy_elsewhere(self):
+        ready = {"schema_version": "1.0", "status": "ok", "result": {}}
+        with mock.patch.object(video_remix, "run_prepare_generation", return_value=(ready, 0)) as prepare, mock.patch.object(
+            video_remix, "run_propose_generation_results", return_value=(ready, 0)
+        ) as propose_results, mock.patch.object(
+            video_remix, "run_assemble_generation_pack", return_value=(ready, 0)
+        ) as assemble:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(
+                    video_remix.main(
+                        [
+                            "prepare-generation",
+                            "template.ir.json",
+                            "generation-request.json",
+                            "--project-root",
+                            "project",
+                            "--reference-pack",
+                            "reference-pack",
+                            "--generation-rights-confirmed",
+                            "--json",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    video_remix.main(
+                        [
+                            "propose-generation-results",
+                            "generation-plan/plan.json",
+                            "generation-plan/review.json",
+                            "--project-root",
+                            "project",
+                            "--result-pack",
+                            "generated-results",
+                            "--generation-results-rights-confirmed",
+                            "--json",
+                        ]
+                    ),
+                    0,
+                )
+                self.assertEqual(
+                    video_remix.main(
+                        [
+                            "assemble-generation-pack",
+                            "generation-plan/plan.json",
+                            "generation-plan/review.json",
+                            "generation-results/proposal.json",
+                            "generation-results/review.json",
+                            "--project-root",
+                            "project",
+                            "--json",
+                        ]
+                    ),
+                    0,
+                )
+        self.assertEqual(prepare.call_count, 1)
+        self.assertEqual(propose_results.call_count, 1)
+        self.assertEqual(assemble.call_count, 1)
+
+        with mock.patch.object(
+            video_remix,
+            "_generation_module",
+            side_effect=AssertionError("unrelated validation must not import generation core"),
+        ):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = video_remix.main(["validate-template", str(TEMPLATE_PATH), "--json"])
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "pass")
+
+    def test_v06_propose_results_and_assembly_do_not_preread_review_packets(self):
+        proposal_result = {
+            "schema_version": "0.6.0",
+            "review_required": True,
+            "counts": {
+                "result_inventory_entries": 2,
+                "tasks": 3,
+                "generation_tasks": 1,
+                "passthrough_tasks": 1,
+                "omitted_tasks": 1,
+            },
+            "artifacts": {
+                "proposal": {
+                    "path": "generation-results-proposal/results-proposal.json",
+                    "sha256": "a" * 64,
+                },
+                "review_template": {
+                    "path": "generation-results-proposal/results-review.template.json",
+                    "sha256": "b" * 64,
+                },
+                "comparison_contact_sheet": {
+                    "path": "generation-results-proposal/generation-results-contact-sheet.png",
+                    "sha256": "c" * 64,
+                },
+            },
+        }
+        assembly_result = {
+            "schema_version": "0.6.0",
+            "review_required": False,
+            "output_dir": "generation-asset-pack",
+            "counts": {
+                "output_assets": 2,
+                "generation_results": 1,
+                "image_passthrough": 1,
+                "audio_passthrough": 0,
+                "omitted_tasks": 1,
+            },
+            "assets": [
+                {
+                    "slot_id": "outfit.01",
+                    "path": "generation-asset-pack/outfit.01.png",
+                    "sha256": "a" * 64,
+                    "media_type": "image/png",
+                },
+                {
+                    "slot_id": "product.01",
+                    "path": "generation-asset-pack/product.01.png",
+                    "sha256": "b" * 64,
+                    "media_type": "image/png",
+                },
+            ],
+        }
+        core = SimpleNamespace(
+            propose_generation_results=mock.Mock(return_value=proposal_result),
+            assemble_generation_pack=mock.Mock(return_value=assembly_result),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(video_remix, "_generation_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ), mock.patch.object(
+                video_remix,
+                "_load_contract_json",
+                side_effect=AssertionError("generation CLI must not read review packets"),
+            ) as packet_loader, mock.patch.object(
+                video_remix,
+                "validate_generation_plan_data",
+                side_effect=AssertionError("generation CLI must not validate plan before core"),
+            ) as plan_validator, mock.patch.object(
+                video_remix,
+                "validate_generation_plan_review_data",
+                side_effect=AssertionError("generation CLI must not validate review before core"),
+            ) as review_validator:
+                results_payload, results_status = video_remix.run_propose_generation_results(
+                    self._propose_generation_results_args(root)
+                )
+                assembly_payload, assembly_status = video_remix.run_assemble_generation_pack(
+                    self._assemble_generation_pack_args(root)
+                )
+        self.assertEqual(results_status, 0)
+        self.assertEqual(assembly_status, 0)
+        self.assertEqual(
+            results_payload["result"]["artifacts"]["proposal"],
+            {
+                "path": "generation-results-proposal/results-proposal.json",
+                "sha256": "a" * 64,
+            },
+        )
+        self.assertEqual(
+            assembly_payload["result"],
+            {
+                "schema_version": "0.6.0",
+                "review_required": False,
+                "counts": {
+                    "output_assets": 2,
+                    "generation_results": 1,
+                    "image_passthrough": 1,
+                    "audio_passthrough": 0,
+                    "omitted_tasks": 1,
+                },
+                "artifacts": {
+                    "assets": [
+                        {
+                            "path": "generation-asset-pack/outfit.01.png",
+                            "sha256": "a" * 64,
+                        },
+                        {
+                            "path": "generation-asset-pack/product.01.png",
+                            "sha256": "b" * 64,
+                        },
+                    ]
+                },
+            },
+        )
+        packet_loader.assert_not_called()
+        plan_validator.assert_not_called()
+        review_validator.assert_not_called()
+        core.propose_generation_results.assert_called_once_with(
+            Path("generation-plan/generation-plan.json"),
+            Path("generation-plan/approved-review.json"),
+            project_root=root,
+            result_pack=Path("generated-results"),
+            generation_results_rights_confirmed=True,
+            output_dir=Path("generation-results-proposal"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+        core.assemble_generation_pack.assert_called_once_with(
+            Path("generation-plan/generation-plan.json"),
+            Path("generation-plan/approved-review.json"),
+            Path("generation-results-proposal/results-proposal.json"),
+            Path("generation-results-proposal/approved-review.json"),
+            project_root=root,
+            output_dir=Path("generation-asset-pack"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+
+    def test_v06_generation_workflow_errors_and_validators_are_nonreflective(self):
+        secret = "C:/PRIVATE/generated-results/secret-look.png"
+        core = SimpleNamespace(
+            prepare_generation=mock.Mock(
+                side_effect=rrv_runtime.RRVError(
+                    rrv_runtime.ERR_INVALID_ARGUMENT,
+                    f"provider stderr and prompt: {secret}",
+                    {"provider": "PRIVATE", "stderr": secret},
+                )
+            ),
+            validate_generation_request_data=mock.Mock(
+                return_value=[f"$.tasks[0].prompt: {secret}"]
+            ),
+            validate_generation_plan_data=mock.Mock(
+                return_value=[f"$.adapter_id: {secret}"]
+            ),
+            validate_generation_plan_review_data=mock.Mock(
+                return_value=[f"$.controller_label: {secret}"]
+            ),
+            validate_generation_results_proposal_data=mock.Mock(
+                return_value=[f"$.inventory[0].source_path: {secret}"]
+            ),
+            validate_generation_results_review_data=mock.Mock(
+                return_value=[f"$.decisions[0].notes: {secret}"]
+            ),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            packet = root / "packet.json"
+            packet.write_text("{}", encoding="utf-8")
+            duplicate = root / "duplicate.json"
+            duplicate.write_text(
+                '{"schema_version":"0.6.0","schema_version":"C:/PRIVATE/secret.json"}',
+                encoding="utf-8",
+            )
+            nonfinite = root / "nonfinite.json"
+            nonfinite.write_text('{"schema_version":NaN}', encoding="utf-8")
+            with mock.patch.object(video_remix, "_generation_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ):
+                payload, status = video_remix.run_prepare_generation(
+                    self._prepare_generation_args(root)
+                )
+                self.assertEqual(status, 2)
+                self.assertEqual(payload["error"]["message"], "generation planning failed")
+                self.assertNotIn("PRIVATE", json.dumps(payload))
+
+                for command in (
+                    "validate-generation-request",
+                    "validate-generation-plan",
+                    "validate-generation-plan-review",
+                    "validate-generation-results-proposal",
+                    "validate-generation-results-review",
+                ):
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        status = video_remix.main([command, str(packet), "--json"])
+                    self.assertEqual(status, 2)
+                    self.assertEqual(
+                        json.loads(output.getvalue()),
+                        {"status": "fail", "errors": ["$: validation.invalid"]},
+                    )
+                    self.assertNotIn("PRIVATE", output.getvalue())
+
+                for command, path, expected in (
+                    ("validate-generation-request", duplicate, "$: json.duplicate_key"),
+                    ("validate-generation-results-review", nonfinite, "$: json.finite_number"),
+                ):
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        status = video_remix.main([command, str(path), "--json"])
+                    self.assertEqual(status, 2)
+                    self.assertEqual(
+                        json.loads(output.getvalue()),
+                        {"status": "fail", "errors": [expected]},
+                    )
+                    self.assertNotIn("PRIVATE", output.getvalue())
+
     def test_v05_asset_validate_commands_are_strict_pure_and_nonreflective(self):
         secret = "C:/PRIVATE/asset-pack/secret-source.png"
         stderr = f"ffprobe stderr: could not read {secret}"
@@ -1760,6 +2256,44 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertFalse(capabilities["asset_pack_proposal"])
         self.assertFalse(capabilities["asset_review_freeze"])
         self.assertFalse(capabilities["asset_bound_render"])
+
+    def test_v06_doctor_gates_generation_packet_capabilities_without_claiming_generation(self):
+        executable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
+        generation = SimpleNamespace(
+            prepare_generation=mock.Mock(),
+            propose_generation_results=mock.Mock(),
+            assemble_generation_pack=mock.Mock(),
+        )
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+            video_remix, "_pillow_available", return_value=True
+        ), mock.patch.object(video_remix, "_generation_module", return_value=generation):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertTrue(capabilities["generation_request_validation"])
+        self.assertTrue(capabilities["generation_plan_validation"])
+        self.assertTrue(capabilities["generation_plan_review_validation"])
+        self.assertTrue(capabilities["generation_results_proposal_validation"])
+        self.assertTrue(capabilities["generation_results_review_validation"])
+        self.assertTrue(capabilities["generation_planning"])
+        self.assertTrue(capabilities["generation_result_review"])
+        self.assertTrue(capabilities["generation_pack_assembly"])
+        self.assertFalse(capabilities["asset_generation"])
+        self.assertFalse(capabilities["network_generation"])
+        self.assertFalse(capabilities["cloud_generation"])
+
+        incomplete_generation = SimpleNamespace(prepare_generation=mock.Mock())
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+            video_remix, "_pillow_available", return_value=True
+        ), mock.patch.object(
+            video_remix, "_generation_module", return_value=incomplete_generation
+        ):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertTrue(capabilities["generation_planning"])
+        self.assertFalse(capabilities["generation_result_review"])
+        self.assertFalse(capabilities["generation_pack_assembly"])
 
 
 if __name__ == "__main__":

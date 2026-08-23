@@ -13,6 +13,7 @@ or a full per-frame analysis dump.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import errno
 import hashlib
 import json
 import math
@@ -22,6 +23,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -66,6 +68,27 @@ _MAX_PROPOSAL_JSON_BYTES = 4 * 1024 * 1024
 _MAX_ANALYSIS_RAW_BYTES = 512 * 1024 * 1024
 _MAX_EVIDENCE_ARTIFACT_BYTES = 128 * 1024 * 1024
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
+_AT_FDCWD = -100
+_RENAME_NOREPLACE = 1
+_WIN32_INVALID_COMPONENT_CHARACTERS = frozenset('<>:"/\\|?*')
+_WIN32_RESERVED_DEVICE_STEMS = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        "CLOCK$",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+        *(f"COM{suffix}" for suffix in "¹²³"),
+        *(f"LPT{suffix}" for suffix in "¹²³"),
+    }
+)
+# Test-only seam that can create a competing target at the exact no-replace
+# syscall boundary.  Production leaves this as ``None``.
+_POSIX_RENAME_NOREPLACE_HOOK: Any = None
 
 
 @dataclass(frozen=True)
@@ -723,10 +746,33 @@ def _relative_parts(value: str, label: str) -> tuple[str, ...]:
     # Treat every rooted spelling as non-relative before composing it below.
     if candidate.is_absolute() or candidate.drive or candidate.root:
         raise _invalid(f"{label} must be a normalized relative path")
-    parts = candidate.parts
-    if not parts or any(part in {"", ".", ".."} for part in parts):
+    # Do not accept the host Path parser's normalized representation here:
+    # packet paths are literal POSIX paths and must not change their spelling
+    # when moved between hosts.
+    parts = tuple(value.split("/"))
+    if (
+        not parts
+        or value != "/".join(parts)
+        or any(part in {"", ".", ".."} or not _portable_path_component(part) for part in parts)
+    ):
         raise _invalid(f"{label} must be a normalized relative path")
-    return tuple(parts)
+    return parts
+
+
+def _portable_path_component(component: str) -> bool:
+    """Return whether one lexical POSIX component is portable to Windows."""
+
+    if not component or component.endswith((".", " ")):
+        return False
+    if any(
+        ord(character) < 32
+        or 0x7F <= ord(character) <= 0x9F
+        or character in _WIN32_INVALID_COMPONENT_CHARACTERS
+        for character in component
+    ):
+        return False
+    stem = component.split(".", 1)[0].rstrip(" .").upper()
+    return stem not in _WIN32_RESERVED_DEVICE_STEMS
 
 
 def _stage_path(root: Path, stage: _StageDirectory, name: str) -> Path:
@@ -986,12 +1032,12 @@ def _direct_child_output_target(root: Path, value: str | os.PathLike[str]) -> Pa
     ):
         raise _invalid("output_dir must be a direct child of project_root")
     try:
-        name = Path(raw)
-    except (TypeError, ValueError, OSError, RuntimeError) as exc:
+        parts = _relative_parts(raw, "output_dir")
+    except (TypeError, ValueError, OSError, RuntimeError, rrv_runtime.RRVError) as exc:
         raise _invalid("output_dir must be a direct child of project_root") from exc
-    if name.is_absolute() or name.drive or len(name.parts) != 1 or name.name in {"", ".", ".."}:
+    if len(parts) != 1:
         raise _invalid("output_dir must be a direct child of project_root")
-    target = root / name.name
+    target = root / parts[0]
     _target_parent_chain(root, target)
     if not _target_entry_is_absent(target):
         raise rrv_runtime.RRVError(
@@ -1009,21 +1055,82 @@ def _target_entry_is_absent(target: Path) -> bool:
     return _lstat_or_none(target) is None
 
 
+def _posix_rename_noreplace(source: Path, target: Path, *, label: str) -> None:
+    """Atomically rename sibling entries only when ``target`` is absent.
+
+    POSIX ``rename`` may replace an empty directory, so a preceding ``lstat``
+    cannot make a normal pathname rename safe.  Linux ``renameat2`` with
+    ``RENAME_NOREPLACE`` is the required primitive here.  If it is not
+    available, fail closed rather than substituting a race-prone fallback.
+    """
+
+    if source.parent != target.parent:
+        raise _tool_error("atomic no-replace publication requires one local parent directory")
+    if sys.platform != "linux":
+        raise _capability(
+            "atomic no-replace publication requires Linux renameat2",
+            details={"capability": "atomic_no_replace_publish"},
+        )
+    hook = _POSIX_RENAME_NOREPLACE_HOOK
+    if hook is not None:
+        hook(source, target)
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        renameat2 = libc.renameat2
+    except (AttributeError, OSError) as exc:
+        raise _capability(
+            "atomic no-replace publication requires Linux renameat2",
+            details={"capability": "atomic_no_replace_publish"},
+        ) from exc
+    try:
+        renameat2.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        renameat2.restype = ctypes.c_int
+        result = renameat2(
+            _AT_FDCWD,
+            os.fsencode(source),
+            _AT_FDCWD,
+            os.fsencode(target),
+            _RENAME_NOREPLACE,
+        )
+        if result == 0:
+            return
+        error = ctypes.get_errno()
+    except (OSError, TypeError, ValueError) as exc:
+        raise _tool_error(f"could not publish atomic {label} output") from exc
+    if error in {errno.EEXIST, errno.ENOTEMPTY}:
+        raise rrv_runtime.RRVError(
+            rrv_runtime.ERR_OUTPUT_EXISTS, "refusing to overwrite an existing output"
+        )
+    unsupported_errors = {
+        errno.ENOSYS,
+        errno.EINVAL,
+        errno.EOPNOTSUPP,
+        getattr(errno, "ENOTSUP", errno.EOPNOTSUPP),
+    }
+    if error in unsupported_errors:
+        raise _capability(
+            "atomic no-replace publication requires Linux renameat2",
+            details={"capability": "atomic_no_replace_publish"},
+        )
+    raise _tool_error(f"could not publish atomic {label} output")
+
+
 def _rename_bound_stage(stage: _StageDirectory, target: Path, *, label: str) -> None:
-    """Rename a guarded stage by handle on Windows, never by source pathname."""
+    """Publish a guarded stage without replacing an existing output target."""
 
     if target.parent != stage.root.path:
         raise _tool_error("local output target is not a direct project-root child")
     if os.name != "nt":
-        try:
-            stage.path.rename(target)
-            return
-        except FileExistsError as exc:
-            raise rrv_runtime.RRVError(
-                rrv_runtime.ERR_OUTPUT_EXISTS, "refusing to overwrite an existing output"
-            ) from exc
-        except OSError as exc:
-            raise _tool_error(f"could not publish atomic {label} output") from exc
+        _posix_rename_noreplace(stage.path, target, label=label)
+        return
     if (
         stage.directory_guard.handle is None
         or stage.root_guard.handle is None
@@ -1156,7 +1263,7 @@ def _rollback_publish(stage: _StageDirectory, target: Path, parents: Sequence[_D
         if os.name == "nt":
             _rename_bound_stage(stage, stage.path, label="local staging rollback")
         else:
-            target.rename(stage.path)
+            _posix_rename_noreplace(target, stage.path, label="local staging rollback")
     except (OSError, rrv_runtime.RRVError):
         return
 

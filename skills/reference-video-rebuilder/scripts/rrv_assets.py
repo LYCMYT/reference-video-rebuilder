@@ -88,6 +88,27 @@ _DECLARED_MEDIA = frozenset(
     }
 )
 _FILE_ATTRIBUTE_REPARSE_POINT = 0x0400
+# Keep every path component portable to a Windows project root.  The public
+# packets use POSIX separators even on Windows, but those components are later
+# materialized through Windows filesystem APIs.  A lexical check here prevents
+# a valid POSIX spelling from silently aliasing a device or normalized Win32
+# entry on another host.
+_WIN32_INVALID_COMPONENT_CHARACTERS = frozenset('<>:"/\\|?*')
+_WIN32_RESERVED_DEVICE_STEMS = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        "CONIN$",
+        "CONOUT$",
+        "CLOCK$",
+        *(f"COM{index}" for index in range(1, 10)),
+        *(f"LPT{index}" for index in range(1, 10)),
+        *(f"COM{suffix}" for suffix in "¹²³"),
+        *(f"LPT{suffix}" for suffix in "¹²³"),
+    }
+)
 # Test-only seam used to exercise the guarded parent-directory race boundary.
 # Production leaves it as ``None`` and never accepts it as a public argument.
 _PROJECT_SNAPSHOT_HOOK: Any = None
@@ -259,7 +280,28 @@ def _relative_path_parts(value: Any) -> tuple[str, ...] | None:
         return None
     if raw != "/".join(parts):
         return None
+    if any(not _portable_path_component(part) for part in parts):
+        return None
     return parts
+
+
+def _portable_path_component(component: str) -> bool:
+    """Return whether one lexical POSIX component is safe on Windows too."""
+
+    if not component or component.endswith((".", " ")):
+        return False
+    if any(
+        ord(character) < 32
+        or 0x7F <= ord(character) <= 0x9F
+        or character in _WIN32_INVALID_COMPONENT_CHARACTERS
+        for character in component
+    ):
+        return False
+    # Windows reserves these device names regardless of extension.  Strip the
+    # part Win32 would normalize just before an extension as well, so names
+    # such as ``CON .png`` cannot become an alias on publication.
+    stem = component.split(".", 1)[0].rstrip(" .").upper()
+    return stem not in _WIN32_RESERVED_DEVICE_STEMS
 
 
 def _direct_child_name(value: Any, label: str) -> str:
@@ -944,18 +986,16 @@ def _scan_asset_pack(
         raise _invalid("asset pack exceeds the 128-entry limit")
     if len(set(names)) != len(names):  # Defensive against unusual filesystem adapters.
         raise _invalid("asset pack contains duplicate direct entries")
+    # A case-sensitive source filesystem can hold two direct names that alias
+    # to one Win32 entry when this local pack is moved or reopened on Windows.
+    # Reject them before opening any pack entry or publishing an inventory.
+    if len({name.casefold() for name in names}) != len(names):
+        raise _invalid("asset pack contains colliding portable entry names")
     ordered_names = sorted(names)
     identities: list[tuple[str, _FileIdentity]] = []
     total_size = 0
     for name in ordered_names:
-        if (
-            not name
-            or name in {".", ".."}
-            or "/" in name
-            or "\\" in name
-            or ":" in name
-            or "\x00" in name
-        ):
+        if name in {".", ".."} or not _portable_path_component(name):
             raise _invalid("asset pack contains an unsafe entry")
         identity = _safe_regular_file(pack / name, message="asset pack contains an unsafe entry")
         if identity.size_bytes < 1:
@@ -1165,6 +1205,8 @@ def _thumbnail_for_asset(asset: _ScannedAsset, *, maximum: tuple[int, int]) -> A
         return None
     Image, _ = _load_pillow()
     try:
+        from PIL import ImageOps
+
         if asset.closed:
             raise _invalid("asset snapshot is no longer available")
         asset.snapshot.seek(0)
@@ -1173,13 +1215,26 @@ def _thumbnail_for_asset(asset: _ScannedAsset, *, maximum: tuple[int, int]) -> A
                 source.draft("RGB", maximum)
             except Exception:
                 pass
-            image = source.convert("RGB")
+            oriented = ImageOps.exif_transpose(source)
             try:
-                resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
-                image.thumbnail(maximum, resampling)
-                return image.copy()
+                converted = oriented.convert("RGB")
+                try:
+                    # Reconstruct pixels rather than returning a converted
+                    # view: contact-sheet evidence must not inherit EXIF,
+                    # XMP, ICC, text chunks, or arbitrary Pillow metadata.
+                    image = Image.frombytes("RGB", converted.size, converted.tobytes())
+                finally:
+                    converted.close()
             finally:
-                image.close()
+                if oriented is not source:
+                    oriented.close()
+        try:
+            resampling = getattr(getattr(Image, "Resampling", Image), "LANCZOS")
+            image.thumbnail(maximum, resampling)
+            return image
+        except Exception:
+            image.close()
+            raise
     except rrv_runtime.RRVError:
         raise
     except Exception as exc:

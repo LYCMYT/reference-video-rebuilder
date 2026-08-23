@@ -62,6 +62,22 @@ asset-review/
 asset-proposal/
 frozen-assets/
 
+# Private v0.6 generation inputs, plans, prompts, results, and media-only handoff packs
+generation-reference-pack*/
+generation-result-pack*/
+generation-plan*/
+generation-results-proposal*/
+generation-asset-pack*/
+generation-inputs*/
+generation-prompts*/
+generation-request.json
+generation-request.private*.json
+*.generation-prompt.json
+*.generation-prompt.txt
+.rrv-generation-plan-*/
+.rrv-generation-results-proposal-*/
+.rrv-generation-asset-pack-*/
+
 # Models and checkpoints
 models/
 checkpoints/

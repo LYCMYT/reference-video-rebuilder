@@ -42,12 +42,19 @@ REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "review-decision.schema.json"
 # callers can select the right contract without overloading the old aliases.
 ASSET_PACK_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-pack-proposal.schema.json"
 ASSET_MAPPING_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "asset-mapping-review.schema.json"
+# v0.6 generation packets deliberately describe and review local inputs and
+# render-ready results.  They do not name or invoke a generator/provider.
+GENERATION_REQUEST_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-request.schema.json"
+GENERATION_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-plan.schema.json"
+GENERATION_PLAN_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-plan-review.schema.json"
+GENERATION_RESULTS_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-proposal.schema.json"
+GENERATION_RESULTS_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-review.schema.json"
 # Descriptive aliases remain public for callers that name the artifact type.
 COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
 ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
 ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.5.0-alpha"
+CLI_VERSION = "0.6.0-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 __version__ = CLI_VERSION
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
@@ -124,6 +131,12 @@ def _assets_module() -> Any:
     """Load the local asset-pack workflow only when an asset command needs it."""
 
     return _lazy_module("rrv_assets")
+
+
+def _generation_module() -> Any:
+    """Load reviewed generation-packet support only for v0.6 commands."""
+
+    return _lazy_module("rrv_generation")
 
 
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
@@ -452,6 +465,30 @@ def doctor_payload(
         _get_schema_validator(ASSET_MAPPING_REVIEW_SCHEMA_PATH, "asset mapping review")
         is not None
     )
+    generation_request_schema_available = has_jsonschema and (
+        _get_schema_validator(GENERATION_REQUEST_SCHEMA_PATH, "generation request")
+        is not None
+    )
+    generation_plan_schema_available = has_jsonschema and (
+        _get_schema_validator(GENERATION_PLAN_SCHEMA_PATH, "generation plan")
+        is not None
+    )
+    generation_plan_review_schema_available = has_jsonschema and (
+        _get_schema_validator(GENERATION_PLAN_REVIEW_SCHEMA_PATH, "generation plan review")
+        is not None
+    )
+    generation_results_proposal_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            GENERATION_RESULTS_PROPOSAL_SCHEMA_PATH, "generation results proposal"
+        )
+        is not None
+    )
+    generation_results_review_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            GENERATION_RESULTS_REVIEW_SCHEMA_PATH, "generation results review"
+        )
+        is not None
+    )
     # A discovered regular file is not evidence that it is an executable
     # media tool.  Advertise every operational capability only after the
     # bounded version probe succeeds.
@@ -463,6 +500,13 @@ def doctor_payload(
     freeze_core_available = _propose_module_available("freeze_plan")
     asset_proposal_core_available = _assets_module_available("propose_asset_pack")
     asset_freeze_core_available = _assets_module_available("freeze_assets")
+    generation_plan_core_available = _generation_module_available("prepare_generation")
+    generation_results_core_available = _generation_module_available(
+        "propose_generation_results"
+    )
+    generation_assembly_core_available = _generation_module_available(
+        "assemble_generation_pack"
+    )
     asset_bound_render_core_available = _asset_bound_render_available()
     compiler_prerequisites = (
         has_ffmpeg
@@ -512,6 +556,34 @@ def doctor_payload(
         and asset_manifest_schema_available
         and asset_bound_render_core_available
     )
+    generation_schemas_available = (
+        generation_request_schema_available
+        and generation_plan_schema_available
+        and generation_plan_review_schema_available
+        and generation_results_proposal_schema_available
+        and generation_results_review_schema_available
+    )
+    generation_planning_prerequisites = (
+        has_jsonschema
+        and has_pillow
+        and has_ffprobe
+        and generation_schemas_available
+        and generation_plan_core_available
+    )
+    generation_result_review_prerequisites = (
+        has_jsonschema
+        and has_pillow
+        and has_ffprobe
+        and generation_schemas_available
+        and generation_results_core_available
+    )
+    generation_pack_assembly_prerequisites = (
+        has_jsonschema
+        and has_pillow
+        and has_ffprobe
+        and generation_schemas_available
+        and generation_assembly_core_available
+    )
     return {
         "status": "ok",
         "stage": "alpha",
@@ -553,12 +625,22 @@ def doctor_payload(
             "asset_pack_proposal": asset_proposal_prerequisites,
             "asset_review_freeze": asset_freeze_prerequisites,
             "asset_bound_render": asset_bound_render_prerequisites,
+            "generation_request_validation": generation_request_schema_available,
+            "generation_plan_validation": generation_plan_schema_available,
+            "generation_plan_review_validation": generation_plan_review_schema_available,
+            "generation_results_proposal_validation": generation_results_proposal_schema_available,
+            "generation_results_review_validation": generation_results_review_schema_available,
+            "generation_planning": generation_planning_prerequisites,
+            "generation_result_review": generation_result_review_prerequisites,
+            "generation_pack_assembly": generation_pack_assembly_prerequisites,
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
             "reference_analysis": compiler_prerequisites,
             "semantic_slot_analysis": False,
             "template_compilation": compiler_prerequisites,
             "asset_generation": False,
+            "network_generation": False,
+            "cloud_generation": False,
             "timeline_render": (
                 has_ffmpeg
                 and has_pillow
@@ -571,6 +653,7 @@ def doctor_payload(
             "S1 survey, deterministic local render, and technical video QA are available only when their reported tools are present.",
             "Compiler Plan proposal and freeze are limited to authorized local fixed-subject-carousel S1 work and always require explicit human review before freeze.",
             "Asset-pack proposal and freeze require local Pillow, FFprobe, both asset packet schemas, and their guarded local core.",
+            "Generation planning and result review prepare and validate local review packets only; this Skill does not include or automatically call an asset generator, network service, or cloud provider.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
         ],
@@ -652,6 +735,15 @@ def _assets_module_available(operation: str) -> bool:
 
     try:
         return callable(getattr(_assets_module(), operation, None))
+    except Exception:
+        return False
+
+
+def _generation_module_available(operation: str) -> bool:
+    """Check one v0.6 packet-workflow entry point without import details."""
+
+    try:
+        return callable(getattr(_generation_module(), operation, None))
     except Exception:
         return False
 
@@ -1824,6 +1916,70 @@ def _validate_asset_packet_file(path: Path, validator: Any) -> list[str]:
         return ["$: json.invalid"]
     try:
         return _bounded_asset_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def _generation_validation_errors(errors: Any) -> list[str]:
+    """Collapse v0.6 packet diagnostics so prompts and source labels stay local."""
+
+    if isinstance(errors, (str, bytes)) or not isinstance(errors, Iterable):
+        return ["$: validation.unavailable"]
+    try:
+        return [] if not list(errors) else ["$: validation.invalid"]
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def _validate_generation_packet_data(operation: str, data: Any) -> list[str]:
+    """Run one pure v0.6 packet validator without probing or writing media."""
+
+    try:
+        validator = getattr(_generation_module(), operation, None)
+        if not callable(validator):
+            return ["$: validation.unavailable"]
+        return _generation_validation_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def validate_generation_request_data(data: Any) -> list[str]:
+    return _validate_generation_packet_data("validate_generation_request_data", data)
+
+
+def validate_generation_plan_data(data: Any) -> list[str]:
+    return _validate_generation_packet_data("validate_generation_plan_data", data)
+
+
+def validate_generation_plan_review_data(data: Any) -> list[str]:
+    return _validate_generation_packet_data("validate_generation_plan_review_data", data)
+
+
+def validate_generation_results_proposal_data(data: Any) -> list[str]:
+    return _validate_generation_packet_data(
+        "validate_generation_results_proposal_data", data
+    )
+
+
+def validate_generation_results_review_data(data: Any) -> list[str]:
+    return _validate_generation_packet_data(
+        "validate_generation_results_review_data", data
+    )
+
+
+def _validate_generation_packet_file(path: Path, validator: Any) -> list[str]:
+    """Strict-load a v0.6 packet without reflecting prompts or filenames."""
+
+    try:
+        data = _load_contract_json(path)
+    except _ContractDuplicateKeyError:
+        return ["$: json.duplicate_key"]
+    except _ContractNonfiniteNumberError:
+        return ["$: json.finite_number"]
+    except Exception:
+        return ["$: json.invalid"]
+    try:
+        return _generation_validation_errors(validator(data))
     except Exception:
         return ["$: validation.unavailable"]
 
@@ -3089,6 +3245,215 @@ def run_freeze_assets(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         return _workflow_error_payload("asset review freeze", exc), 2
 
 
+_GENERATION_PREPARE_COUNT_KEYS = (
+    "reference_inventory_entries",
+    "tasks",
+    "generation_tasks",
+    "passthrough_tasks",
+    "omitted_tasks",
+)
+_GENERATION_RESULTS_PROPOSAL_COUNT_KEYS = (
+    "result_inventory_entries",
+    "tasks",
+    "generation_tasks",
+    "passthrough_tasks",
+    "omitted_tasks",
+)
+_GENERATION_ASSEMBLY_COUNT_KEYS = (
+    "output_assets",
+    "generation_results",
+    "image_passthrough",
+    "audio_passthrough",
+    "omitted_tasks",
+)
+_GENERATION_SAFE_ERROR_CODES = frozenset(
+    {
+        "invalid_argument",
+        "project_root_invalid",
+        "output_path_outside_project_root",
+        "output_already_exists",
+        "source_not_found",
+        "tool_not_found",
+        "tool_execution_failed",
+        "tool_timeout",
+        "probe_failed",
+        "capability_unavailable",
+    }
+)
+
+
+def _compact_generation_workflow_result(
+    result: Mapping[str, Any],
+    *,
+    review_required: bool,
+    count_keys: Sequence[str],
+    artifact_names: Sequence[str],
+) -> dict[str, Any]:
+    """Keep v0.6 handoffs free of prompts, providers, and local source names."""
+
+    schema_version = result.get("schema_version")
+    if not isinstance(schema_version, str) or not SCHEMA_VERSION_PATTERN.fullmatch(schema_version):
+        raise TypeError("generation workflow returned an invalid schema_version")
+    if result.get("review_required") is not review_required:
+        raise TypeError("generation workflow returned an invalid review_required state")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, Mapping):
+        raise TypeError("generation workflow returned invalid artifacts")
+    return {
+        "schema_version": schema_version,
+        "review_required": review_required,
+        "counts": _compact_asset_counts(result.get("counts"), count_keys),
+        "artifacts": {
+            name: _compact_workflow_artifact(artifacts.get(name), f"artifacts.{name}")
+            for name in artifact_names
+        },
+    }
+
+
+def _compact_generation_assembly_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Expose assembled files only as root-relative path/hash evidence."""
+
+    schema_version = result.get("schema_version")
+    if not isinstance(schema_version, str) or not SCHEMA_VERSION_PATTERN.fullmatch(schema_version):
+        raise TypeError("generation assembly returned an invalid schema_version")
+    if result.get("review_required") is not False:
+        raise TypeError("generation assembly returned an invalid review_required state")
+    counts = _compact_asset_counts(result.get("counts"), _GENERATION_ASSEMBLY_COUNT_KEYS)
+    raw_assets = result.get("assets")
+    if not isinstance(raw_assets, list) or len(raw_assets) != counts["output_assets"]:
+        raise TypeError("generation assembly returned invalid assets")
+    if len(raw_assets) > 1_000_000:
+        raise TypeError("generation assembly returned too many assets")
+    return {
+        "schema_version": schema_version,
+        "review_required": False,
+        "counts": counts,
+        "artifacts": {
+            "assets": [
+                _compact_workflow_artifact(item, f"assets[{index}]")
+                for index, item in enumerate(raw_assets)
+            ]
+        },
+    }
+
+
+def _generation_workflow_error_payload(
+    operation: str, error: BaseException
+) -> dict[str, Any]:
+    """Return a fixed v0.6 failure without prompts, provider, or tool text."""
+
+    message = f"{operation} failed"
+    try:
+        runtime = _runtime_module()
+    except Exception:
+        return {
+            "schema_version": "1.0",
+            "status": "error",
+            "error": {"code": "operation_failed", "message": message},
+        }
+    code = getattr(error, "code", None)
+    if not isinstance(code, str) or code not in _GENERATION_SAFE_ERROR_CODES:
+        code = runtime.ERR_TOOL_EXECUTION
+    return runtime.error_payload(runtime.RRVError(code, message))
+
+
+def run_prepare_generation(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Create a review-required local generation plan through the guarded core."""
+
+    if getattr(args, "generation_rights_confirmed", False) is not True:
+        return _error_payload(
+            CliArgumentError("--generation-rights-confirmed is required"),
+            invalid_argument=True,
+        ), 2
+    try:
+        result = _generation_module().prepare_generation(
+            args.template,
+            args.request,
+            project_root=args.project_root,
+            reference_pack=args.reference_pack,
+            generation_rights_confirmed=args.generation_rights_confirmed,
+            output_dir=args.output_dir,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("generation workflow returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_generation_workflow_result(
+                result,
+                review_required=True,
+                count_keys=_GENERATION_PREPARE_COUNT_KEYS,
+                artifact_names=(
+                    "generation_plan",
+                    "review_template",
+                    "input_contact_sheet",
+                ),
+            )
+        ), 0
+    except Exception as exc:
+        return _generation_workflow_error_payload("generation planning", exc), 2
+
+
+def run_propose_generation_results(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Review local generated results without pre-reading frozen plan packets."""
+
+    if getattr(args, "generation_results_rights_confirmed", False) is not True:
+        return _error_payload(
+            CliArgumentError("--generation-results-rights-confirmed is required"),
+            invalid_argument=True,
+        ), 2
+    try:
+        result = _generation_module().propose_generation_results(
+            args.plan,
+            args.plan_review,
+            project_root=args.project_root,
+            result_pack=args.result_pack,
+            generation_results_rights_confirmed=args.generation_results_rights_confirmed,
+            output_dir=args.output_dir,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("generation results workflow returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_generation_workflow_result(
+                result,
+                review_required=True,
+                count_keys=_GENERATION_RESULTS_PROPOSAL_COUNT_KEYS,
+                artifact_names=(
+                    "proposal",
+                    "review_template",
+                    "comparison_contact_sheet",
+                ),
+            )
+        ), 0
+    except Exception as exc:
+        return _generation_workflow_error_payload("generation results review", exc), 2
+
+
+def run_assemble_generation_pack(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Delegate all reviewed-packet reads to the assembly core without TOCTOU."""
+
+    try:
+        result = _generation_module().assemble_generation_pack(
+            args.plan,
+            args.plan_review,
+            args.results_proposal,
+            args.results_review,
+            project_root=args.project_root,
+            output_dir=args.output_dir,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("generation assembly returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_generation_assembly_result(result)
+        ), 0
+    except Exception as exc:
+        return _generation_workflow_error_payload("generation pack assembly", exc), 2
+
+
 def _add_runtime_arguments(
     parser: argparse.ArgumentParser,
     *,
@@ -3162,6 +3527,36 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_asset_review.add_argument("review", type=Path)
     validate_asset_review.add_argument("--json", action="store_true", dest="as_json")
+    validate_generation_request = subparsers.add_parser(
+        "validate-generation-request",
+        help="Validate a v0.6 local generation request packet",
+    )
+    validate_generation_request.add_argument("request", type=Path)
+    validate_generation_request.add_argument("--json", action="store_true", dest="as_json")
+    validate_generation_plan = subparsers.add_parser(
+        "validate-generation-plan",
+        help="Validate a v0.6 local generation plan packet",
+    )
+    validate_generation_plan.add_argument("plan", type=Path)
+    validate_generation_plan.add_argument("--json", action="store_true", dest="as_json")
+    validate_generation_plan_review = subparsers.add_parser(
+        "validate-generation-plan-review",
+        help="Validate a v0.6 local generation plan review packet",
+    )
+    validate_generation_plan_review.add_argument("review", type=Path)
+    validate_generation_plan_review.add_argument("--json", action="store_true", dest="as_json")
+    validate_generation_results_proposal = subparsers.add_parser(
+        "validate-generation-results-proposal",
+        help="Validate a v0.6 local generation results proposal packet",
+    )
+    validate_generation_results_proposal.add_argument("proposal", type=Path)
+    validate_generation_results_proposal.add_argument("--json", action="store_true", dest="as_json")
+    validate_generation_results_review = subparsers.add_parser(
+        "validate-generation-results-review",
+        help="Validate a v0.6 local generation results review packet",
+    )
+    validate_generation_results_review.add_argument("review", type=Path)
+    validate_generation_results_review.add_argument("--json", action="store_true", dest="as_json")
 
     probe = subparsers.add_parser("probe", help="Probe one local media source")
     probe.add_argument("source", type=Path)
@@ -3273,6 +3668,70 @@ def build_parser() -> argparse.ArgumentParser:
     freeze_assets.add_argument("--timeout", type=float, default=60.0)
     freeze_assets.add_argument("--json", action="store_true", dest="as_json")
 
+    prepare_generation = subparsers.add_parser(
+        "prepare-generation",
+        help="Prepare a review-required local generation plan",
+    )
+    prepare_generation.add_argument("template", type=Path)
+    prepare_generation.add_argument("request", type=Path)
+    prepare_generation.add_argument("--project-root", type=Path, required=True)
+    prepare_generation.add_argument(
+        "--reference-pack",
+        type=Path,
+        required=True,
+        help="Direct child of project root; verified by the guarded generation core",
+    )
+    prepare_generation.add_argument("--output-dir", type=Path, default=Path("generation-plan"))
+    prepare_generation.add_argument(
+        "--generation-rights-confirmed",
+        action="store_true",
+        required=True,
+    )
+    prepare_generation.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    prepare_generation.add_argument("--timeout", type=float, default=60.0)
+    prepare_generation.add_argument("--json", action="store_true", dest="as_json")
+
+    propose_generation_results = subparsers.add_parser(
+        "propose-generation-results",
+        help="Create a review-required proposal for local generated results",
+    )
+    propose_generation_results.add_argument("plan", type=Path)
+    propose_generation_results.add_argument("plan_review", type=Path)
+    propose_generation_results.add_argument("--project-root", type=Path, required=True)
+    propose_generation_results.add_argument(
+        "--result-pack",
+        type=Path,
+        required=True,
+        help="Direct child of project root; verified by the guarded generation core",
+    )
+    propose_generation_results.add_argument(
+        "--output-dir", type=Path, default=Path("generation-results-proposal")
+    )
+    propose_generation_results.add_argument(
+        "--generation-results-rights-confirmed",
+        action="store_true",
+        required=True,
+    )
+    propose_generation_results.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    propose_generation_results.add_argument("--timeout", type=float, default=60.0)
+    propose_generation_results.add_argument("--json", action="store_true", dest="as_json")
+
+    assemble_generation_pack = subparsers.add_parser(
+        "assemble-generation-pack",
+        help="Assemble an approved local render-ready asset pack",
+    )
+    assemble_generation_pack.add_argument("plan", type=Path)
+    assemble_generation_pack.add_argument("plan_review", type=Path)
+    assemble_generation_pack.add_argument("results_proposal", type=Path)
+    assemble_generation_pack.add_argument("results_review", type=Path)
+    assemble_generation_pack.add_argument("--project-root", type=Path, required=True)
+    assemble_generation_pack.add_argument(
+        "--output-dir", type=Path, default=Path("generation-asset-pack")
+    )
+    assemble_generation_pack.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    assemble_generation_pack.add_argument("--timeout", type=float, default=60.0)
+    assemble_generation_pack.add_argument("--json", action="store_true", dest="as_json")
+
     render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
     render.add_argument("template", type=Path)
     render.add_argument("manifest", type=Path)
@@ -3336,6 +3795,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, status = run_freeze_assets(args)
             _emit_stable_json(payload)
             return status
+        if args.command == "prepare-generation":
+            payload, status = run_prepare_generation(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "propose-generation-results":
+            payload, status = run_propose_generation_results(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "assemble-generation-pack":
+            payload, status = run_assemble_generation_pack(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "render":
             try:
                 payload, status = run_render(args)
@@ -3371,6 +3842,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "validate-asset-review":
             errors = _validate_asset_packet_file(
                 args.review, validate_asset_review_data
+            )
+        elif args.command == "validate-generation-request":
+            errors = _validate_generation_packet_file(
+                args.request, validate_generation_request_data
+            )
+        elif args.command == "validate-generation-plan":
+            errors = _validate_generation_packet_file(
+                args.plan, validate_generation_plan_data
+            )
+        elif args.command == "validate-generation-plan-review":
+            errors = _validate_generation_packet_file(
+                args.review, validate_generation_plan_review_data
+            )
+        elif args.command == "validate-generation-results-proposal":
+            errors = _validate_generation_packet_file(
+                args.proposal, validate_generation_results_proposal_data
+            )
+        elif args.command == "validate-generation-results-review":
+            errors = _validate_generation_packet_file(
+                args.review, validate_generation_results_review_data
             )
         else:
             try:

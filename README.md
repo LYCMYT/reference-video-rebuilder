@@ -6,12 +6,46 @@ reference as a structure and timing specification, never as pixels to copy.
 Platform UI, comments, account information, and watermarks are excluded from
 the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-> Status: 0.5.0-alpha. The local, bounded new-reference path remains
-> propose -> review -> freeze-plan -> compile. v0.5 adds a strict local asset
-> path: propose-assets -> human review -> freeze-assets -> render. It is limited
-> to authorized fixed-subject-carousel S1 work, not arbitrary-video discovery,
-> semantic classification, OCR, cloud processing, asset generation, or automatic
-> approval.
+> Status: 0.6.0-alpha. The local, bounded new-reference path remains
+> propose -> review -> freeze-plan -> compile. v0.6 adds a reviewed bridge for
+> externally created still assets: prepare-generation -> plan review -> external
+> controller or local file drop -> result review -> assemble-generation-pack ->
+> v0.5 asset review/freeze -> render. The CLI never runs a model, shell command,
+> network request, weight download, or automatic approval. It remains limited to
+> authorized fixed-subject-carousel S1 work, not arbitrary-video discovery,
+> semantic classification, OCR, or concealed-pixel recovery.
+
+## What 0.6 adds
+
+v0.6 makes the asset-generation handoff reviewable without pretending that a
+generation model is bundled. Given an already validated Template IR, a
+user-authored Generation Request and a direct-child local reference pack,
+`prepare-generation` creates a hash-bound, review-required generation plan,
+review template, and local input contact sheet. The plan can record either a
+`local-file-drop` executor or a `controller-managed` executor. The declaration
+records bounded `adapter_id` and `adapter_version` and, for controller-managed
+work, `controller_label`; none can be a path, URL, or credential. The latter
+may be declared `local-only` or `controller-cloud`; `controller-cloud` requires
+`cloud_upload_confirmed: true` in both the request and reviewed plan. The CLI
+itself does not upload anything in either case.
+
+After an external controller (for example, a Codex image-generation step) or a
+user-operated local CUDA workflow places generated files in a new result pack,
+`propose-generation-results` makes a second, per-slot review packet and result
+contact sheet. The reviewer—not a metric—confirms identity continuity, body and
+pose suitability, garment/product/background fidelity, logos/text, hands and
+other artifacts, render readiness, and rights. A rejected slot is retried in a
+new result pack and proposal; an approved plan and approved image are never
+silently overwritten.
+
+`assemble-generation-pack` accepts both approved review packets and emits a
+new direct-child pack containing only exact-slot media. It applies EXIF
+orientation to static images and re-encodes them as metadata-free PNG; accepted
+audio is passed through unchanged. It writes no sidecar, prompt, report, or
+credential into that pack, so the existing v0.5 `propose-assets -> review ->
+freeze-assets` path remains the final mapping, snapshot, and render gate.
+This is a controller/asset bridge, not virtual try-on, CUDA inference, or
+provider integration implemented inside the CLI.
 
 ## What 0.5 adds
 
@@ -68,9 +102,10 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Product and CLI | 0.5.0-alpha |
+| Product and CLI | 0.6.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
+| Generation Request, Plan, and Result packets | 0.6.0 |
 | Frozen Compiler Plan | 0.3.0 |
 | Template IR | 0.2.0 |
 | Frozen Asset Manifest | 0.2.0 |
@@ -81,16 +116,23 @@ IR, and technical QA retain their existing contracts.
 
 ## Supported boundary
 
-The alpha accepts only local, authorized fixed-subject-carousel S1 work. It
-does not provide:
+The alpha accepts only authorized fixed-subject-carousel S1 work. The bundled
+CLI is local and does not provide:
 
 - OCR or arbitrary-video semantic classification;
 - identity, garment, product, UI, watermark, or text meaning inference;
-- cloud execution, uploads, or generated replacement assets;
+- a bundled image/video model, virtual try-on, CUDA inference, weight download,
+  arbitrary shell execution, or network/upload operation;
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
 
-Windows is the audited release platform for v0.5.0-alpha. It provides the
+An external controller may create still assets after a reviewed v0.6 plan. A
+`controller-cloud` declaration requires `cloud_upload_confirmed: true` in both
+the Generation Request and Plan Review; it is a record of the controller's
+behavior, not a permission for this CLI to upload assets. Do not send the
+reference video or unapproved private assets to an external service.
+
+Windows is the audited release platform for v0.6.0-alpha. It provides the
 strong reparse-point and guarded snapshot/copy boundary for asset-pack scan,
 rescan, and frozen-assets publication. Other operating systems remain
 observable and fail closed where supported, but this release does not claim
@@ -135,7 +177,96 @@ After installing the Skill by itself, run the same runtime install command from
 the installed directory that contains SKILL.md. FFmpeg and ffprobe are external
 local executables.
 
-## 60-second Windows asset-pack quick start
+## v0.6 Windows generation-bridge quick start
+
+Use this path when you have a validated Template IR, a model reference and
+garment/product/background reference files, but still need an external
+image-generation or local CUDA tool to make the render-ready look images. The
+external executor is deliberately outside this CLI. Start from a fresh local
+project: reference/result packs are existing direct-child inputs, while each
+named output directory must be a new direct child of the project.
+
+~~~powershell
+Set-Location .\skills\reference-video-rebuilder
+
+$project = 'D:\video-projects\outfit-reel'
+$ffmpeg = 'C:\tools\ffmpeg.exe'
+$ffprobe = 'C:\tools\ffprobe.exe'
+$templatePacket = 'template-compile/template.ir.json'
+$template = Join-Path $project $templatePacket
+$requestPacket = 'generation-request.json'
+$request = Join-Path $project $requestPacket
+~~~
+
+Create `generation-request.json` from the installed
+`generation-request.schema.json`; keep its requested model, outfit, product,
+and optional background sources in the one direct child named
+`generation-reference-pack`. Declare the executor (`local-file-drop` or
+`controller-managed`), privacy profile, bounded `adapter_id`/`adapter_version`,
+and `controller_label` when required. If the controller will use a cloud
+service, set `cloud_upload_confirmed: true` in the request and in the approved
+plan review before generating. `--generation-rights-confirmed` only confirms
+processing rights; it is not cloud consent.
+
+~~~powershell
+python scripts/video_remix.py validate-generation-request "$request" --json
+python scripts/video_remix.py prepare-generation "$templatePacket" "$requestPacket" --project-root $project --reference-pack generation-reference-pack --output-dir generation-plan --generation-rights-confirmed --ffprobe $ffprobe --timeout 60 --json
+
+$planPacket = 'generation-plan/generation-plan.json'
+$planReviewPacket = 'generation-plan/generation-plan-review.template.json'
+$plan = Join-Path $project $planPacket
+$planReview = Join-Path $project $planReviewPacket
+python scripts/video_remix.py validate-generation-plan "$plan" --json
+python scripts/video_remix.py validate-generation-plan-review "$planReview" --json
+~~~
+
+Inspect `generation-input-contact-sheet.png`, then edit the plan review to
+explicitly approve every requested source-to-slot mapping, the chosen executor,
+rights, and—when relevant—`cloud_upload_confirmed: true`. Only then ask the external
+controller to generate stills or run the approved local CUDA workflow. The
+controller writes its new result files to the direct child
+`generation-result-pack`; do not modify `generation-plan`. The result pack must
+contain exactly one static image with each non-passthrough target-slot stem.
+Audio is a reviewed passthrough reference from `generation-reference-pack`, not
+a generated result-pack file.
+
+~~~powershell
+python scripts/video_remix.py validate-generation-plan-review "$planReview" --json
+python scripts/video_remix.py propose-generation-results "$planPacket" "$planReviewPacket" --project-root $project --result-pack generation-result-pack --output-dir generation-results-proposal --generation-results-rights-confirmed --ffprobe $ffprobe --timeout 60 --json
+
+$resultsProposalPacket = 'generation-results-proposal/generation-results-proposal.json'
+$resultsReviewPacket = 'generation-results-proposal/generation-results-review.template.json'
+$resultsProposal = Join-Path $project $resultsProposalPacket
+$resultsReview = Join-Path $project $resultsReviewPacket
+python scripts/video_remix.py validate-generation-results-proposal "$resultsProposal" --json
+python scripts/video_remix.py validate-generation-results-review "$resultsReview" --json
+~~~
+
+Inspect `generation-results-contact-sheet.png` and explicitly decide every
+slot. Technical checks do not establish model identity, garment/product/logo
+fidelity, body/pose, hands, or background correctness. To retry one rejected
+slot, generate a complete new result pack and run a new result proposal/review;
+do not overwrite the approved plan or an approved result.
+
+~~~powershell
+python scripts/video_remix.py validate-generation-results-review "$resultsReview" --json
+python scripts/video_remix.py assemble-generation-pack "$planPacket" "$planReviewPacket" "$resultsProposalPacket" "$resultsReviewPacket" --project-root $project --output-dir generation-asset-pack --ffprobe $ffprobe --timeout 60 --json
+~~~
+
+The assembled directory contains only media with exact Template slot stems.
+Static images are orientation-normalized, re-encoded as metadata-free PNG, and
+audio is passed through. It is intentionally not a frozen Asset Manifest. Run
+the existing v0.5 asset path next; it independently maps, reviews, snapshots,
+and binds the bytes used by rendering.
+
+~~~powershell
+python scripts/video_remix.py propose-assets "$templatePacket" --project-root $project --asset-pack generation-asset-pack --output-dir asset-proposal --asset-pack-rights-confirmed --ffprobe $ffprobe --timeout 60 --json
+# Review asset-proposal/asset-contact-sheet.png and its JSON review, then:
+python scripts/video_remix.py freeze-assets 'asset-proposal/asset-pack-proposal.json' 'asset-proposal/asset-review-decision.template.json' --project-root $project --output-dir frozen-assets --ffprobe $ffprobe --timeout 60 --json
+python scripts/video_remix.py render "$template" (Join-Path $project 'frozen-assets\assets.json') --project-root $project --ffmpeg $ffmpeg --summary run-summary.json --json
+~~~
+
+## v0.5 Windows asset-pack quick start
 
 This v0.5 path starts with an already validated Template IR from the existing
 v0.4 propose, review, freeze-plan, and compile flow. Run it from a fresh local
@@ -308,11 +439,16 @@ garment/product fidelity, correct carousel semantics, absence of residual
 platform elements, or commercial rights.
 
 Confirm permission for the reference video, likenesses, products, logos, audio,
-and every asset-pack file before proposal. This alpha is local-only: it does
-not upload media, evidence, proposal artifacts, or derived data.
+and every reference/result/asset-pack file before proposal. The CLI is
+local-only: it does not upload media, evidence, proposal artifacts, prompts, or
+derived data. A separately operated controller can use a cloud service only
+after `cloud_upload_confirmed: true` is recorded in both the request and
+reviewed plan; that consent does not change the CLI's offline behavior.
 
 See the [Compiler Plan contract](skills/reference-video-rebuilder/references/compiler-contract.md),
+[generation contract](skills/reference-video-rebuilder/references/generation-contract.md),
 [asset contract](skills/reference-video-rebuilder/references/asset-contract.md),
+[adapter policy](skills/reference-video-rebuilder/references/adapter-policy.md),
 [QA gates](skills/reference-video-rebuilder/references/qa-gates.md), and the
 complete Chinese [design](docs/DESIGN.zh-CN.md).
 

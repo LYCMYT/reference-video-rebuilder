@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/generation-results-review.schema.json",
+  "title": "Generation Results Review",
+  "description": "Per-task human outcome for generated and passthrough assets. Standalone validation checks packet structure and accepted approved tasks; binding to the proposal determines which content confirmations apply and is enforced by local assembly.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "proposal_sha256", "decision", "comparison_contact_sheet_reviewed", "tasks"],
+  "properties": {
+    "schema_version": {"const": "0.6.0"},
+    "proposal_sha256": {"$ref": "#/$defs/sha256"},
+    "decision": {"enum": ["pending", "approved", "rejected"]},
+    "comparison_contact_sheet_reviewed": {"type": "boolean"},
+    "tasks": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/task"}}
+  },
+  "allOf": [
+    {"if": {"properties": {"decision": {"const": "approved"}}}, "then": {"properties": {"comparison_contact_sheet_reviewed": {"const": true}, "tasks": {"items": {"$ref": "#/$defs/acceptedTask"}}}}}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "slotId": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "task": {"type": "object", "additionalProperties": false, "required": ["task_id", "target_slot_id", "decision", "identity_confirmed", "garment_confirmed", "product_confirmed", "background_confirmed", "pose_confirmed", "render_ready_confirmed", "rights_confirmed", "omission_confirmed"], "properties": {"task_id": {"type": "string", "pattern": "^task\\.[0-9]{4}$"}, "target_slot_id": {"$ref": "#/$defs/slotId"}, "decision": {"enum": ["pending", "accept", "retry", "unresolved"]}, "identity_confirmed": {"type": "boolean"}, "garment_confirmed": {"type": "boolean"}, "product_confirmed": {"type": "boolean"}, "background_confirmed": {"type": "boolean"}, "pose_confirmed": {"type": "boolean"}, "render_ready_confirmed": {"type": "boolean"}, "rights_confirmed": {"type": "boolean"}, "omission_confirmed": {"type": "boolean"}}},
+    "acceptedTask": {"type": "object", "additionalProperties": false, "required": ["task_id", "target_slot_id", "decision", "identity_confirmed", "garment_confirmed", "product_confirmed", "background_confirmed", "pose_confirmed", "render_ready_confirmed", "rights_confirmed", "omission_confirmed"], "properties": {"task_id": {"type": "string", "pattern": "^task\\.[0-9]{4}$"}, "target_slot_id": {"$ref": "#/$defs/slotId"}, "decision": {"const": "accept"}, "identity_confirmed": {"type": "boolean"}, "garment_confirmed": {"type": "boolean"}, "product_confirmed": {"type": "boolean"}, "background_confirmed": {"type": "boolean"}, "pose_confirmed": {"type": "boolean"}, "render_ready_confirmed": {"type": "boolean"}, "rights_confirmed": {"type": "boolean"}, "omission_confirmed": {"type": "boolean"}}}
+  }
+}

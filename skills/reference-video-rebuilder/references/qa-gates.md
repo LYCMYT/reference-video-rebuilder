@@ -1,18 +1,72 @@
 # QA gates
 
-## 0.5.0-alpha coverage
+## 0.6.0-alpha coverage
 
 The bundled local CLI retains the v0.4 reference Proposal/Review/freeze-plan
-path and adds v0.5 validate-asset-proposal, validate-asset-review,
-propose-assets, and freeze-assets before rendering. A successful proposal is
-never approval. Proposal/review validation and freeze failures return exit
-code 2. Compile retains exit code 1 when its existing timing evidence requires
-review, and render retains its technical verifier behavior.
+path, v0.5 strict asset-pack proposal/freeze, and adds a v0.6 external-
+generation bridge: validate-generation-request, prepare-generation,
+plan review, propose-generation-results, result review, and
+assemble-generation-pack. The bridge only prepares/reviews local file handoff
+artifacts. It does not invoke a generation model, local CUDA job, shell,
+network request, provider SDK, or weight download. A successful proposal is
+never approval. Proposal/review validation and freeze/assembly failures return
+exit code 2. Compile retains exit code 1 when its existing timing evidence
+requires review, and render retains its technical verifier behavior.
 
-The new planning workflow does not automate semantic acceptance. Gates 3, 4,
-and 6 still require an agent or human review before claiming identity
-consistency, garment fidelity, timing intent, or complete removal of platform
-elements.
+The new planning workflow does not automate semantic acceptance. Generation
+plan and result reviewers must explicitly decide identity consistency,
+body/pose, garment/product/background fidelity, logos/text, hands/artifacts,
+rights, and any controller-cloud consent. Gates 3, 4, and 6 still require an
+agent or human review before claiming those properties, timing intent, or
+complete removal of platform elements.
+
+## P0 — v0.6 generation bridge
+
+All applicable P0 checks must pass before treating a generated result as a
+candidate for the v0.5 asset-pack workflow:
+
+- prepare-generation requires `--generation-rights-confirmed` before guarded
+  Generation Request/reference-pack analysis; propose-generation-results
+  requires `--generation-results-rights-confirmed` before guarded result-pack
+  analysis;
+- template/packet references follow their normalized project-root-relative
+  contract; reference-pack and result-pack are guarded direct-child inputs and
+  each output directory is a new direct child of project-root. None may be
+  absolute, nested, dot-segment, escaping, linked, or reparse-point paths;
+- the Generation Plan records only `local-file-drop` or `controller-managed`;
+  `local-command`, arbitrary shell, local model invocation, CUDA discovery,
+  weight download, browser/provider SDK, and CLI networking are forbidden;
+- `controller-cloud` requires `cloud_upload_confirmed: true` in both the
+  request and approved Plan Review. That declaration never gives the CLI upload
+  authority and does not replace review of controller rights, terms, retention,
+  or upload scope;
+- public CLI summaries must not echo `adapter_id`, `adapter_version`,
+  `controller_label`, prompt content, credentials, URLs, or private paths;
+- every plan review binds the exact plan/request/template/reference evidence
+  required by the schema and explicitly confirms source mappings, execution
+  declaration, rights, and any cloud consent;
+- every result proposal/review binds the approved plan/review and the exact
+  result evidence required by the schema. Technical media checks never turn
+  identity, garment/product/logo/background fidelity, pose, hands, or artifacts
+  into automatic acceptance;
+- rejected work is retried with a new result pack and new proposal/review; do
+  not mutate an approved plan, approved result, or assembled output in place;
+- assembly accepts only approved/bound packets, emits no partial target, and
+  produces a media-only exact-slot pack: static images receive EXIF orientation
+  and metadata-free PNG re-encoding, while approved audio passthrough from the
+  reference pack is passed through. Result packs contain only required static
+  target-slot images, never generated audio;
+- the assembled pack contains no prompt, JSON, sidecar, report, credential,
+  source reference, video, animation, unknown file, link, reparse point, or
+  nested directory. It is not an Asset Manifest and cannot render directly;
+- v0.5 `propose-assets -> asset review -> freeze-assets` remains mandatory
+  after assembly. Its independent scan, review, snapshot, and renderer byte
+  binding cannot be skipped.
+
+The Plan/Review packets are local hash-bound audit records, not signatures or
+proof that an external controller honored its declaration. A process that can
+write the project can author records; use trusted signing or immutable storage
+outside this alpha if independent proof is required.
 
 ## P0 — strict local asset-pack freeze
 
@@ -111,7 +165,9 @@ workflow but cannot prove approval against a writer who controls the project.
 - every required slot is mapped exactly as intended;
 - input hashes and rights are recorded;
 - file types, resolution, transparency, and duration are valid;
-- the local-only policy is maintained; this alpha has no cloud adapter route;
+- the v0.5 asset freeze/render path remains local-only. v0.6 may record a
+  reviewed `controller-cloud` declaration for an external controller, but the
+  CLI itself still has no cloud adapter, upload, or provider runtime route;
 - no source or output path escapes the project allowlist.
 - the governed v0.5 path uses the Asset Manifest 0.2.0 published by
   freeze-assets and retains its Proposal, Review, and report; Asset Manifest
@@ -145,7 +201,7 @@ explicit check before relying on any of those conditions.
 ## Gate 6 — prohibited overlay removal
 
 Use known UI-region checks, contact sheets, the geometry/timing proposal
-artifacts, and a human full-playback review. The bundled `0.5.0-alpha` Skill
+artifacts, and a human full-playback review. The bundled `0.6.0-alpha` Skill
 does not include OCR or automatic platform-UI semantic detection. Require no
 residual platform logo, account text, comments, engagement rail,
 status/navigation bars, or visible reconstruction smear. This remains a

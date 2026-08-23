@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/generation-plan.schema.json",
+  "title": "Generation Plan",
+  "description": "A reviewed-local execution plan binding a Template, private Generation Request, and opaque reference-pack facts without copying source paths or instructions.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "privacy_profile", "cloud_upload_confirmed", "execution_profile", "adapter_id", "adapter_version", "generation_rights_confirmed", "review_required", "template_path", "template_sha256", "template_id", "request_path", "request_sha256", "reference_pack", "scanner_policy_version", "reference_inventory", "reference_inventory_sha256", "tasks", "evidence"],
+  "properties": {
+    "schema_version": {"const": "0.6.0"},
+    "privacy_profile": {"enum": ["local-only", "controller-cloud"]},
+    "cloud_upload_confirmed": {"type": "boolean"},
+    "execution_profile": {"enum": ["local-file-drop", "controller-managed"]},
+    "adapter_id": {"$ref": "#/$defs/adapterId"},
+    "adapter_version": {"$ref": "#/$defs/adapterVersion"},
+    "controller_label": {"$ref": "#/$defs/controllerLabel"},
+    "generation_rights_confirmed": {"const": true},
+    "review_required": {"const": true},
+    "template_path": {"$ref": "#/$defs/relativePath"},
+    "template_sha256": {"$ref": "#/$defs/sha256"},
+    "template_id": {"$ref": "#/$defs/slotId"},
+    "request_path": {"$ref": "#/$defs/relativePath"},
+    "request_sha256": {"$ref": "#/$defs/sha256"},
+    "reference_pack": {"$ref": "#/$defs/directChildName"},
+    "scanner_policy_version": {"const": "0.5.0"},
+    "reference_inventory": {"type": "array", "maxItems": 128, "items": {"$ref": "#/$defs/inventoryEntry"}},
+    "reference_inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "tasks": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/task"}},
+    "evidence": {"type": "object", "additionalProperties": false, "required": ["input_contact_sheet"], "properties": {"input_contact_sheet": {"$ref": "#/$defs/artifact"}}}
+  },
+  "allOf": [
+    {"if": {"properties": {"privacy_profile": {"const": "controller-cloud"}}}, "then": {"properties": {"cloud_upload_confirmed": {"const": true}, "execution_profile": {"const": "controller-managed"}}}},
+    {"if": {"properties": {"privacy_profile": {"const": "local-only"}}}, "then": {"properties": {"cloud_upload_confirmed": {"const": false}}}},
+    {"if": {"properties": {"execution_profile": {"const": "controller-managed"}}}, "then": {"required": ["controller_label"]}},
+    {"if": {"properties": {"execution_profile": {"const": "local-file-drop"}}}, "then": {"not": {"required": ["controller_label"]}}}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relativePath": {"type": "string", "minLength": 1, "maxLength": 512},
+    "directChildName": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^/:\\\\]*[^/:\\\\. ]$"},
+    "slotId": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "adapterId": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+    "adapterVersion": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "controllerLabel": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._-]{0,63}$"},
+    "assetId": {"type": "string", "pattern": "^asset\\.[0-9]{4}$"},
+    "artifact": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"$ref": "#/$defs/relativePath"}, "sha256": {"$ref": "#/$defs/sha256"}}},
+    "imageFacts": {"type": "object", "additionalProperties": false, "required": ["kind", "width", "height", "pixels"], "properties": {"kind": {"const": "image"}, "width": {"type": "integer", "minimum": 1, "maximum": 16384}, "height": {"type": "integer", "minimum": 1, "maximum": 16384}, "pixels": {"type": "integer", "minimum": 1, "maximum": 100000000}}},
+    "audioFacts": {"type": "object", "additionalProperties": false, "required": ["kind", "duration_seconds", "audio_stream_count", "video_stream_count"], "properties": {"kind": {"const": "audio"}, "duration_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 600}, "audio_stream_count": {"type": "integer", "minimum": 1, "maximum": 64}, "video_stream_count": {"const": 0}}},
+    "inventoryEntry": {"type": "object", "additionalProperties": false, "required": ["asset_id", "sha256", "size_bytes", "media_type", "facts"], "properties": {"asset_id": {"$ref": "#/$defs/assetId"}, "sha256": {"$ref": "#/$defs/sha256"}, "size_bytes": {"type": "integer", "minimum": 1, "maximum": 268435456}, "media_type": {"enum": ["image/jpeg", "image/png", "image/webp", "audio/wav", "audio/mpeg", "audio/mp4", "audio/x-matroska"]}, "facts": {"oneOf": [{"$ref": "#/$defs/imageFacts"}, {"$ref": "#/$defs/audioFacts"}]}}},
+    "reference": {"type": "object", "additionalProperties": false, "required": ["role", "asset_id"], "properties": {"role": {"enum": ["identity", "garment", "product", "background", "reference", "audio"]}, "asset_id": {"$ref": "#/$defs/assetId"}}},
+    "task": {"type": "object", "additionalProperties": false, "required": ["task_id", "target_slot_id", "required", "kind", "passthrough", "omit", "references"], "properties": {"task_id": {"type": "string", "pattern": "^task\\.[0-9]{4}$"}, "target_slot_id": {"$ref": "#/$defs/slotId"}, "required": {"type": "boolean"}, "kind": {"enum": ["identity-try-on", "product-still", "background-still", "reference-guided-still"]}, "passthrough": {"type": "boolean"}, "omit": {"type": "boolean"}, "references": {"type": "array", "maxItems": 8, "items": {"$ref": "#/$defs/reference"}}}}
+  }
+}

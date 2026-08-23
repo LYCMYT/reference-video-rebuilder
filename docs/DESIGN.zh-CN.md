@@ -1,7 +1,7 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.5.0-alpha（在 0.4.0-alpha 基础上的增量）
-日期：2026-08-23
+版本：0.6.0-alpha（在 0.5.0-alpha 基础上的增量）
+日期：2026-08-24
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
 
@@ -9,10 +9,16 @@ Skill 名称：`reference-video-rebuilder`
 
 0.5.0-alpha 在不改变上述 v0.4 计划冻结路径的前提下，增加严格的本地
 asset-pack 路径：对已验证 Template IR 执行 propose-assets，人工审核每个
-映射，再以 freeze-assets 发布可渲染的本地冻结资产。该增量不自动理解资产
-语义、不生成资产，也不扩大 S1 或本地边界。
+映射，再以 freeze-assets 发布可渲染的本地冻结资产。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现、没有云端执行、没有素材/换装资产生成。propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素；它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。本文后文出现的 OCR、检测、云端 adapter、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.6.0-alpha 在不内置生成模型的前提下增加“外部生成资产桥”：
+prepare-generation 生成待审计划，外部 Codex ImageGen/用户自有本地 CUDA
+工作流仅以 file-drop 方式把结果写入新 result pack，随后执行逐槽 result
+review 和 assemble-generation-pack，最后仍必须进入 v0.5 的
+propose-assets -> review -> freeze-assets。CLI 不运行模型、任意 shell、CUDA
+任务、网络请求、上传或权重下载；它只记录受限执行声明并处理本地文件。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现、没有 CLI 内置的云端执行或素材/换装资产生成。propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素；它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 CLI 从不上传。本文后文出现的 OCR、检测、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -41,6 +47,7 @@ asset-pack 路径：对已验证 Template IR 执行 propose-assets，人工审�
 23. [当前视频的首个金标准](#23-当前视频的首个金标准)
 24. [最终决策](#24-最终决策)
 25. [v0.5 严格本地资产包增量](#25-v05-严格本地资产包增量)
+26. [v0.6 外部生成资产桥](#26-v06-外部生成资产桥)
 
 ## 1. 执行摘要
 
@@ -124,7 +131,10 @@ Compile 模式的产物必须是可重复使用的模板，而不是一次性脚
 
 适用于已经冻结的 Template IR。
 
-当前流程：校验素材合同 → 显式映射已提供的 `render-ready` 替换资产 → 关键帧审核 → 低清预览 → 正式渲染 → QA → 打包。素材生成或云端 adapter 属于未来工作，不是当前路径。
+当前流程：已提供 render-ready 素材走 v0.5 的显式映射/冻结；尚未 render-ready
+的静态素材可先走 v0.6 的 Generation Request -> Plan Review -> 外部 file-drop/
+controller -> Result Review -> media-only assembly，再进入 v0.5 冻结。CLI 内的
+素材生成、云端 adapter、CUDA、shell 和上传仍不是当前路径。
 
 Remix 模式的验收要求是：更换第二组完整素材时不修改程序，只修改资产和映射文件即可生成。
 
@@ -142,10 +152,10 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 ## 6. 总体架构
 
 本节描述目标架构；图中的 OCR、检测、生成 adapter、云端和高级 QA
-组件不是 0.5.0-alpha 的已实现能力。当前可执行路径仅为本地、已授权的
+组件不是 0.6.0-alpha 的已实现能力。当前可执行路径为本地、已授权的
 fixed-subject-carousel S1 的 propose -> review -> freeze-plan -> compile，
-以及已验证 Template IR 的 propose-assets -> 人工审核 -> freeze-assets ->
-确定性渲染。
+以及已验证 Template IR 的 v0.6 外部静态资产桥（不运行外部生成器）和
+v0.5 propose-assets -> 人工审核 -> freeze-assets -> 确定性渲染。
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -381,17 +391,20 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 
 ## 8. 完整工作流
 
-本节记录完整产品流程。0.4.0-alpha 实际的新参考路径以 propose -> review
--> freeze-plan -> compile 为准；后续素材映射与 render 保持既有合同。下面
-涉及 OCR、任意视频分类、语义槽位推断、云端 adapter 或资产生成的历史设计
-不得解释为当前 CLI 能力。
+本节记录完整产品流程。0.4.0-alpha 的新参考路径以 propose -> review
+-> freeze-plan -> compile 为准；v0.5 增加严格 asset-pack 冻结；v0.6 在两者
+之间增加外部静态资产的计划、审核和无 metadata 组装桥。下面涉及 OCR、任意
+视频分类、语义槽位推断、CLI 内模型执行或自动云端 adapter 的历史设计不得
+解释为当前 CLI 能力。
 
 ### 8.1 Preflight
 
 1. 检查 FFmpeg、ffprobe、可写 project-root 和输入可读性。
 2. 只接受精确 CFR、零旋转且时长不超过 60 秒的本地源。
 3. 确认参考、肖像、商品、品牌和音频权限；若保留音频，单独确认音频权利。
-4. 确定 local-only；0.4 不提供 cloud-assisted 路径。
+4. 对 v0.6 外部执行声明确定 `local-file-drop` 或 `controller-managed`，并
+   记录 `local-only` 或 `controller-cloud`；后者必须在 Request 和 Plan Review
+   中都设置 `cloud_upload_confirmed=true`，但 CLI 不上传任何文件。
 5. 建立项目隔离目录。源与证据留在本地，工件路径不得逃逸 project-root。
 
 ### 8.2 Propose
@@ -438,20 +451,49 @@ compiler 或 Template IR 合同。
 
 ### 8.6 Validate replacement assets
 
-- 检查必需槽位是否齐全；
-- 检查数量、编号和映射重复；
-- 检查像素、主体面积、透明度、压缩和清晰度；
-- 检查服装图属于平铺、人台、真人上身或截图；
-- 检查背景、Logo、文字安全区和音频时长；
+- 对已存在 render-ready 素材，使用 v0.5 的 exact-stem asset-pack 提议、人工
+  Review 与 freeze-assets；
+- 检查必需槽位、数量、编号、映射重复、媒体类型和可渲染性；
+- 自动探测只证明技术兼容性，不判断服装图是否真的属于某件服装、是否保持同一
+  模特，或 Logo/文字是否正确；
 - 不默认生成笛卡尔积，所有映射必须显式。
 
 ### 8.7 Prepare derived assets
 
-当前 0.4 只接受用户提供或另行批准的 render-ready 素材，并执行既有的显式映射与确定性处理；不调用虚拟试衣、受控图像生成、背景补全或任何云端/本地资产生成 adapter。直接贴图、抠图、对齐、虚拟试衣、生成和视频修改属于后续设计，不能由 propose 自动触发。
+对于尚未 render-ready 的模特、服装、商品或背景，v0.6 执行以下固定停顿链：
+
+1. 用已验证 Template IR、Generation Request 和 direct-child reference pack
+   执行 `prepare-generation`；它输出 `generation-plan.json`、待审 Plan Review
+   和输入联系表；
+2. 人工逐槽确认引用、目标、`adapter_id`、`adapter_version`、可选
+   `controller_label`、执行模式、权利与隐私配置。`local-file-drop` 和
+   `controller-managed` 是唯一允许模式；不允许 `local-command`；
+3. 若选 `controller-cloud`，Request 和 Plan Review 都必须显式
+   `cloud_upload_confirmed=true`；普通 rights flag、控制器名称或 passing schema
+   都不是上传同意。CLI 仍不上传；
+4. 已批准后，外部 Codex ImageGen 控制器或用户自有本地 CUDA 工具在 CLI 外创建
+   静态结果，写进一个新的 direct-child result pack。每个非 passthrough/非 omit
+   target slot 恰有一张静态图片；audio 不属于 result pack；不得改写 plan；
+5. 用 `propose-generation-results` 建立逐槽 result proposal、待审 result
+   review 与结果联系表；拒绝槽位必须进入新 result pack/proposal/review，而不是
+   覆盖已批准图；
+6. 两份 Review 通过后执行 `assemble-generation-pack`。静态图按 EXIF 方向转正、
+   去 metadata 重编码为 PNG；仅允许从 reference pack 的已批准 audio
+   passthrough 原样透传；输出仅含 exact-slot 媒体且无
+   JSON、prompt、报告或 sidecar；
+7. 组装包仍必须进入 v0.5 `propose-assets -> asset review -> freeze-assets`，
+   才能作为 renderer 的冻结资产。
+
+该流程不是虚拟试衣/受控图像生成/背景补全的内置 adapter。CLI 不调用这些模型、
+不调用任意 shell、不自动发现 CUDA、不下载权重、不持有 provider 凭据，也不作
+任何网络请求。
 
 ### 8.8 Review looks
 
-先输出人物和服装联系表，检查身份、身材、姿态、服装版型、颜色、图案、Logo、手部和异常肢体。未批准的单套只重试该槽位。
+先审核 generation 输入联系表和结果联系表，再审核 v0.5 asset contact sheet。
+逐槽检查身份、身材、姿态、服装版型、颜色、图案、Logo、商品文字、背景、手部
+和异常肢体。任何未批准项只重试相关槽位，但重试必须使用新 result pack/proposal/
+review；技术 probe、哈希和联系表不能自动证明视觉正确。
 
 ### 8.9 Preview
 
@@ -493,7 +535,7 @@ compiler 或 Template IR 合同。
 
 ### 9.4 `generation-router`
 
-统一接口：
+长期目标接口：
 
 ```text
 prepare_identity(input, policy) -> identity_asset
@@ -503,7 +545,14 @@ prepare_background(input, geometry, policy) -> background_asset
 modify_video(segment, references, policy) -> video_asset
 ```
 
-每个 adapter 声明：输入类型、是否云端、许可证、成本估计、GPU 要求、可重复参数、内容限制和质量指标。
+v0.6 不实现或调用上述接口。它只实现 Generation Request/Plan/Result 的本地
+合同：允许 `local-file-drop` 或 `controller-managed`，并记录受限
+`adapter_id`、`adapter_version` 和 controller-managed 的 `controller_label`。
+这些字符串不能包含路径、URL 或凭据。隐私仅可标记 `local-only` 或
+`controller-cloud`；云端情形在 Request 与 Plan Review 都必须
+`cloud_upload_confirmed=true`。CLI 不执行 adapter、CUDA、shell、下载或网络；
+真实外部控制器的许可证、成本、GPU、保留期、模型版本和可重复性仍需由主模型/
+人工在审查中判断。
 
 ### 9.5 `render-compiler`
 
@@ -536,7 +585,7 @@ NEW
 
 ## 10. 命令行和工具接口
 
-当前产品/CLI 版本为 `0.5.0-alpha`，并保留下列在 v0.4 引入的稳定 JSON
+当前产品/CLI 版本为 `0.6.0-alpha`，并保留下列在 v0.4 引入的稳定 JSON
 参考计划命令；Codex 不应依赖自然语言日志。参考 Proposal schema 为
 `0.4.0`，Frozen Compiler Plan schema 保持 `0.3.0`，编译输出的 Template IR
 schema 保持 `0.2.0`。v0.5 的资产命令和 schema 版本见第 25 节：
@@ -553,6 +602,14 @@ video-remix validate-compiler-plan <compiler-plan.json> --json
 video-remix compile <reference> <compiler-plan.json> --project-root <project-dir> [--output-dir template-compile] [--ffmpeg <path>] [--ffprobe <path>] [--timeout <seconds>] --json
 video-remix validate-template <template.ir.json> --json
 video-remix validate-assets <template.ir.json> <assets.json> --project-root <project-dir> --json
+video-remix validate-generation-request <generation-request.json> --json
+video-remix prepare-generation <template.ir.json> <generation-request.json> --project-root <project-dir> --reference-pack <direct-child> --output-dir <direct-child> --generation-rights-confirmed --ffprobe <path> --timeout <seconds> --json
+video-remix validate-generation-plan <generation-plan.json> --json
+video-remix validate-generation-plan-review <generation-plan-review.json> --json
+video-remix propose-generation-results <generation-plan.json> <generation-plan-review.json> --project-root <project-dir> --result-pack <direct-child> --output-dir <direct-child> --generation-results-rights-confirmed --ffprobe <path> --timeout <seconds> --json
+video-remix validate-generation-results-proposal <generation-results-proposal.json> --json
+video-remix validate-generation-results-review <generation-results-review.json> --json
+video-remix assemble-generation-pack <generation-plan.json> <generation-plan-review.json> <generation-results-proposal.json> <generation-results-review.json> --project-root <project-dir> --output-dir <direct-child> --ffprobe <path> --timeout <seconds> --json
 video-remix render <template.ir.json> <assets.json> --project-root <project-dir> [--frame-directory render/master-frames] [--debug-bounds] [--summary <root-contained.json>] [--ffmpeg <path>] --json
 video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
@@ -565,6 +622,13 @@ v0.4 的 `propose` 与 `freeze-plan` 要求 `--output-dir` 是
 绝对本地、盘符根和 UNC 路径在候选 packet 检查前拒绝。此规则不限制独立的
 validate-proposal 或 validate-review。
 
+v0.6 的 `reference-pack` 和 `result-pack` 必须是合同允许的现有一级子目录，
+`output-dir` 必须是新的一级子目录名称；均不得为绝对、嵌套、点段、链接或
+reparse-point 路径。plan/review/proposal 的 packet 参数使用合同
+规定的 project-root 相对规范路径。`assemble-generation-pack` 的输出只能包含
+媒体，不能带 prompt、JSON、报告、凭据或其他 sidecar，随后仍需经过 v0.5
+资产包的独立扫描和冻结。
+
 Alpha 通用规则：
 
 - 标准输出返回稳定 JSON 摘要；propose、freeze-plan、`compile`、`survey` 和可选 `render --summary` 写入的工件均受 project root 约束；
@@ -574,7 +638,10 @@ Alpha 通用规则：
 - Proposal 仅可包含 SHA-256、width、height、精确 frame_count、fps 和 has_audio 这组安全技术 source fingerprint；不得包含源文件名/绝对路径、工具路径、容器 tags、title、artist、comments、账号身份、raw probe 或原始证据；
 - `render` 写入任何帧前必须完成模板与文件资产校验，之后必须对每个输出执行 QA；
 - 禁止 shell 字符串拼接执行 FFmpeg，使用参数数组；
-- 不自动发现任意视频 family 或分类语义槽位、不执行 OCR、不自动生成换装资产、不使用云端执行，也不把技术解码 QA 误称为视觉/权利验收。
+- 不自动发现任意视频 family 或分类语义槽位、不执行 OCR、不在 CLI 内生成换装
+  资产、不执行任意 shell/CUDA/模型/权重下载/网络上传，也不把技术解码 QA 误称
+  为视觉/权利验收。v0.6 仅可记录并审核外部执行声明；`controller-cloud` 必须在
+  Request 与 Plan Review 都 `cloud_upload_confirmed=true`，CLI 自身仍离线。
 
 propose 只能产生最大居中 9:16 source crop、carousel、subject、slot_count、timing、比例布局和背景色等待审候选。它不是 platform chrome/UI 检测或移除器；chrome、非居中内容、非均匀裁剪和语义/时序歧义必须由审核者更正。
 
@@ -592,6 +659,11 @@ workspaces/<project-id>/
 ├── assets/
 │   ├── original/
 │   └── derived/
+├── generation-reference-pack/       # private user references; never commit
+├── generation-plan/                 # private plan/review/contact sheet
+├── generation-result-pack/          # private external result file-drop
+├── generation-results-proposal/     # private result review/contact sheet
+├── generation-asset-pack/           # media-only bridge output
 ├── analysis/
 │   ├── media.json
 │   ├── slots.json
@@ -605,7 +677,10 @@ workspaces/<project-id>/
 └── runs/<run-id>/run.json
 ```
 
-源素材默认保持在项目隔离目录，不进入 Skill 目录和 Git 历史。
+源素材、Generation Request、raw prompt、外部控制器声明、reference/result pack
+和审核联系表默认保持在项目隔离目录，不进入 Skill 目录和 Git 历史。`generation-asset-pack`
+虽只包含媒体，仍是用户数据；它必须继续经过 v0.5 freeze-assets，不能当成可提交
+的已冻结 manifest。
 
 0.4 的 proposal 输出目录还包含严格 Proposal、pending Review、overview
 contact sheet、geometry preview 和 timing profile。所有这些工件都必须是
@@ -650,6 +725,31 @@ height、精确 frame_count、fps 和 has_audio。
 Proposal 的 source_rect 只可被描述为最大居中 9:16 构图候选；当 chrome、
 非居中内容或非均匀裁剪使它不正确时，审核者必须修正。该关卡不包含 OCR、
 platform UI 语义检测、自动批准或隐藏像素恢复。
+
+### 13.0.6 外部生成资产桥
+
+v0.6 在 v0.5 资产冻结之前增加以下 P0：
+
+- `prepare-generation` 的 rights flag 与 `propose-generation-results` 的
+  results-rights flag 必须在读取相应私有 pack 前存在；
+- Request/Plan/Review/Result Proposal 的 schema、哈希绑定和 project-root
+  路径规则必须通过；reference/result pack 仅允许合同中的一级安全媒体；
+- 仅可声明 `local-file-drop` 或 `controller-managed`，并记录受限
+  `adapter_id`/`adapter_version` 和可选 `controller_label`；这些字段不允许
+  path、URL 或凭据；
+- `local-command`、任意 shell、CLI CUDA/模型执行、权重下载、浏览器、API SDK
+  和网络请求均为 fail；
+- 对 `controller-cloud`，Request 和 Plan Review 都必须
+  `cloud_upload_confirmed=true`。这只是外部控制器的审计声明，CLI 不上传，且
+  不自动证明服务条款、保留期、许可证或实际上传范围；
+- 人工逐槽确认身份、身材/姿态、服装/商品/Logo/背景忠实度、手部及其他 artifact、
+  render-ready 状态与结果权利。媒体解码、哈希和联系表不能替代这些判断；
+- 被拒结果只能以新的 result pack/proposal/review 局部重试；不得改写已批准 plan
+  或已批准图片；
+- assembly 必须原子输出纯媒体 exact-slot pack：静态图片 EXIF 转正并去 metadata
+  重编码 PNG，reference pack 的已批准 audio passthrough 原样透传，禁止 JSON、
+  prompt、报告、sidecar、凭据和其他未知
+  文件；之后仍要通过 v0.5 `propose-assets -> review -> freeze-assets`。
 
 ### 13.1 结构和媒体
 
@@ -696,6 +796,9 @@ platform UI 语义检测、自动批准或隐藏像素恢复。
 
 - Proposal 生成后、Review 前的强制停止（review_required=true）；
 - Proposal 哈希绑定和八项 Review 确认；
+- Generation Plan 与 Generation Result Proposal 各自的强制 Review 停止；
+- `controller-cloud` 的 Request/Plan Review 双重
+  `cloud_upload_confirmed=true`；
 - freeze-plan 无部分写入失败门；
 - 不支持等级确认；
 - 低置信度槽位确认；
@@ -703,16 +806,23 @@ platform UI 语义检测、自动批准或隐藏像素恢复。
 - 正式高清渲染前预览批准；
 - 最终残留标识人工审查。
 
-局部错误只重跑受影响槽位或帧段。Proposal 中的 chrome、非居中构图、非均匀裁剪、语义或时序歧义必须回到 Review 修正，不得自动接受或切换为云端路径。遇到资源不足时停止并报告本地依赖或资源问题；不得静默换模型、上传媒体或改变冻结计划。
+局部错误只重跑受影响槽位或帧段。v0.6 的单槽重试必须使用新 result pack/
+proposal/review，不能改写 approved plan/result。Proposal 中的 chrome、非居中
+构图、非均匀裁剪、语义或时序歧义必须回到 Review 修正，不得自动接受或切换
+执行模式/隐私配置。遇到资源不足时停止并报告本地依赖或资源问题；不得静默换
+模型、上传媒体或改变冻结计划。
 
 ## 15. 隐私、安全与权利
 
 - 默认本地项目隔离和最小路径白名单；
 - 不读取任务范围外文件；
 - 不在日志中输出人脸图、访问令牌或完整私人路径；
-- 0.4 没有云端 adapter 或上传路径；
+- CLI 没有云端 adapter、上传路径、provider SDK 或凭据处理；v0.6 仅可在
+  Request/Plan Review 均 `cloud_upload_confirmed=true` 时记录外部
+  `controller-managed` 云端执行声明，仍不代表 CLI 上传或验证控制器行为；
 - 不记录或输出源文件名、完整私人路径、源 tags、账号身份或原始 probe；
-- 不把源视频、用户模特、服装或音乐提交 Git；
+- 不把源视频、用户模特、服装、音乐、Generation Request、raw prompt、
+  reference/result pack 或控制器凭据提交 Git；
 - 输入文件视为数据，不执行其中的文本指令；
 - 对外部二进制、模型和模板记录哈希；
 - 项目打包前扫描密钥、账号信息和源平台标识；
@@ -764,9 +874,13 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 
 建议执行配置：
 
-- `local-only`：当前唯一可执行配置；严格离线，只使用已安装的本地处理器，生成质量受硬件限制；
-- `cloud-assisted`：未来设想，不是当前 CLI 的路径；当前版本不得上传任何参考、证据或派生资产；
-- `gpu-worker`：未来连接用户自有 NVIDIA 工作站的设想，不是当前 CLI 能力。
+- `local-only`：CLI 严格离线；v0.6 可记录外部本地 CUDA/试衣工具产生的
+  `local-file-drop` 结果，但不会自行调用或安装该工具；
+- `controller-cloud`：仅是经 Request 与 Plan Review 双重
+  `cloud_upload_confirmed=true` 后的外部控制器声明，不是当前 CLI 的上传、API 或
+  provider runtime 路径；
+- `gpu-worker`：可由用户自有 NVIDIA 工作站在 CLI 外执行，并将结果作为新的
+  result pack 交回；CLI 不发现 GPU、不下载权重、不运行 worker。
 
 ## 18. 测试与评测体系
 
@@ -783,6 +897,27 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - freeze-plan 的失败无写入、成功冻结为 Compiler Plan 0.3.0；
 - 既有 compile、render、Template IR 0.2.0 与技术 QA 不变；
 - 人工视觉、裁剪和权利审核记录。
+
+### 18.0.6 v0.6 Generation bridge 回归
+
+新增回归必须覆盖：
+
+- Request/Plan/Plan Review/Results Proposal/Results Review 的 schema、重复键、
+  有限数字和 hash binding；
+- `local-file-drop`/`controller-managed` 允许值，`adapter_id`/
+  `adapter_version`/`controller_label` 的长度与 path/URL/凭据拒绝；
+- `local-only` 与 `controller-cloud` 的
+  `cloud_upload_confirmed` 双重确认、缺失/冲突拒绝，以及公共 CLI JSON 不泄露
+  私有执行声明；
+- rights flags 在读取 Request/reference/result pack 前 fail closed；
+- direct-child/path escape/link/reparse/unknown/sidecar/动画和部分输出拒绝；
+- 每个 rejected slot 以新 result pack/proposal/review 重试，不能覆盖已批准证据；
+- 静态图 EXIF 转正、metadata-free PNG 重编码、reference pack audio
+  passthrough、纯媒体
+  assembled pack；
+- assembled pack 必须能进入既有 v0.5 propose-assets/review/freeze-assets，且
+  仍会因不正确的 exact mapping 或未审核资产而被拒绝；
+- 在不含任何模型、shell、网络或权重的干净环境中运行全部 bridge 测试。
 
 ### 18.1 单元测试
 
@@ -860,6 +995,20 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 
 本阶段不声明从任意视频自动发现 family、主体、服装、商品、platform UI 或语义槽位；也不包含 OCR、云端、资产生成、自动批准或隐藏像素恢复。
 
+### Phase 3.5：外部生成资产桥（v0.6，已实现）
+
+- 对现有 Template IR 支持 Generation Request -> prepare-generation -> Plan
+  Review -> 外部 controller/file-drop -> Result Review ->
+  assemble-generation-pack；
+- 仅记录 `local-file-drop`/`controller-managed` 和
+  `local-only`/`controller-cloud`；后者要求 Request 与 Plan Review 均
+  `cloud_upload_confirmed=true`；
+- 支持逐槽局部重试的不可变 result pack/proposal/review；
+- assembly 静态图 EXIF 转正、去 metadata PNG 重编码、reference pack audio
+  透传、纯媒体
+  exact-slot 输出，并强制回到 v0.5 资产审核和冻结；
+- 不内置模型、虚拟试衣、CUDA、shell、网络、上传、权重下载或 provider SDK。
+
 ### Phase 4：S1 通用模板族
 
 - 商品展示、图片卡片、固定口播、简单字幕和2D动效；
@@ -895,6 +1044,8 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 |---|---|---|---|
 | 用户意图、未知条件、产品边界 | 当前主模型 | 否 | 用户确认重大歧义 |
 | Proposal 的受限语义审查、family 接受、裁剪/时序歧义 | controller_current | 否 | 本地工件、显式 Review 和人工确认 |
+| Generation Request/Plan、adapter_id/version、controller_label、隐私配置与云上传确认 | controller_current + 人工 | 否 | Request/Plan Review；`controller-cloud` 双重 `cloud_upload_confirmed=true` |
+| 生成结果的身份/服装/商品/Logo/背景/手部判断和局部重试 | controller_current + 人工 | 否 | Result contact sheet、逐槽 Review、新 result pack |
 | 删除、保留和替换边界 | 当前主模型 | 否 | 最终残留检查 |
 | Template IR 架构或不兼容 Schema 变更 | 当前主模型主导；Terra Max可实现 | 否 | 当前主模型审查 + Schema测试 |
 | 已冻结接口的非平凡代码实现 | `gpt-5.6-terra` + `max` | 通过评测后可降至 high/xhigh | 测试 + controller_current 代码审查 |
@@ -915,6 +1066,11 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - 必须执行的测试；
 - 视觉和人工验收标准；
 - 失败与升级条件。
+
+对 v0.6，冻结项还必须包含执行模式、privacy profile、受限
+`adapter_id`/`adapter_version`、可选 `controller_label`、何时允许
+`cloud_upload_confirmed=true`、CLI 不运行模型/shell/CUDA/网络的边界、局部重试
+目录策略、去 metadata PNG 组装规则，以及 v0.5 仍为最终资产冻结关卡。
 
 低级模型不得通过“写代码”暗中重新做产品决策。长任务必须拆成有界工作包；一旦跨模块、改变 Schema 语义或出现新的视觉判断，worker 停止并升级，不能自行扩展范围。
 
@@ -1017,6 +1173,22 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
   抵抗恶意并发文件系统替换；
 - Asset Manifest 0.1.0 仅保留 legacy 兼容。
 
+### 0.6.0-alpha
+
+- 新增 `validate-generation-request`、`prepare-generation`、Plan Review、
+  `propose-generation-results`、Result Review 和
+  `assemble-generation-pack`；
+- 只允许 `local-file-drop`/`controller-managed`，并记录受限
+  `adapter_id`/`adapter_version`/可选 `controller_label`；禁止路径、URL、凭据、
+  `local-command`、任意 shell、CLI CUDA/模型、网络和权重下载；
+- `controller-cloud` 必须在 Request 和 Plan Review 中均
+  `cloud_upload_confirmed=true`；CLI 本身不上传且公共摘要不回显私有声明；
+- 人工逐槽审核人物一致性、服装/商品/Logo/背景忠实度、姿态、手部与 artifact，
+  局部重试不可改写已批准 plan/result；
+- assembly 原子生成纯媒体 exact-slot pack：图片 EXIF 转正、去 metadata PNG
+  重编码，reference pack 的 audio passthrough 透传；随后仍强制走 v0.5
+  propose-assets/review/freeze-assets。
+
 ### 1.0.0
 
 - 定义清楚的 S1 支持域；
@@ -1030,6 +1202,10 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
 ### 22.1 已知未知
 
 - “本机操作”是否允许经过批准的云端生成；
+- 外部 controller 是否能在不泄露 raw prompt/凭据的同时提供足够的版本、保留期和
+  商用授权证据；
+- `controller-cloud` 的最小上传集合、用户撤回/删除机制与 provider 变更后的重审
+  策略；
 - 未来是否允许他人商用本项目；
 - 服装“相似”和“商品级精准”的验收阈值；
 - 用户愿意接受多少模板确认和蒙版修正；
@@ -1044,6 +1220,8 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
 - 服装 Logo、文字或花纹被生成模型改写：独立商品 QA，关键细节使用原素材合成；
 - 反射、透明、头发和手部导致蒙版错误：提高支持等级或人工关键帧修正；
 - provider 更新导致同一提示输出变化：记录模型版本和种子，冻结批准资产；
+- 外部 controller 报称 local-only 却转发了素材：v0.6 只能记录/审核声明，不能
+  在 CLI 内证明其行为；敏感项目只能使用受信任的本地执行环境或额外审计；
 - 第三方模型更改许可证或权重下架：adapter 隔离并维护依赖清单；
 - 新参考效果无法映射现有 IR：保留扩展字段和模板版本迁移；
 - 自动指标通过但人眼感到不自然：所有生成式人物最终保留人工批准；
@@ -1181,3 +1359,152 @@ validate-assets 只是声明式预检，不等同于 renderer 的运行时 link/
 边界。详细 P0 列表和最终媒体/人工验收见 QA gates；
 controller_current 保留语义、权利和发布判断，Terra max 只能在合同冻结后
 实施有界代码或测试任务。
+
+## 26. v0.6 外部生成资产桥
+
+### 26.1 产品定位
+
+v0.6 解决的是“用户有模特/服装/商品/背景参考，但需要第三方图像生成或本地
+CUDA 工具制作 render-ready 静态图”时的可审计交接，而不是把某个生成模型装进
+Skill。它保持三件事分离：
+
+- **控制平面**：Generation Request、Plan、两份 Review、哈希和同意记录；
+- **外部执行平面**：Codex ImageGen 控制器、用户自有 CUDA 工作站或其他已批准
+  工具；这些在 CLI 外运行；
+- **确定性渲染平面**：v0.5 资产冻结与既有 Template IR/renderer。
+
+因此“可以让外部控制器产出换装图”不等于“CLI 已经内置虚拟试衣”。一份通过的
+Generation Plan 也不是自动批准；它只允许外部控制器按被审核的边界行动。
+
+### 26.2 状态机与不可变性
+
+```text
+Template IR + Generation Request + reference pack
+  -> prepare-generation
+  -> generation-plan + pending plan review
+  -> human/controller_current approval
+  -> external controller or local file-drop
+  -> new result pack
+  -> propose-generation-results
+  -> results proposal + pending result review
+  -> human/controller_current approval
+  -> assemble-generation-pack
+  -> media-only exact-slot pack
+  -> v0.5 propose-assets -> asset review -> freeze-assets -> render
+```
+
+Generation Plan 是已批准任务的冻结描述；它不能随着生成失败而被修改。某套结果
+不合格时，创建一个**新的** result pack 和新的 results proposal/review。不得
+就地覆盖 approved plan、approved result、已组装 pack 或 v0.5 frozen assets。
+这样能把局部重试限定在某个槽位，同时保留输出来源和审批关系。
+
+### 26.3 支持的执行声明
+
+Request/Plan 只接受：
+
+| 字段/枚举 | v0.6 允许值与规则 |
+| --- | --- |
+| 执行模式 | `local-file-drop` 或 `controller-managed`。前者由用户/本机工具把结果放入 pack；后者由外部控制器接收已批准计划后生成本地结果。 |
+| 隐私配置 | `local-only` 或 `controller-cloud`。 |
+| 外部标识 | 受限 `adapter_id`、`adapter_version`；`controller-managed` 再记录 `controller_label`。均不能是路径、URL 或凭据。 |
+| 云端上传 | 仅 `controller-cloud`；Generation Request 与已批准 Plan Review 都必须 `cloud_upload_confirmed=true`。 |
+
+`local-command`、自定义 shell 参数、自动 CUDA 探测、模型/权重安装下载、浏览器、
+provider SDK、HTTP 调用和 token/密钥管理都不属于 v0.6。用户可以自己运行本地
+CUDA，但其唯一回接方式是创建一个新的 result pack。
+
+### 26.4 命令与工件
+
+```text
+validate-generation-request
+prepare-generation
+validate-generation-plan
+validate-generation-plan-review
+<外部执行，CLI 不参与>
+propose-generation-results
+validate-generation-results-proposal
+validate-generation-results-review
+assemble-generation-pack
+propose-assets -> validate-asset-review -> freeze-assets -> render
+```
+
+`prepare-generation` 发布：
+
+```text
+generation-plan/
+├── generation-plan.json
+├── generation-plan-review.template.json
+└── generation-input-contact-sheet.png
+```
+
+`propose-generation-results` 发布：
+
+```text
+generation-results-proposal/
+├── generation-results-proposal.json
+├── generation-results-review.template.json
+└── generation-results-contact-sheet.png
+```
+
+`assemble-generation-pack` 只发布 exact-slot 媒体，不写任何 JSON、prompt、日志、
+报告、provenance sidecar、私有控制器声明或凭据。它的目标是能安全交给 v0.5
+strict asset scanner，而不是替代 Asset Manifest。
+
+### 26.5 双重人工审核
+
+**Plan Review** 逐槽确认：输入参考与目标槽位、保留/替换/删除意图、执行模式、
+privacy profile、`adapter_id`/`adapter_version`、可选 `controller_label`、所有
+相关权利；如果是云端，必须确认 `cloud_upload_confirmed=true`。确认权利 flag
+不等于确认上传。
+
+**Result Review** 逐槽确认：
+
+- 模特身份、面部/发型、身材比例、姿态、构图和边缘；
+- 服装的颜色、版型、领口、袖口、长度、主要印花、Logo/文字；
+- 商品真实来源、可读标识和未被替换；
+- 背景、道具与要求保留/删除的画面元素；
+- 手、腿、头发、反光、透明区域和生成 artifact；
+- render-ready 性和结果字节的处理权利。
+
+联系表、文件 hash、尺寸、解码和 JSON schema 只提供技术证据；它们不证明“这
+就是同一模特”“衣服准确”“logo 无误”或“没有平台残留”。这些结论必须由
+controller_current 和人工确认。
+
+### 26.6 组装与 v0.5 交接
+
+当两份 Review 均通过，组装器重新检查绑定关系并发布纯媒体包：
+
+- 静态图片应用 EXIF orientation，并重编码为不带来源 metadata 的 PNG；
+- 仅被批准的 reference pack audio passthrough 按字节透传；
+- 保留与 Template slot 兼容的 exact filename stem；
+- 拒绝 sidecar、未知文件、动画/视频（合同未允许时）、目录、链接、reparse point
+  和越界路径；
+- 任一失败不留下部分 output pack。
+
+这个包依然是可变用户数据。随后一定要执行 v0.5 `propose-assets`、审核
+asset contact sheet、`freeze-assets` 和 renderer hash binding。v0.5 才把当前
+bytes 复制成 Asset Manifest 0.2.0 的 opaque snapshot。
+
+### 26.7 隐私、权利与公开仓库规则
+
+Generation Request、reference/result pack、prompt、联系表、外部控制器输出、
+私有审核记录、下载权重和凭据全部属于项目数据，不得进入 Git。`.gitignore` 必须
+覆盖这些目录/文件名，但忽略规则不是权限控制。公开 CLI JSON 不应回显私有控制器
+声明、绝对路径、URL、prompt 或凭据。
+
+`controller-cloud` 只表示审批者同意由外部控制器上传最小批准素材。它不证明
+控制器实际没有额外上传、不保证 provider 的删除/保留承诺、不替代模型/权重/
+训练数据许可审查，也不让 CLI 获得上传权限。高敏感项目应选择可信的 local-only
+执行环境或增加独立的签名、访问控制和 provider 审计。
+
+### 26.8 验收与下一步边界
+
+v0.6 的完成标准是：一条已审核 Template IR 可以从用户提供的参考资产经过两份
+审核，得到 metadata-clean、纯媒体、exact-slot 的 pack，并继续由 v0.5 冻结后
+渲染；任意被拒槽位可单独重试且不污染已批准证据。它不承诺具体图像模型质量、
+速度、成本、商用资格或 API 可用性。
+
+后续若要把某个本地 CUDA 试衣模型或云 provider 做成真正 adapter，必须另开版本
+并先冻结：许可证/权重来源、安装与哈希、GPU 资源、网络与密钥隔离、最小上传、
+删除/保留、种子/版本、故障恢复、独立评测集、身份/服装/Logo 指标及人工验收。
+在这些条件具备前，保持 v0.6 的 file-drop/controller bridge 边界。

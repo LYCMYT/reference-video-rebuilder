@@ -52,7 +52,7 @@
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "relativePath": {"type": "string", "minLength": 1, "maxLength": 512},
-    "directChildName": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^/:\\\\]+$"},
+    "directChildName": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[^/:\\\\]*[^/:\\\\. ]$"},
     "inventoryMediaType": {
       "enum": [
         "image/jpeg",

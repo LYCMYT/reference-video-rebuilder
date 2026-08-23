@@ -25,6 +25,15 @@ class SkillMetadataTests(unittest.TestCase):
         self.assertIn('display_name: "reference-video-rebuilder"', text)
         self.assertIn('$reference-video-rebuilder', text)
 
+    def test_private_generation_staging_directories_are_ignored(self):
+        text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+        for pattern in (
+            ".rrv-generation-plan-*/",
+            ".rrv-generation-results-proposal-*/",
+            ".rrv-generation-asset-pack-*/",
+        ):
+            self.assertIn(pattern, text)
+
 
 if __name__ == "__main__":
     unittest.main()

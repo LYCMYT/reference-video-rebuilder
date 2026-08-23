@@ -527,6 +527,52 @@ class ProposalTestCase(unittest.TestCase):
             rrv_propose._cleanup_directory(root, stage)
         self.assertFalse(stage.path.exists())
 
+    def test_portable_packet_and_staging_paths_reject_windows_aliases_before_writes(self):
+        source, root = self.make_workspace()
+        rejected = (
+            "packet.",
+            "packet ",
+            "CON",
+            "NUL.txt",
+            "COM1",
+            "LPT9.json",
+            "COM¹.png",
+            "LPT³.txt",
+            "CLOCK$.json",
+            "bad|name",
+            "bad\x1fname",
+        )
+        for value in rejected:
+            with self.subTest(packet=value):
+                with self.assertRaises(rrv_runtime.RRVError):
+                    rrv_propose._relative_parts(value, "packet")
+
+        self.assertEqual(rrv_propose._relative_parts("packets/look.01.json", "packet"), ("packets", "look.01.json"))
+        self.assertEqual(rrv_propose._relative_parts(".pack/review.json", "packet"), (".pack", "review.json"))
+
+        stage = rrv_propose._new_staging_directory(root, "portable")
+        try:
+            with self.assertRaises(rrv_runtime.RRVError):
+                rrv_propose._stage_path(root, stage, "con.png")
+            self.assertFalse((stage.path / "con.png").exists())
+        finally:
+            rrv_propose._cleanup_directory(root, stage)
+
+        for output_dir in ("proposal.", "proposal ", "CON", "NUL.txt", "COM1", "LPT²"):
+            with self.subTest(output_dir=output_dir), mock.patch.object(
+                rrv_propose.rrv_runtime, "discover_tools", side_effect=AssertionError("must not discover tools")
+            ):
+                with self.assertRaises(rrv_runtime.RRVError):
+                    rrv_propose.propose_reference(
+                        source,
+                        project_root=root,
+                        template_id="proposal-test",
+                        reference_rights_confirmed=True,
+                        audio_rights_confirmed=True,
+                        output_dir=output_dir,
+                    )
+            self.assertFalse((root / output_dir).exists())
+
     def test_direct_child_output_contract_rejects_nested_parent_before_media_or_writes(self):
         source, root = self.make_workspace()
         with mock.patch.object(rrv_propose.rrv_runtime, "discover_tools") as discover:
@@ -575,6 +621,96 @@ class ProposalTestCase(unittest.TestCase):
         self.assertFalse((root / "published").exists())
         self.assertTrue(victim.is_dir())
         rrv_propose._cleanup_directory(root, stage)
+
+    def test_publish_refuses_a_preexisting_target_without_replacing_either_directory(self):
+        _, root = self.make_workspace()
+        stage = rrv_propose._new_staging_directory(root, "preexisting-target")
+        payload = rrv_propose._stage_path(root, stage, "payload.json")
+        rrv_propose._write_json_new(payload, {"stage": "preserve"}, label="payload", stage=stage)
+        target = root / "already-published"
+        target.mkdir()
+        sentinel = target / "sentinel.txt"
+        sentinel.write_text("target must survive", encoding="utf-8")
+        try:
+            with self.assertRaises(rrv_runtime.RRVError) as raised:
+                rrv_propose._publish_stage(root, stage, target, label="test")
+            self.assertEqual(raised.exception.code, rrv_runtime.ERR_OUTPUT_EXISTS)
+            self.assertEqual(json.loads(payload.read_text(encoding="utf-8")), {"stage": "preserve"})
+            self.assertEqual(sentinel.read_text(encoding="utf-8"), "target must survive")
+            self.assertTrue(stage.path.is_dir())
+            self.assertTrue(target.is_dir())
+        finally:
+            rrv_propose._cleanup_directory(root, stage)
+            if target.exists():
+                shutil.rmtree(target)
+
+    def test_posix_noreplace_without_linux_primitive_fails_closed(self):
+        _, root = self.make_workspace()
+        stage = rrv_propose._new_staging_directory(root, "noreplace-unavailable")
+        payload = rrv_propose._stage_path(root, stage, "payload.json")
+        rrv_propose._write_json_new(payload, {"stage": "preserve"}, label="payload", stage=stage)
+        target = root / "unavailable-target"
+        try:
+            with mock.patch.object(rrv_propose.sys, "platform", "darwin"):
+                with self.assertRaises(rrv_runtime.RRVError) as raised:
+                    rrv_propose._posix_rename_noreplace(stage.path, target, label="test")
+            self.assertEqual(raised.exception.code, rrv_runtime.ERR_CAPABILITY_UNAVAILABLE)
+            self.assertEqual(json.loads(payload.read_text(encoding="utf-8")), {"stage": "preserve"})
+            self.assertFalse(target.exists())
+        finally:
+            rrv_propose._cleanup_directory(root, stage)
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux renameat2 is platform-specific")
+    def test_linux_noreplace_race_preserves_competing_target_and_stage(self):
+        _, root = self.make_workspace()
+        stage = rrv_propose._new_staging_directory(root, "noreplace-race")
+        payload = rrv_propose._stage_path(root, stage, "payload.json")
+        rrv_propose._write_json_new(payload, {"stage": "preserve"}, label="payload", stage=stage)
+        target = root / "race-target"
+
+        def create_competitor(source, destination):
+            self.assertEqual(source, stage.path)
+            self.assertEqual(destination, target)
+            self.assertFalse(target.exists())
+            target.mkdir()
+            (target / "sentinel.txt").write_text("competitor must survive", encoding="utf-8")
+
+        try:
+            with mock.patch.object(rrv_propose, "_POSIX_RENAME_NOREPLACE_HOOK", create_competitor):
+                with self.assertRaises(rrv_runtime.RRVError) as raised:
+                    rrv_propose._publish_stage(root, stage, target, label="test")
+            if raised.exception.code == rrv_runtime.ERR_CAPABILITY_UNAVAILABLE:
+                self.skipTest("Linux renameat2 is unavailable on this host")
+            self.assertEqual(raised.exception.code, rrv_runtime.ERR_OUTPUT_EXISTS)
+            self.assertEqual(json.loads(payload.read_text(encoding="utf-8")), {"stage": "preserve"})
+            self.assertEqual((target / "sentinel.txt").read_text(encoding="utf-8"), "competitor must survive")
+            self.assertTrue(stage.path.is_dir())
+            self.assertTrue(target.is_dir())
+        finally:
+            rrv_propose._cleanup_directory(root, stage)
+            if target.exists():
+                shutil.rmtree(target)
+
+    @unittest.skipUnless(sys.platform == "linux", "Linux renameat2 is platform-specific")
+    def test_linux_noreplace_publishes_an_absent_target(self):
+        _, root = self.make_workspace()
+        stage = rrv_propose._new_staging_directory(root, "noreplace-success")
+        payload = rrv_propose._stage_path(root, stage, "payload.json")
+        rrv_propose._write_json_new(payload, {"stage": "published"}, label="payload", stage=stage)
+        target = root / "published-noreplace"
+        try:
+            try:
+                rrv_propose._publish_stage(root, stage, target, label="test")
+            except rrv_runtime.RRVError as exc:
+                if exc.code == rrv_runtime.ERR_CAPABILITY_UNAVAILABLE:
+                    self.skipTest("Linux renameat2 is unavailable on this host")
+                raise
+            self.assertFalse(stage.path.exists())
+            self.assertEqual(json.loads((target / "payload.json").read_text(encoding="utf-8")), {"stage": "published"})
+        finally:
+            rrv_propose._cleanup_directory(root, stage)
+            if target.exists():
+                shutil.rmtree(target)
 
     def test_freeze_uses_one_duplicate_free_proposal_snapshot_for_hash_and_plan(self):
         source, root = self.make_workspace()

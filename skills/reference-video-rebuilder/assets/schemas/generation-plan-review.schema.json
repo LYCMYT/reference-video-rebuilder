@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/generation-plan-review.schema.json",
+  "title": "Generation Plan Review",
+  "description": "Explicit human authorization of a local generation plan before any controller produces result files.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_sha256", "privacy_profile", "cloud_upload_confirmed", "decision", "input_contact_sheet_reviewed", "request_reviewed", "execution_profile_confirmed", "tasks"],
+  "properties": {
+    "schema_version": {"const": "0.6.0"},
+    "plan_sha256": {"$ref": "#/$defs/sha256"},
+    "privacy_profile": {"enum": ["local-only", "controller-cloud"]},
+    "cloud_upload_confirmed": {"type": "boolean"},
+    "decision": {"enum": ["pending", "approved", "rejected"]},
+    "input_contact_sheet_reviewed": {"type": "boolean"},
+    "request_reviewed": {"type": "boolean"},
+    "execution_profile_confirmed": {"type": "boolean"},
+    "tasks": {"type": "array", "minItems": 1, "maxItems": 128, "items": {"$ref": "#/$defs/task"}}
+  },
+  "allOf": [
+    {"if": {"properties": {"privacy_profile": {"const": "controller-cloud"}}}, "then": {"properties": {"cloud_upload_confirmed": {"const": true}}}},
+    {"if": {"properties": {"privacy_profile": {"const": "local-only"}}}, "then": {"properties": {"cloud_upload_confirmed": {"const": false}}}},
+    {"if": {"properties": {"decision": {"const": "approved"}}}, "then": {"properties": {"input_contact_sheet_reviewed": {"const": true}, "request_reviewed": {"const": true}, "execution_profile_confirmed": {"const": true}, "tasks": {"items": {"$ref": "#/$defs/approvedTask"}}}}}
+  ],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "slotId": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "task": {"type": "object", "additionalProperties": false, "required": ["task_id", "target_slot_id", "decision", "references_confirmed", "instruction_scope_confirmed", "rights_confirmed"], "properties": {"task_id": {"type": "string", "pattern": "^task\\.[0-9]{4}$"}, "target_slot_id": {"$ref": "#/$defs/slotId"}, "decision": {"enum": ["pending", "accept", "retry", "unresolved"]}, "references_confirmed": {"type": "boolean"}, "instruction_scope_confirmed": {"type": "boolean"}, "rights_confirmed": {"type": "boolean"}}},
+    "approvedTask": {"type": "object", "additionalProperties": false, "required": ["task_id", "target_slot_id", "decision", "references_confirmed", "instruction_scope_confirmed", "rights_confirmed"], "properties": {"task_id": {"type": "string", "pattern": "^task\\.[0-9]{4}$"}, "target_slot_id": {"$ref": "#/$defs/slotId"}, "decision": {"const": "accept"}, "references_confirmed": {"const": true}, "instruction_scope_confirmed": {"const": true}, "rights_confirmed": {"const": true}}}
+  }
+}
