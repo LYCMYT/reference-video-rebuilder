@@ -96,7 +96,11 @@ class CommandAndProbeTests(unittest.TestCase):
         self.assertEqual(frame_command[frame_command.index("-i") + 1], str(source.resolve()))
         self.assertIn("select=eq(n\\,42)", frame_command)
         self.assertIn("-n", frame_command)
-        self.assertEqual(frame_command[-1], str(output))
+        # Windows hosted runners may canonicalize an existing temp parent to
+        # its 8.3 alias (for example RUNNER~1).  Compare the same resolved path
+        # contract used by the command builder instead of the spelling that
+        # tempfile originally returned.
+        self.assertEqual(frame_command[-1], str(output.resolve(strict=False)))
 
         audio_command = rrv_analyze.build_audio_extraction_command(source, "ffmpeg.exe", output)
         self.assertEqual(audio_command[audio_command.index("-map") + 1], "0:a:0")
