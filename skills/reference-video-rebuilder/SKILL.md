@@ -1,6 +1,6 @@
 ---
 name: reference-video-rebuilder
-description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict local generation handoffs; and, only after an approved controller-cloud/controller-managed plan, operate the separate explicit OpenAI GPT Image 2 controller. Use for bounded reference-video proposal, generation-plan/result review, approved OpenAI-controller preflight/run, Template IR validation, asset-pack review/freeze, frozen asset rendering, and QA. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, or hidden-pixel recovery.
+description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict generation handoffs; and, only after an approved controller-cloud/controller-managed plan, use either the no-key Codex built-in ImageGen handoff or the separate explicit OpenAI GPT Image 2 API controller. Use for bounded reference-video proposal, generation-plan/result review, approved image-controller execution, Template IR validation, asset-pack review/freeze, frozen asset rendering, and QA. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, or hidden-pixel recovery.
 ---
 
 # reference-video-rebuilder
@@ -12,7 +12,8 @@ reference as a structure and timing specification, not pixels to copy.
 propose -> review -> freeze-plan -> compile
                               -> prepare-generation -> plan review
                               -> local file drop or approved controller
-                              -> [optional v0.7 OpenAI controller]
+                              -> [optional v0.7.1 Codex built-in ImageGen]
+                              -> [optional v0.7 OpenAI API controller]
                               -> propose-generation-results -> result review
                               -> assemble-generation-pack
                               -> propose-assets -> asset review -> freeze-assets -> render
@@ -32,6 +33,12 @@ propose -> review -> freeze-plan -> compile
   `controller-cloud` + `controller-managed` plan pins
   `openai-gpt-image-2` / `2026-04-21`. It is not a `video_remix` subcommand or
   a Codex built-in image tool.
+- Use Codex built-in ImageGen without an API key only after a separate approved
+  `controller-cloud` + `controller-managed` plan pins
+  `codex-builtin-imagegen` / `2026-08-24`. Invoke it once per approved generated
+  slot using only that task's approved reference images. It is not
+  `local-file-drop`, does not make `video_remix.py` networked, and never bypasses
+  result review or asset freeze.
 - Use Propose-generation-results and Assemble-generation-pack after a result
   pack exists. Assembly does not replace the v0.5 asset review/freeze.
 - Use Render only with a reviewed Template IR and the Asset Manifest 0.2.0
@@ -52,6 +59,33 @@ propose -> review -> freeze-plan -> compile
 5. Treat contact sheets, hashes, and media probes as technical evidence only.
    They do not establish identity, pose, garment/product/logo fidelity, rights,
    or removal correctness.
+
+## Use Codex built-in ImageGen deliberately
+
+Read [generation-contract.md](references/generation-contract.md),
+[adapter-policy.md](references/adapter-policy.md), and
+[qa-gates.md](references/qa-gates.md) first.
+
+- Require the approved request and Plan Review to record
+  `controller-cloud`, `controller-managed`, `codex-builtin-imagegen`,
+  `2026-08-24`, a bounded controller label, and
+  `cloud_upload_confirmed: true`.
+- Start from the complete 26-task
+  `assets/project-template/generation.request.codex-builtin.example.json` for
+  the bundled S1 template; it includes all required passthrough and generated
+  slots, and still requires a new reviewed Plan.
+- Built-in ImageGen needs no `OPENAI_API_KEY`; it uses Codex product access and
+  usage limits. Never describe it as the API controller or infer API billing,
+  organization, project, or credential identity.
+- Send only the approved identity/garment/product/background reference images
+  for the current task. Never send video, audio, packets, unrelated assets, or
+  rejected candidates.
+- Make one tool call per distinct output asset. Store only the selected image
+  under the exact target-slot filename in a new result pack. No automatic retry
+  or silent overwrite is allowed.
+- The current primary model must inspect every result and record the result
+  review. Continue through assembly, v0.5 asset review/freeze, render, and full
+  visual QA.
 
 ## Use the v0.7 OpenAI controller deliberately
 

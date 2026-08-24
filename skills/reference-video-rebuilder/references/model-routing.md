@@ -49,6 +49,15 @@ later retry is a new explicit human decision with a new result review packet.
 Never record or expose `OPENAI_API_KEY`; it is not evidence of which Codex
 account, if any, was used.
 
+For the v0.7.1 no-key Codex built-in ImageGen route, `controller_current` must
+first approve a distinct `controller-cloud` + `controller-managed` plan pinned
+to `codex-builtin-imagegen` / `2026-08-24`. It may then make one built-in image
+generation call per accepted task with only that task's approved reference
+images. This route must not be labeled local-only or file-drop, must not claim
+API credential/billing identity, and must not delegate visual acceptance to a
+worker or the image model. Every selected output still enters the bound result
+review and asset-freeze pipeline.
+
 ## Roles
 
 Use logical profiles in orchestration code so product logic is not coupled to a

@@ -6,14 +6,44 @@ reference as a structure and timing specification, never as pixels to copy.
 Platform UI, comments, account information, and watermarks are excluded from
 the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-> Status: 0.7.0-alpha. The local, bounded new-reference path remains
+> Status: 0.7.1-alpha. The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
 > bridge for externally created still assets. v0.7 adds one separate, explicit
-> OpenAI GPT Image 2 controller after an approved cloud plan. `video_remix.py`
+> OpenAI GPT Image 2 API controller after an approved cloud plan. v0.7.1 also
+> defines a no-API-key Codex built-in ImageGen handoff under a distinct approved
+> cloud-controller declaration. `video_remix.py`
 > remains fully offline: it never runs a model, shell command, network request,
 > weight download, or automatic approval. The workflow remains limited to
 > authorized fixed-subject-carousel S1 work, not arbitrary-video discovery,
 > semantic classification, OCR, or concealed-pixel recovery.
+
+## What 0.7.1 adds
+
+v0.7.1 closes the no-key controller-policy gap for Codex's built-in ImageGen.
+This is a manually orchestrated `controller-managed` / `controller-cloud`
+handoff, not `local-file-drop` and not the API controller. Use
+`adapter_id: codex-builtin-imagegen`, `adapter_version: 2026-08-24`, a bounded
+`controller_label`, and `cloud_upload_confirmed: true` in both the Generation
+Request and approved Plan Review. No `OPENAI_API_KEY` is read or requested.
+
+After plan approval, invoke built-in ImageGen once for each approved generated
+slot, using only that task's approved reference images. Put selected results in
+a new exact-slot result pack, then run the unchanged result review, assembly,
+asset freeze, render, and QA gates. Do not send the reference video, audio,
+packets, unrelated project files, or unapproved candidates to ImageGen. A
+Codex-generated image is never self-approved, and a retry uses a new result
+pack and review cycle.
+
+Start from the bundled complete 26-task request at
+`assets/project-template/generation.request.codex-builtin.example.json`. It
+covers 12 generated outfit slots plus the required local audio, identity, and
+12 product passthrough slots used by the bundled S1 template; replace only the
+project-local filenames and reviewed instructions before `prepare-generation`.
+
+OpenAI documents that built-in image generation uses `gpt-image-2`, accepts
+reference images, and counts toward general Codex usage limits. It is distinct
+from programmatic API generation, for which an API key and API pricing apply.
+See the official [Codex image generation documentation](https://learn.chatgpt.com/docs/image-generation).
 
 ## What 0.7 adds
 
@@ -155,8 +185,9 @@ The alpha accepts only authorized fixed-subject-carousel S1 work. The bundled
 - automatic family discovery beyond the bounded S1 workflow.
 
 An external controller may create still assets after a reviewed v0.6 plan. The
-only bundled networking exception is the explicit v0.7 OpenAI controller and
-only for its pinned `controller-cloud`/`controller-managed` declaration. Cloud
+approved networking surfaces are the explicit v0.7 OpenAI API controller and
+the v0.7.1 manually orchestrated Codex built-in ImageGen handoff, each under its
+own pinned `controller-cloud`/`controller-managed` declaration. Cloud
 consent in the Generation Request and Plan Review is necessary but never broad
 upload authority: do not send the reference video or unapproved private assets
 to an external service.

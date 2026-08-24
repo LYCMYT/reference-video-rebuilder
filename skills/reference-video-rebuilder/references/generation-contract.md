@@ -11,7 +11,8 @@
 7. [Result packs, retries, and assembly](#result-packs-retries-and-assembly)
 8. [Privacy, rights, and provenance](#privacy-rights-and-provenance)
 9. [Non-guarantees](#non-guarantees)
-10. [v0.7 OpenAI GPT Image 2 controller](#v07-openai-gpt-image-2-controller)
+10. [v0.7.1 Codex built-in ImageGen handoff](#v071-codex-built-in-imagegen-handoff)
+11. [v0.7 OpenAI GPT Image 2 API controller](#v07-openai-gpt-image-2-controller)
 
 ## Purpose and boundary
 
@@ -230,6 +231,42 @@ overlays. It does not make a cloud controller safe, licensed, private, or
 commercially usable by recording its name. The final video remains a clean-room
 reconstruction from reviewed assets and a reviewed template—not a pixel-level
 copy of the reference.
+
+## v0.7.1 Codex built-in ImageGen handoff
+
+Codex built-in ImageGen is an approved no-API-key controller route only when an
+already reviewed plan declares all of the following:
+
+| Field | Required value |
+| --- | --- |
+| `privacy_profile` | `controller-cloud` |
+| `execution_profile` | `controller-managed` |
+| `adapter_id` | `codex-builtin-imagegen` |
+| `adapter_version` | `2026-08-24` |
+| `controller_label` | a bounded label identifying the active Codex ImageGen surface |
+| cloud consent | Request and approved Plan Review both have `cloud_upload_confirmed: true` |
+
+This route is manually orchestrated in the active Codex session. It is not a
+`video_remix.py` subcommand, not `local-file-drop`, and not the API controller.
+It reads no `OPENAI_API_KEY`. Official OpenAI documentation states that built-in
+image generation uses `gpt-image-2`, accepts reference images, and counts toward
+general Codex usage limits; it does not establish the API account, billing, or
+credential used by the separate programmatic controller.
+
+After plan approval, make exactly one built-in ImageGen call per distinct
+generated task. Supply only the approved reference images named by that task;
+never upload the reference video, audio, JSON packets, unrelated pack entries,
+or rejected candidates. Derive the prompt from the reviewed task instructions
+and repeat locked identity, composition, and forbidden-overlay invariants. Copy
+the selected output into a new result pack as `<target_slot_id>.png` without
+overwriting another run.
+
+There is no automatic retry or provider-side batch loop in this contract. A
+failed or rejected result requires a new candidate/result-pack review cycle.
+Every selected output must pass `propose-generation-results`, explicit visual
+result review, `assemble-generation-pack`, v0.5 asset review/freeze, render, and
+final QA. Built-in generation does not prove identity, garment/product fidelity,
+rights, platform-overlay removal, or provenance.
 
 ## v0.7 OpenAI GPT Image 2 controller
 

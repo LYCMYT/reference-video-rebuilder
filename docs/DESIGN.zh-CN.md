@@ -1,6 +1,6 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.7.0-alpha（在 0.6.0-alpha 基础上的增量）
+版本：0.7.1-alpha（在 0.7.0-alpha 基础上的策略增量）
 日期：2026-08-24
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
@@ -24,7 +24,14 @@ freeze-assets。`video_remix.py` 不运行模型、任意 shell、CUDA 任务、
 Image 2 请求；preflight 永不联网、永不写入，run 才在三重显式确认下联网并产生
 新的 PNG result pack。原有 v0.6 `video_remix.py` 路径仍完全离线。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。唯一例外是 v0.7 独立 OpenAI controller：仅在批准的固定计划、预检和三重 run 确认后上传被任务批准的参考**图片**。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.7.1-alpha 补充一条不需要 `OPENAI_API_KEY` 的 Codex 内置 ImageGen
+人工控制器路线。该路线必须在新的 `controller-cloud` +
+`controller-managed` Plan 中固定 `codex-builtin-imagegen` / `2026-08-24`，
+并在 Request 与 Plan Review 双重确认云上传；每个生成槽位只上传该任务批准的
+参考图片，结果仍逐槽审核并进入 v0.5 冻结与最终成片验收。它不是本地
+file-drop，也不等同于 v0.7 的 API controller。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 

@@ -1,6 +1,6 @@
 # QA gates
 
-## 0.7.0-alpha coverage
+## 0.7.1-alpha coverage
 
 The bundled local CLI retains the v0.4 reference Proposal/Review/freeze-plan
 path, v0.5 strict asset-pack proposal/freeze, and adds a v0.6 external-
@@ -20,12 +20,38 @@ rights, and any controller-cloud consent. Gates 3, 4, and 6 still require an
 agent or human review before claiming those properties, timing intent, or
 complete removal of platform elements.
 
-`video_remix.py` remains the fully offline v0.6 path. v0.7 adds only the
-separate explicit `openai_image_controller.py` controller, which can make
+`video_remix.py` remains the fully offline v0.6 path. v0.7 adds the
+separate explicit `openai_image_controller.py` API controller, which can make
 approved OpenAI API image requests after preflight and three fresh run-time
 confirmations. It is not part of `video_remix`, does not turn a v0.6 cloud
 declaration into generic upload authority, and does not replace either human
 review.
+
+v0.7.1 also permits a distinct, manually orchestrated Codex built-in ImageGen
+handoff after an approved cloud plan. It needs no API key, is not a CLI
+subcommand, and does not weaken the upload, result-review, asset-freeze, or
+visual-acceptance gates.
+
+## P0 — v0.7.1 Codex built-in ImageGen handoff
+
+- Request and approved Plan Review declare only `controller-cloud` +
+  `controller-managed`, `adapter_id: codex-builtin-imagegen`,
+  `adapter_version: 2026-08-24`, a bounded controller label, and
+  `cloud_upload_confirmed: true`.
+- Each built-in generation call receives only the approved reference images for
+  one accepted generated task. Never send video, audio, packets, unrelated pack
+  entries, rejected candidates, or credentials.
+- No `OPENAI_API_KEY` is requested, read, logged, or stored. Do not report API
+  billing/account/project facts for this route; built-in generation consumes
+  the active Codex product's usage limits.
+- Output is copied to a new result pack under the exact target-slot filename.
+  No automatic retry, silent overwrite, or self-approval is allowed.
+- The current primary model inspects every result for identity, pose, garment,
+  product, background, hands, anatomy, text/logo, and prohibited overlays before
+  approving the bound result review.
+- The unchanged generation result proposal/review, assembly, v0.5 asset
+  proposal/review/freeze, render, technical QA, and full-playback review all
+  remain mandatory.
 
 ## P0 — v0.7 OpenAI GPT Image 2 controller
 
@@ -251,7 +277,7 @@ explicit check before relying on any of those conditions.
 ## Gate 6 — prohibited overlay removal
 
 Use known UI-region checks, contact sheets, the geometry/timing proposal
-artifacts, and a human full-playback review. The bundled `0.7.0-alpha` Skill
+artifacts, and a human full-playback review. The bundled `0.7.1-alpha` Skill
 does not include OCR or automatic platform-UI semantic detection. Require no
 residual platform logo, account text, comments, engagement rail,
 status/navigation bars, or visible reconstruction smear. This remains a

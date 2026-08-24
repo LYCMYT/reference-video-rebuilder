@@ -1,0 +1,397 @@
+{
+  "schema_version": "0.6.0",
+  "privacy_profile": "controller-cloud",
+  "execution_profile": "controller-managed",
+  "adapter_id": "codex-builtin-imagegen",
+  "adapter_version": "2026-08-24",
+  "controller_label": "Codex built-in ImageGen",
+  "cloud_upload_confirmed": true,
+  "tasks": [
+    {
+      "target_slot_id": "audio",
+      "kind": "reference-guided-still",
+      "references": [
+        {
+          "source_filename": "audio.mka",
+          "role": "audio"
+        }
+      ],
+      "instructions": "Preserve the approved local soundtrack exactly as a passthrough asset.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "model.identity",
+      "kind": "reference-guided-still",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        }
+      ],
+      "instructions": "Preserve the approved model identity reference as a local passthrough asset.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.01",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.01.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 01 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.02",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.02.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 02 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.03",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.03.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 03 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.04",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.04.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 04 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.05",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.05.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 05 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.06",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.06.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 06 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.07",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.07.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 07 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.08",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.08.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 08 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.09",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.09.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 09 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.10",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.10.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 10 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.11",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.11.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 11 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "outfit.12",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "product.12.png",
+          "role": "garment"
+        }
+      ],
+      "instructions": "Create a render-ready full-body still using the approved model identity, fixed pose, clean white background, and garment 12 visual design.",
+      "passthrough": false,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.01",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.01.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 01 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.02",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.02.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 02 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.03",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.03.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 03 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.04",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.04.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 04 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.05",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.05.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 05 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.06",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.06.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 06 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.07",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.07.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 07 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.08",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.08.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 08 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.09",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.09.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 09 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.10",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.10.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 10 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.11",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.11.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 11 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    },
+    {
+      "target_slot_id": "product.12",
+      "kind": "product-still",
+      "references": [
+        {
+          "source_filename": "product.12.png",
+          "role": "product"
+        }
+      ],
+      "instructions": "Preserve product 12 as the approved carousel still.",
+      "passthrough": true,
+      "omit": false
+    }
+  ]
+}

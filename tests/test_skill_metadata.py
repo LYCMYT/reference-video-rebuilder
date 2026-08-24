@@ -1,3 +1,4 @@
+import json
 import re
 import unittest
 from pathlib import Path
@@ -34,6 +35,23 @@ class SkillMetadataTests(unittest.TestCase):
             ".rrv-openai-generation-*/",
         ):
             self.assertIn(pattern, text)
+
+    def test_codex_builtin_imagegen_example_is_cloud_managed_and_keyless(self):
+        example = SKILL_ROOT / "assets" / "project-template" / "generation.request.codex-builtin.example.json"
+        data = json.loads(example.read_text(encoding="utf-8"))
+        self.assertEqual(data["privacy_profile"], "controller-cloud")
+        self.assertEqual(data["execution_profile"], "controller-managed")
+        self.assertEqual(data["adapter_id"], "codex-builtin-imagegen")
+        self.assertEqual(data["adapter_version"], "2026-08-24")
+        self.assertIs(data["cloud_upload_confirmed"], True)
+        expected_slots = {"audio", "model.identity"}
+        expected_slots.update(f"outfit.{index:02d}" for index in range(1, 13))
+        expected_slots.update(f"product.{index:02d}" for index in range(1, 13))
+        self.assertEqual({task["target_slot_id"] for task in data["tasks"]}, expected_slots)
+        self.assertEqual(sum(not task["passthrough"] for task in data["tasks"]), 12)
+        serialized = json.dumps(data, sort_keys=True).lower()
+        self.assertNotIn("api_key", serialized)
+        self.assertNotIn("openai_api_key", serialized)
 
 
 if __name__ == "__main__":

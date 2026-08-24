@@ -1,11 +1,13 @@
-# v0.6 controller policy and v0.7 OpenAI adapter policy
+# v0.6 controller policy, v0.7 OpenAI API policy, and v0.7.1 Codex ImageGen policy
 
 ## Scope
 
 The v0.6 `video_remix.py` CLI records an execution declaration and verifies
-local files around it. It does not call an adapter. The v0.7 standalone
-`openai_image_controller.py` is the sole approved networking adapter and has a
-separate, explicit contract below. Do not describe either surface as a bundled
+local files around it. It does not call an adapter. Two distinct reviewed cloud
+surfaces may create result files: the v0.7 standalone API controller and the
+v0.7.1 manually orchestrated Codex built-in ImageGen handoff. Do not conflate
+their credentials, quotas, billing, or execution contracts, and do not describe
+either surface as a bundled
 virtual try-on, video-generation, CUDA, or automatic controller router.
 
 Use the Generation Request/Plan `execution_profile` for one of two values only:
@@ -102,6 +104,23 @@ an adapter changes scope, or visual evidence conflicts with a passing media
 check. The external controller must not silently switch `adapter_id`,
 `adapter_version`, `controller_label`, route, privacy profile, or result
 semantics after plan approval.
+
+## v0.7.1 Codex built-in ImageGen handoff
+
+Use only the exact approved declaration
+`controller-managed` + `controller-cloud` +
+`codex-builtin-imagegen` / `2026-08-24`, with a bounded controller label and
+`cloud_upload_confirmed: true` in the Request and approved Plan Review. This
+route uses the active Codex product's built-in image-generation capability and
+requires no `OPENAI_API_KEY`; it is not eligible for
+`openai_image_controller.py` preflight or run.
+
+Invoke one generation per approved target slot and include only that task's
+approved reference images. Never upload video, audio, packets, other pack files,
+or rejected candidates. Do not infer API billing, organization, project, request
+IDs, or retention behavior from the Codex session. Selected images still enter
+the normal v0.6 result review and v0.5 asset freeze, and any retry uses a new
+result pack/review cycle.
 
 ## v0.7 OpenAI GPT Image 2 controller
 
