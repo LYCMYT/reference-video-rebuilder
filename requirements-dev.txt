@@ -1,2 +1,2 @@
--r skills/reference-video-rebuilder/requirements-runtime.txt
+-r skills/reference-video-rebuilder/requirements-openai-controller.txt
 PyYAML>=6,<7

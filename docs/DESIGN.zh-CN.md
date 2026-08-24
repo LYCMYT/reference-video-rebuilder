@@ -1,6 +1,6 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.6.0-alpha（在 0.5.0-alpha 基础上的增量）
+版本：0.7.0-alpha（在 0.6.0-alpha 基础上的增量）
 日期：2026-08-24
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
@@ -12,13 +12,19 @@ asset-pack 路径：对已验证 Template IR 执行 propose-assets，人工审�
 映射，再以 freeze-assets 发布可渲染的本地冻结资产。
 
 0.6.0-alpha 在不内置生成模型的前提下增加“外部生成资产桥”：
-prepare-generation 生成待审计划，外部 Codex ImageGen/用户自有本地 CUDA
-工作流仅以 file-drop 方式把结果写入新 result pack，随后执行逐槽 result
-review 和 assemble-generation-pack，最后仍必须进入 v0.5 的
-propose-assets -> review -> freeze-assets。CLI 不运行模型、任意 shell、CUDA
-任务、网络请求、上传或权重下载；它只记录受限执行声明并处理本地文件。
+prepare-generation 生成待审计划，外部控制器/用户自有本地 CUDA 工作流仅以
+file-drop 方式把结果写入新 result pack，随后执行逐槽 result review 和
+assemble-generation-pack，最后仍必须进入 v0.5 的 propose-assets -> review ->
+freeze-assets。`video_remix.py` 不运行模型、任意 shell、CUDA 任务、网络请求、
+上传或权重下载；它只记录受限执行声明并处理本地文件。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现、没有 CLI 内置的云端执行或素材/换装资产生成。propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素；它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 CLI 从不上传。本文后文出现的 OCR、检测、生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.7.0-alpha 新增一个**独立、显式联网**的
+`scripts/openai_image_controller.py`。它不是 `video_remix.py` 的子命令，只对已
+批准的 `controller-cloud` + `controller-managed` Plan 执行固定的 OpenAI GPT
+Image 2 请求；preflight 永不联网、永不写入，run 才在三重显式确认下联网并产生
+新的 PNG result pack。原有 v0.6 `video_remix.py` 路径仍完全离线。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。唯一例外是 v0.7 独立 OpenAI controller：仅在批准的固定计划、预检和三重 run 确认后上传被任务批准的参考**图片**。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -48,6 +54,7 @@ propose-assets -> review -> freeze-assets。CLI 不运行模型、任意 shell�
 24. [最终决策](#24-最终决策)
 25. [v0.5 严格本地资产包增量](#25-v05-严格本地资产包增量)
 26. [v0.6 外部生成资产桥](#26-v06-外部生成资产桥)
+27. [v0.7 OpenAI GPT Image 2 独立控制器](#27-v07-openai-gpt-image-2-独立控制器)
 
 ## 1. 执行摘要
 
@@ -133,8 +140,12 @@ Compile 模式的产物必须是可重复使用的模板，而不是一次性脚
 
 当前流程：已提供 render-ready 素材走 v0.5 的显式映射/冻结；尚未 render-ready
 的静态素材可先走 v0.6 的 Generation Request -> Plan Review -> 外部 file-drop/
-controller -> Result Review -> media-only assembly，再进入 v0.5 冻结。CLI 内的
-素材生成、云端 adapter、CUDA、shell 和上传仍不是当前路径。
+controller -> Result Review -> media-only assembly，再进入 v0.5 冻结。对于被
+严格批准为 `controller-cloud` + `controller-managed`、并固定到
+`openai-gpt-image-2` / `2026-04-21` 的 Plan，v0.7 可在 Plan Review 后调用
+独立 OpenAI controller 的 preflight -> run，生成同样的 result pack。除这个
+独立控制器外，`video_remix.py` 内的素材生成、云端 adapter、CUDA、shell 和上传
+仍不是当前路径。
 
 Remix 模式的验收要求是：更换第二组完整素材时不修改程序，只修改资产和映射文件即可生成。
 
@@ -405,7 +416,10 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 4. 对 v0.6 外部执行声明确定 `local-file-drop` 或 `controller-managed`，并
    记录 `local-only` 或 `controller-cloud`；后者必须在 Request 和 Plan Review
    中都设置 `cloud_upload_confirmed=true`，但 CLI 不上传任何文件。
-5. 建立项目隔离目录。源与证据留在本地，工件路径不得逃逸 project-root。
+5. 若将运行 v0.7 OpenAI controller，额外核对已批准 Plan 的执行/隐私配置、
+   固定 adapter id/version、已接受任务的参考图片集合和不超过 32 的计费请求上限；
+   先运行不联网、不写入的 preflight。
+6. 建立项目隔离目录。源与证据留在本地，工件路径不得逃逸 project-root。
 
 ### 8.2 Propose
 
@@ -471,22 +485,29 @@ compiler 或 Template IR 合同。
 3. 若选 `controller-cloud`，Request 和 Plan Review 都必须显式
    `cloud_upload_confirmed=true`；普通 rights flag、控制器名称或 passing schema
    都不是上传同意。CLI 仍不上传；
-4. 已批准后，外部 Codex ImageGen 控制器或用户自有本地 CUDA 工具在 CLI 外创建
+4. 已批准后，用户可让外部控制器或本地 CUDA 工具在 `video_remix.py` 外创建
    静态结果，写进一个新的 direct-child result pack。每个非 passthrough/非 omit
    target slot 恰有一张静态图片；audio 不属于 result pack；不得改写 plan；
-5. 用 `propose-generation-results` 建立逐槽 result proposal、待审 result
+5. v0.7 的 OpenAI 分支只接受 `controller-cloud` + `controller-managed`、
+   `openai-gpt-image-2` / `2026-04-21` 的已批准 Plan。先运行独立 controller 的
+   离线只读 preflight；仅在 rights、cloud upload、billable request 三项重新显式
+   确认且 `max-billable-requests <= 32` 时运行。它只上传已接受任务的参考图片，
+   固定使用 `gpt-image-2-2026-04-21` / high / 1024x1536 / PNG / opaque / auto，
+   不传 `input_fidelity`，不自动重试；
+6. 用 `propose-generation-results` 建立逐槽 result proposal、待审 result
    review 与结果联系表；拒绝槽位必须进入新 result pack/proposal/review，而不是
    覆盖已批准图；
-6. 两份 Review 通过后执行 `assemble-generation-pack`。静态图按 EXIF 方向转正、
+7. 两份 Review 通过后执行 `assemble-generation-pack`。静态图按 EXIF 方向转正、
    去 metadata 重编码为 PNG；仅允许从 reference pack 的已批准 audio
    passthrough 原样透传；输出仅含 exact-slot 媒体且无
    JSON、prompt、报告或 sidecar；
-7. 组装包仍必须进入 v0.5 `propose-assets -> asset review -> freeze-assets`，
+8. 组装包仍必须进入 v0.5 `propose-assets -> asset review -> freeze-assets`，
    才能作为 renderer 的冻结资产。
 
-该流程不是虚拟试衣/受控图像生成/背景补全的内置 adapter。CLI 不调用这些模型、
-不调用任意 shell、不自动发现 CUDA、不下载权重、不持有 provider 凭据，也不作
-任何网络请求。
+该流程不是虚拟试衣/受控图像生成/背景补全的内置 adapter。`video_remix.py` 不调用
+这些模型、不调用任意 shell、不自动发现 CUDA、不下载权重、不持有 provider 凭据，
+也不作任何网络请求。只有独立 v0.7 controller 会在批准后的 run 中调用固定 OpenAI
+API；它只在运行时读取 `OPENAI_API_KEY`，绝不把密钥放进参数、日志或项目工件。
 
 ### 8.8 Review looks
 
@@ -545,14 +566,20 @@ prepare_background(input, geometry, policy) -> background_asset
 modify_video(segment, references, policy) -> video_asset
 ```
 
-v0.6 不实现或调用上述接口。它只实现 Generation Request/Plan/Result 的本地
+v0.6 不实现或调用上述接口。`video_remix.py` 只实现 Generation Request/Plan/Result 的本地
 合同：允许 `local-file-drop` 或 `controller-managed`，并记录受限
 `adapter_id`、`adapter_version` 和 controller-managed 的 `controller_label`。
 这些字符串不能包含路径、URL 或凭据。隐私仅可标记 `local-only` 或
 `controller-cloud`；云端情形在 Request 与 Plan Review 都必须
-`cloud_upload_confirmed=true`。CLI 不执行 adapter、CUDA、shell、下载或网络；
-真实外部控制器的许可证、成本、GPU、保留期、模型版本和可重复性仍需由主模型/
-人工在审查中判断。
+`cloud_upload_confirmed=true`。`video_remix.py` 不执行 adapter、CUDA、shell、
+下载或网络。
+
+v0.7 只实现一个独立的 provider-specific adapter：
+`openai_image_controller.py`。它不扩展上述长期接口，不自动路由，也不改变 v0.6
+合同；它只接受批准的 `controller-cloud` + `controller-managed`、
+`openai-gpt-image-2` / `2026-04-21` Plan，并以固定请求和三重确认产生 PNG
+result pack。真实控制器的许可证、成本、保留期、模型版本、人物/商品一致性和
+可重复性仍需由主模型/人工审查。
 
 ### 9.5 `render-compiler`
 
@@ -585,7 +612,8 @@ NEW
 
 ## 10. 命令行和工具接口
 
-当前产品/CLI 版本为 `0.6.0-alpha`，并保留下列在 v0.4 引入的稳定 JSON
+当前 Skill/工作流版本为 `0.7.0-alpha`，其中 `video_remix.py` 保持
+`0.6.0-alpha` 的本地 CLI 合同，并保留下列在 v0.4 引入的稳定 JSON
 参考计划命令；Codex 不应依赖自然语言日志。参考 Proposal schema 为
 `0.4.0`，Frozen Compiler Plan schema 保持 `0.3.0`，编译输出的 Template IR
 schema 保持 `0.2.0`。v0.5 的资产命令和 schema 版本见第 25 节：
@@ -614,6 +642,22 @@ video-remix render <template.ir.json> <assets.json> --project-root <project-dir>
 video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
 
+v0.7 的联网控制器是**独立脚本**，不是 `video-remix` 子命令：
+
+```text
+python scripts/openai_image_controller.py preflight <generation-plan.json> <generation-plan-review.json> --project-root <project-dir> --generation-rights-confirmed [--ffprobe <path>] [--timeout-seconds <seconds>] [--json]
+python scripts/openai_image_controller.py run <generation-plan.json> <generation-plan-review.json> --project-root <project-dir> --output-dir <new-direct-child> --generation-rights-confirmed --cloud-upload-confirmed --billable-requests-confirmed --max-billable-requests <1..32> [--ffprobe <path>] [--timeout-seconds <seconds>] [--json]
+```
+
+`preflight` 只能读取本地 Plan/Review 并返回安全、稳定的
+`schema_version`、`operation`、`approved`、`adapter` 和
+`counts.generation_tasks`/`counts.approved_references`；没有网络调用、API key
+检查、staging 或任何写入。`run` 只在三项 flag 都存在时读取运行时
+`OPENAI_API_KEY`，输出安全摘要中的 `output_dir`、task/计费/asset counts 和
+每个 PNG 的 slot/path/hash/media type；密钥绝不进入 CLI 参数或结果字段。
+`--max-billable-requests` 必须为 1–32 并覆盖所有批准生成任务；失败时不得发布
+result pack。
+
 v0.4 的 `propose` 与 `freeze-plan` 要求 `--output-dir` 是
 `project-root` 下一个尚不存在的一级子目录名称，例如 `proposal` 或
 `frozen-plan`。绝对路径、嵌套路径、`.`、`..` 和已存在目标会在媒体处理或
@@ -638,10 +682,12 @@ Alpha 通用规则：
 - Proposal 仅可包含 SHA-256、width、height、精确 frame_count、fps 和 has_audio 这组安全技术 source fingerprint；不得包含源文件名/绝对路径、工具路径、容器 tags、title、artist、comments、账号身份、raw probe 或原始证据；
 - `render` 写入任何帧前必须完成模板与文件资产校验，之后必须对每个输出执行 QA；
 - 禁止 shell 字符串拼接执行 FFmpeg，使用参数数组；
-- 不自动发现任意视频 family 或分类语义槽位、不执行 OCR、不在 CLI 内生成换装
-  资产、不执行任意 shell/CUDA/模型/权重下载/网络上传，也不把技术解码 QA 误称
-  为视觉/权利验收。v0.6 仅可记录并审核外部执行声明；`controller-cloud` 必须在
-  Request 与 Plan Review 都 `cloud_upload_confirmed=true`，CLI 自身仍离线。
+- 不自动发现任意视频 family 或分类语义槽位、不执行 OCR、不在 `video_remix.py`
+  内生成换装资产、不执行任意 shell/CUDA/模型/权重下载/网络上传，也不把技术解码
+  QA 误称为视觉/权利验收。v0.6 仅可记录并审核外部执行声明；
+  `controller-cloud` 必须在 Request 与 Plan Review 都
+  `cloud_upload_confirmed=true`，`video_remix.py` 自身仍离线。v0.7 独立
+  OpenAI controller 是唯一受限联网例外，且不能被当作通用云端 adapter。
 
 propose 只能产生最大居中 9:16 source crop、carousel、subject、slot_count、timing、比例布局和背景色等待审候选。它不是 platform chrome/UI 检测或移除器；chrome、非居中内容、非均匀裁剪和语义/时序歧义必须由审核者更正。
 
@@ -751,6 +797,31 @@ v0.6 在 v0.5 资产冻结之前增加以下 P0：
   prompt、报告、sidecar、凭据和其他未知
   文件；之后仍要通过 v0.5 `propose-assets -> review -> freeze-assets`。
 
+### 13.0.7 OpenAI GPT Image 2 独立控制器
+
+v0.7 在 v0.6 Plan Review 之后增加以下 P0：
+
+- 仅接受已批准且精确 hash-bound 的 `controller-cloud` +
+  `controller-managed` Plan，`adapter_id`/`adapter_version` 必须准确为
+  `openai-gpt-image-2` / `2026-04-21`；Request 和已批准 Plan Review 都必须
+  `cloud_upload_confirmed=true`；
+- preflight 必须在任意网络、API key 检查、staging 和输出目录创建之前运行，且
+  永远只读、离线、零写入；
+- run 必须重复确认 generation rights，并同时显式确认 cloud upload 和 billable
+  requests；`max-billable-requests` 为 1–32 的整数，覆盖所有批准 task；无默认
+  计费数、无超过上限、无自动 retry 或 fallback；
+- 运行时仅从 `OPENAI_API_KEY` 读取凭据。不得提供 key flag/JSON/config，不得在
+  参数、stdout、日志、contact sheet、Plan/Review、result pack、Git 或测试数据中
+  记录它；不得声称 Codex 内置图像工具与此 key、账户或计费相同；
+- 每个 provider request 固定为 `gpt-image-2-2026-04-21`、high、1024x1536、PNG、
+  opaque、moderation auto；必须省略 `input_fidelity`；
+- 仅上传已接受、已审核 task 列出的参考**图片**。原视频、音频、Plan/Review、任意
+  pack 文件、未批准 reference/result 和凭据均不得上传；
+- 成功时原子发布新的 direct-child result pack，且只包含无 metadata 的
+  `<target_slot_id>.png`。任意 API、响应、转换或发布错误均不发布部分 pack；
+- GPT Image 的多参考图和高保真输入处理不等于身份连续、服装/商品/Logo/文字正确或
+  精确构图。所有结果仍必须经过 v0.6 Result Review 和 v0.5 asset freeze。
+
 ### 13.1 结构和媒体
 
 - 文件可解码；
@@ -799,6 +870,9 @@ v0.6 在 v0.5 资产冻结之前增加以下 P0：
 - Generation Plan 与 Generation Result Proposal 各自的强制 Review 停止；
 - `controller-cloud` 的 Request/Plan Review 双重
   `cloud_upload_confirmed=true`；
+- v0.7 OpenAI controller 的离线、零写入 preflight；
+- v0.7 run 的 rights / cloud upload / billable requests 三重显式确认、
+  1–32 计费上限与无自动 retry；
 - freeze-plan 无部分写入失败门；
 - 不支持等级确认；
 - 低置信度槽位确认；
@@ -810,16 +884,22 @@ v0.6 在 v0.5 资产冻结之前增加以下 P0：
 proposal/review，不能改写 approved plan/result。Proposal 中的 chrome、非居中
 构图、非均匀裁剪、语义或时序歧义必须回到 Review 修正，不得自动接受或切换
 执行模式/隐私配置。遇到资源不足时停止并报告本地依赖或资源问题；不得静默换
-模型、上传媒体或改变冻结计划。
+模型、上传媒体或改变冻结计划。v0.7 的 API 失败、额度/限流/审核失败或 PNG
+规范化失败同样停止且不发布 result pack；任何人为决定的重试都必须重新显式确认，
+不能由 controller 自动发出。
 
 ## 15. 隐私、安全与权利
 
 - 默认本地项目隔离和最小路径白名单；
 - 不读取任务范围外文件；
 - 不在日志中输出人脸图、访问令牌或完整私人路径；
-- CLI 没有云端 adapter、上传路径、provider SDK 或凭据处理；v0.6 仅可在
-  Request/Plan Review 均 `cloud_upload_confirmed=true` 时记录外部
-  `controller-managed` 云端执行声明，仍不代表 CLI 上传或验证控制器行为；
+- `video_remix.py` 没有云端 adapter、上传路径、provider SDK 或凭据处理；v0.6
+  仅可在 Request/Plan Review 均 `cloud_upload_confirmed=true` 时记录外部
+  `controller-managed` 云端执行声明，仍不代表该本地 CLI 上传或验证控制器行为；
+- v0.7 的独立 OpenAI controller 是唯一受限联网例外：只对严格批准 task 上传
+  reference images，只在 run 从 `OPENAI_API_KEY` 读取秘密，且不将 key 写入参数、
+  日志、JSON、联系表或工件。不得把 Codex 内置功能的凭据或计费关系与此 API key
+  混为一谈；
 - 不记录或输出源文件名、完整私人路径、源 tags、账号身份或原始 probe；
 - 不把源视频、用户模特、服装、音乐、Generation Request、raw prompt、
   reference/result pack 或控制器凭据提交 Git；
@@ -879,6 +959,10 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - `controller-cloud`：仅是经 Request 与 Plan Review 双重
   `cloud_upload_confirmed=true` 后的外部控制器声明，不是当前 CLI 的上传、API 或
   provider runtime 路径；
+- `openai-gpt-image-2`：v0.7 的独立、显式联网 controller；仅允许经过批准的
+  `controller-cloud` + `controller-managed` Plan，先离线 preflight，run 再以
+  `OPENAI_API_KEY`、三重确认和最多 32 个计费请求调用固定 API。它不改变
+  `video_remix.py` 的离线属性；
 - `gpu-worker`：可由用户自有 NVIDIA 工作站在 CLI 外执行，并将结果作为新的
   result pack 交回；CLI 不发现 GPU、不下载权重、不运行 worker。
 
@@ -918,6 +1002,27 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - assembled pack 必须能进入既有 v0.5 propose-assets/review/freeze-assets，且
   仍会因不正确的 exact mapping 或未审核资产而被拒绝；
 - 在不含任何模型、shell、网络或权重的干净环境中运行全部 bridge 测试。
+
+### 18.0.7 v0.7 OpenAI controller 回归
+
+新增回归必须覆盖：
+
+- 不符合 `controller-cloud` / `controller-managed` /
+  `openai-gpt-image-2` / `2026-04-21` 固定声明、未批准 Review、hash drift、未接受
+  task、无 cloud consent 和路径逃逸均在联网前拒绝；
+- preflight 不读取/验证 key、不调用 HTTP、不开 staging、不创建目录或文件，且只输出
+  安全的 approval/task/reference counts；
+- run 缺少任一 rights/cloud/billable confirmation、`max-billable-requests` 非
+  1–32、上限不足或请求数超限都在 API 调用前拒绝；
+- `OPENAI_API_KEY` 是唯一可用秘密来源，key 不可作为 flag/配置/packet，且成功、
+  失败和异常 JSON 中均无秘密；不假设 Codex in-app 凭据可用；
+- mock 的 provider request 严格为 `gpt-image-2-2026-04-21`、high、1024x1536、
+  PNG、opaque、moderation auto，明确缺少 `input_fidelity`，没有 partial image 或
+  自动 retry；
+- 只传送 accepted task 的 image references，拒绝 video/audio/未批准/任意 pack
+  文件；
+- 成功输出 exact-slot、metadata-free PNG-only 的新 result pack；API/返回字节/PNG
+  规范化/发布错误零部分输出，随后可进入现有 v0.6/v0.5 handoff。
 
 ### 18.1 单元测试
 
@@ -1008,6 +1113,19 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
   透传、纯媒体
   exact-slot 输出，并强制回到 v0.5 资产审核和冻结；
 - 不内置模型、虚拟试衣、CUDA、shell、网络、上传、权重下载或 provider SDK。
+
+### Phase 3.6：显式 OpenAI GPT Image 2 控制器（v0.7，已实现）
+
+- 新增独立 `openai_image_controller.py`，不会改写 `video_remix.py` 的 v0.6
+  离线合同；
+- 仅接受已批准的 `controller-cloud` + `controller-managed`、
+  `openai-gpt-image-2` / `2026-04-21` Generation Plan/Review；
+- preflight 零网络、零写入；run 需要 rights、cloud upload、billable requests
+  三重显式确认及 1–32 请求 cap；
+- 固定 `gpt-image-2-2026-04-21`、high、1024x1536、PNG、opaque、auto，不传
+  `input_fidelity`、不自动 retry；只上传 accepted task 的 reference images；
+- 成功只发布 metadata-free PNG result pack，任何失败零发布，且仍必须走 v0.6
+  Result Review 与 v0.5 freeze。
 
 ### Phase 4：S1 通用模板族
 
@@ -1189,6 +1307,21 @@ FFmpeg、Remotion、本地 OpenCV 和编码本身不消耗 Codex Token。
   重编码，reference pack 的 audio passthrough 透传；随后仍强制走 v0.5
   propose-assets/review/freeze-assets。
 
+### 0.7.0-alpha
+
+- 新增独立 `openai_image_controller.py preflight/run`；`video_remix.py` 及其
+  v0.6 Generation bridge 保持完全离线；
+- 只接受已批准的 `controller-cloud` + `controller-managed` Plan，且
+  `adapter_id=openai-gpt-image-2`、`adapter_version=2026-04-21`；
+- preflight 无网络、无写入；run 只在 rights/cloud upload/billable requests
+  三重确认、1–32 cap 和 `OPENAI_API_KEY` 存在时调用 OpenAI API；
+- 每请求固定 `gpt-image-2-2026-04-21`、high、1024x1536、PNG、opaque、auto，
+  无 `input_fidelity`、无自动 retry；只上传 accepted task 的 reference images；
+- 原子输出 metadata-free PNG-only result pack，失败零发布；人工继续审核人物、
+  服装、商品、Logo、背景与精确构图，再进入 v0.6/v0.5 handoff；
+- 文档记录当前 high/1024x1536 $0.165/张输出基准与输入成本、价格变动提示和官方
+  链接，但不把 Codex 内置图像功能与 API key/计费混同。
+
 ### 1.0.0
 
 - 定义清楚的 S1 支持域；
@@ -1369,8 +1502,9 @@ CUDA 工具制作 render-ready 静态图”时的可审计交接，而不是把�
 Skill。它保持三件事分离：
 
 - **控制平面**：Generation Request、Plan、两份 Review、哈希和同意记录；
-- **外部执行平面**：Codex ImageGen 控制器、用户自有 CUDA 工作站或其他已批准
-  工具；这些在 CLI 外运行；
+- **外部执行平面**：独立外部控制器、用户自有 CUDA 工作站或其他已批准工具；这些
+  在 `video_remix.py` 外运行。v0.7 OpenAI controller 是其中唯一随 Skill 提供的
+  显式网络入口，但不等同于 Codex 内置图像功能；
 - **确定性渲染平面**：v0.5 资产冻结与既有 Template IR/renderer。
 
 因此“可以让外部控制器产出换装图”不等于“CLI 已经内置虚拟试衣”。一份通过的
@@ -1508,3 +1642,111 @@ v0.6 的完成标准是：一条已审核 Template IR 可以从用户提供的�
 并先冻结：许可证/权重来源、安装与哈希、GPU 资源、网络与密钥隔离、最小上传、
 删除/保留、种子/版本、故障恢复、独立评测集、身份/服装/Logo 指标及人工验收。
 在这些条件具备前，保持 v0.6 的 file-drop/controller bridge 边界。
+
+## 27. v0.7 OpenAI GPT Image 2 独立控制器
+
+### 27.1 定位与不变量
+
+v0.7 不是把网络能力塞进 `video_remix.py`，而是在
+`scripts/openai_image_controller.py` 中提供一个独立、显式、最小化的 OpenAI API
+入口。它只将一份已审核 v0.6 Generation Plan 的 accepted task 变成新的本地 result
+pack，随后仍走既有 Result Review、assembly、asset review 和 freeze。状态机为：
+
+```text
+approved Generation Plan + approved Plan Review
+  -> offline/read-only preflight
+  -> human approves rights + upload + bounded spend
+  -> explicit OpenAI controller run
+  -> atomic PNG-only result pack or no publication
+  -> v0.6 Result Review -> assembly -> v0.5 freeze -> render
+```
+
+它不是 `video-remix` 子命令、通用 provider router、虚拟试衣保证、视频生成器或
+Codex 内置图像工具的别名。`video_remix.py` 的 v0.6 路径仍不联网、不读取 API key、
+不上传、不执行模型。不要假设 Codex 的内置图像功能（如运行环境提供）与此 controller
+共用 `OPENAI_API_KEY`、身份、组织、额度或计费。
+
+### 27.2 计划资格和固定请求
+
+控制器在任何 I/O 前拒绝除下表外的执行声明：
+
+| Plan 字段 | 唯一允许值 |
+| --- | --- |
+| `privacy_profile` | `controller-cloud` |
+| `execution_profile` | `controller-managed` |
+| `adapter_id` | `openai-gpt-image-2` |
+| `adapter_version` | `2026-04-21` |
+| Request/approved Plan Review | `cloud_upload_confirmed: true` |
+
+Plan/Review 必须 hash-bound、Review 为 approved、任务为 accepted，且引用集合、模板和
+inventory 未漂移。`local-only`、`local-file-drop`、pending/rejected Review、错误
+adapter/version 或任何未审核任务均不能进入控制器。
+
+每个允许的 provider request 都固定为：
+
+```text
+model=gpt-image-2-2026-04-21
+quality=high
+size=1024x1536
+output_format=png
+background=opaque
+moderation=auto
+input_fidelity=<omitted>
+```
+
+不允许 caller 覆盖、seed、第二模型、mask、partial images、提示附加或自动 retry。
+OpenAI 文档说明 `gpt-image-2` 对输入图像自动使用高保真处理，因此本控制器必须省略
+`input_fidelity`，而不是伪造一个“高保真开关”。
+
+### 27.3 两阶段命令和确认
+
+先执行只读 preflight：
+
+```text
+python scripts/openai_image_controller.py preflight <plan> <plan-review> --project-root <root> --generation-rights-confirmed [--ffprobe <path>] [--timeout-seconds <seconds>] [--json]
+```
+
+它绝不联网、绝不创建目录或文件、绝不读取/验证 key。安全摘要仅包含
+`schema_version`、`operation`、`approved`、`adapter.{id,version}` 与
+`counts.{generation_tasks,approved_references}`。preflight 通过不是授权或计费动作。
+
+人工审阅数量、上传范围和成本后，才执行：
+
+```text
+python scripts/openai_image_controller.py run <plan> <plan-review> --project-root <root> --output-dir <new-direct-child> --generation-rights-confirmed --cloud-upload-confirmed --billable-requests-confirmed --max-billable-requests <1..32> [--ffprobe <path>] [--timeout-seconds <seconds>] [--json]
+```
+
+三个 confirmation 缺一不可：处理权利、云端上传同意、以及本次可能计费的请求数。
+请求上限是 1–32 的整数并覆盖所有 accepted generation task。控制器没有隐式默认值、
+没有超过 cap 的分批、没有自动重试、没有 fallback；API/审核/PNG 错误只会停止，下一次
+尝试必须由人重新决定。多任务 run 即使因后续任务失败而没有发布结果包，已经发出的
+前序请求仍可能计费；任何重跑都必须重新完成三项显式确认。
+
+### 27.4 数据、密钥和发布边界
+
+run 只从进程环境读取 `OPENAI_API_KEY`。不得支持 key flag、key JSON/config 字段、
+备用环境变量或把密钥回显到 stdout/stderr、日志、prompt、Plan、Review、contact sheet、
+result pack 或 Git。缺失 key 必须在 API 请求前失败；其存在也不能证明 Codex 或人工
+审批身份。
+
+控制器仅上传 accepted task 所列的参考**图片**。绝不上传参考视频、音频、Plan/Review、
+任何未批准 task/reference/result、任意 pack 文件或其他项目数据。成功后输出目录是
+新的 project-root 一级子目录，且只含无 metadata 的
+`<target_slot_id>.png`；不含 JSON、source copy、prompt、日志、credential、audio、
+sidecar 或 nested content。任一网络、解码、metadata stripping、PNG 规范化、path 或
+发布错误均不得留下可见 result pack。run 的公开安全摘要只列 output dir、counts 和每个
+output 的 slot/relative path/SHA-256/media type。
+
+### 27.5 能力、人工验收和费用
+
+OpenAI API 可把一张或多张图用作参考，GPT Image 2 也自动高保真处理输入，但这不等于
+跨图人物一致性、服装纹理/Logo/文字正确、手部无 artifact 或精确构图。官方也列出
+人物/品牌一致性和 layout-sensitive composition 的局限。所有 PNG 都必须由
+controller_current 和人工审查身份、姿态、服装/商品/Logo、文字、背景、手部和构图，
+不得以“high fidelity”替代 Result Review。
+
+官方 [Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+当前列出 GPT Image 2 的 high 1024x1536 输出约 $0.165/张；文本/图片输入 token 另计，
+32 张的输出基准约 $5.28 加输入成本。价格、配额和可用性会变化，批准 run 前必须查看
+官方 [pricing page](https://platform.openai.com/pricing)，不能把本文数字当成报价或费用
+上限。

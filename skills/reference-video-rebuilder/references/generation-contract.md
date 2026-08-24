@@ -1,4 +1,4 @@
-# v0.6 external-generation bridge contract
+# v0.6 offline generation bridge and v0.7 OpenAI controller contract
 
 ## Contents
 
@@ -11,19 +11,23 @@
 7. [Result packs, retries, and assembly](#result-packs-retries-and-assembly)
 8. [Privacy, rights, and provenance](#privacy-rights-and-provenance)
 9. [Non-guarantees](#non-guarantees)
+10. [v0.7 OpenAI GPT Image 2 controller](#v07-openai-gpt-image-2-controller)
 
 ## Purpose and boundary
 
 Use this contract to turn externally created still assets into a reviewable
-input for the existing v0.5 asset freeze. It coordinates a plan, a local
-file-drop result, explicit review, and a clean media-only handoff. It does not
-generate an image or video.
+input for the existing v0.5 asset freeze. v0.6 coordinates a plan, a local
+file-drop result, explicit review, and a clean media-only handoff. The separate
+v0.7 OpenAI controller can create the same result pack only under the additional
+rules at the end of this document.
 
-The bundled CLI must never invoke a model, arbitrary shell command, local CUDA
+`video_remix.py` must never invoke a model, arbitrary shell command, local CUDA
 runtime, remote worker, HTTP API, controller SDK, browser, or weight downloader.
-It does not upload any file. A controller may perform those actions outside
-the CLI after the required plan approval; the controller's own controls and
-external-controller terms remain separate responsibilities.
+It does not upload any file. The standalone v0.7 `openai_image_controller.py`
+is the narrow, explicit exception: it performs only the approved OpenAI API
+image requests described below. A different controller may perform work outside
+`video_remix.py` after plan approval; its controls and terms remain separate
+responsibilities.
 
 This bridge supports static render-ready image replacement and accepted audio
 only. It does not make semantic claims from filenames, pixels, prompts, or
@@ -226,3 +230,135 @@ overlays. It does not make a cloud controller safe, licensed, private, or
 commercially usable by recording its name. The final video remains a clean-room
 reconstruction from reviewed assets and a reviewed template—not a pixel-level
 copy of the reference.
+
+## v0.7 OpenAI GPT Image 2 controller
+
+### Separate, narrow networking surface
+
+`scripts/openai_image_controller.py` is a standalone, explicit networking
+controller. It is not a `video_remix.py` subcommand, and the v0.6
+`video_remix.py` workflow remains completely offline. Do not describe this as a
+Codex built-in image feature or assume that any Codex in-app identity,
+subscription, credential, or billing arrangement is shared with this controller.
+
+The controller accepts only an already approved v0.6 Generation Plan and Plan
+Review whose declaration is exactly:
+
+| Field | Required value |
+| --- | --- |
+| `privacy_profile` | `controller-cloud` |
+| `execution_profile` | `controller-managed` |
+| `adapter_id` | `openai-gpt-image-2` |
+| `adapter_version` | `2026-04-21` |
+| cloud consent | Request and approved Plan Review both have `cloud_upload_confirmed: true` |
+
+The plan must remain hash-bound to its request/template/reference inventory and
+the review must accept every task it authorizes. A `local-file-drop`,
+`local-only`, pending, rejected, drifted, differently routed, or differently
+versioned plan is not eligible. `controller_label` remains a bounded plan
+declaration; it is not a credential or an authorization shortcut.
+
+### Preflight before any network or write
+
+Run preflight after the human has approved the plan and before configuring or
+making a billable request:
+
+```text
+python scripts/openai_image_controller.py preflight <generation-plan.json> <generation-plan-review.json> --project-root <project-root> --generation-rights-confirmed [--ffprobe <ffprobe>] [--timeout-seconds 300] [--json]
+```
+
+Preflight validates only local packet bindings, approved tasks, protected paths,
+the fixed declaration, and the number of images/references that would be used.
+It makes no network request, does not read or validate an API key, and writes no
+file or directory. Pack classification can invoke the explicitly selected local
+`ffprobe`; that executable remains a trusted local dependency, not a controller
+provider request. Its stable JSON summary contains `schema_version`,
+`operation`, `approved`, `adapter` (`id`, `version`), and
+`counts` (`generation_tasks`, `approved_references`). A successful preflight is
+not a generation approval and does not create a result pack.
+
+### Explicit billable run
+
+Only after reviewing that preflight, run the separate controller with all three
+affirmative confirmations:
+
+```text
+python scripts/openai_image_controller.py run <generation-plan.json> <generation-plan-review.json> --project-root <project-root> --output-dir <new-direct-child> --generation-rights-confirmed --cloud-upload-confirmed --billable-requests-confirmed --max-billable-requests <1..32> [--ffprobe <ffprobe>] [--timeout-seconds 300] [--json]
+```
+
+`--generation-rights-confirmed` confirms the right to process the approved
+assets; `--cloud-upload-confirmed` confirms the reviewed upload consent; and
+`--billable-requests-confirmed` confirms the bounded, potentially billed work.
+All three are required every run. `--max-billable-requests` must be an integer
+from 1 through 32 and must cover the preflight's approved generation-task
+count. The controller makes no automatic retry, retry budget, fallback model,
+or extra request. A human-directed retry needs a new explicit run decision and
+a new result review cycle; never let the controller issue it autonomously.
+If a later task fails, earlier provider requests in that same run may already
+be billable even though atomic publication leaves no result pack. Diagnose the
+failure and obtain all three confirmations again before a rerun.
+
+The process reads its credential only from `OPENAI_API_KEY` at run time. It has
+no API-key command-line flag, config field, request field, or artifact field.
+Never put that value in a command history intended for sharing, prompt,
+Generation Request, Plan, Review, log, contact sheet, stdout JSON, result pack,
+or Git. A missing key fails before an API request; it must not be substituted by
+any other environment variable or by a Codex credential.
+
+### Fixed provider request and upload scope
+
+For every permitted task, the controller uses exactly this OpenAI API contract:
+
+| Request option | Fixed value |
+| --- | --- |
+| model | `gpt-image-2-2026-04-21` |
+| quality | `high` |
+| size | `1024x1536` |
+| output format | `png` |
+| background | `opaque` |
+| moderation | `auto` |
+| `input_fidelity` | omitted |
+
+Do not add a caller override for these fields, a seed, a URL input, a mask,
+partial images, or a second model route. The controller uploads only the
+reference **images** listed by accepted tasks in the approved plan. It never
+uploads the reference video, audio, unapproved task references, result
+candidates, an arbitrary project file, or a file identified only by a prompt.
+The original task instructions are scope-bound to the plan; do not append
+unreviewed instructions at run time.
+
+### Result publication and review
+
+The output directory must be a new guarded direct child of `project-root`. On a
+successful run it contains only one normalized, metadata-free PNG named
+`<target_slot_id>.png` for each approved generation task. It contains no JSON,
+prompt, credential, log, source copy, audio, sidecar, nested directory, or
+partial/streamed image. The public run summary identifies only
+`schema_version`, `operation`, `output_dir`, `counts`
+(`generation_tasks`, `billable_requests`, `output_assets`), and each output
+asset's `slot_id`, relative `path`, `sha256`, and `media_type`.
+
+If an API call, returned-image check, metadata stripping, PNG normalization, or
+publication check fails, fail the whole run and publish no result pack. Do not
+turn a partial response into a candidate. After success, use the unchanged
+`propose-generation-results -> result review -> assemble-generation-pack ->
+propose-assets -> asset review -> freeze-assets` sequence. Generated output is
+never self-approved.
+
+### Capability, limitation, and cost disclosure
+
+OpenAI documents that GPT Image can use one or more reference images and that
+`gpt-image-2` processes image inputs at high fidelity automatically, which is
+why this controller must omit `input_fidelity`. Those are provider capabilities,
+not quality proof. OpenAI also documents limitations in recurring-character or
+brand consistency, precise text, and layout-sensitive composition. Manually
+review person identity, pose, garment/product/logo detail, text, hands,
+background, and exact composition for every result. See the official
+[Image generation guide](https://developers.openai.com/api/docs/guides/image-generation).
+
+At the documented baseline, one high-quality 1024x1536 GPT Image 2 output is
+about **$0.165**, before input text and image-token costs; the maximum 32-output
+run therefore has a $5.28 output-only baseline plus input costs. Pricing,
+availability, and quotas can change, so check the official
+[Image generation guide and calculator](https://developers.openai.com/api/docs/guides/image-generation)
+and [pricing page](https://platform.openai.com/pricing) before approving a run.

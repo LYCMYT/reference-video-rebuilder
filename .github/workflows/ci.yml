@@ -20,7 +20,7 @@ jobs:
       - name: Verify Python runtime dependencies
         shell: pwsh
         run: |
-          python -c "import importlib.metadata as metadata; import jsonschema; from PIL import Image; print('jsonschema=' + metadata.version('jsonschema')); print('Pillow=' + metadata.version('Pillow'))"
+          python -c "import importlib.metadata as metadata; import jsonschema; from PIL import Image; import httpx; import openai; print('jsonschema=' + metadata.version('jsonschema')); print('Pillow=' + metadata.version('Pillow')); print('openai=' + metadata.version('openai')); print('httpx=' + metadata.version('httpx'))"
       - name: Install FFmpeg for integration tests
         run: choco install ffmpeg --yes --no-progress
       - name: Verify FFmpeg tools
@@ -38,3 +38,5 @@ jobs:
         run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-compiler-plan skills/reference-video-rebuilder/assets/project-template/compiler.plan.example.json --json
       - name: Validate example asset manifest
         run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-assets skills/reference-video-rebuilder/assets/project-template/template.ir.example.json skills/reference-video-rebuilder/assets/project-template/assets.example.json --allow-missing-files --json
+      - name: Validate OpenAI generation request example
+        run: python skills/reference-video-rebuilder/scripts/video_remix.py validate-generation-request skills/reference-video-rebuilder/assets/project-template/generation.request.openai.example.json --json

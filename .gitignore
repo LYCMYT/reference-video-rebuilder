@@ -77,6 +77,8 @@ generation-request.private*.json
 .rrv-generation-plan-*/
 .rrv-generation-results-proposal-*/
 .rrv-generation-asset-pack-*/
+.rrv-openai-generation-*/
+openai-generation-result-pack*/
 
 # Models and checkpoints
 models/

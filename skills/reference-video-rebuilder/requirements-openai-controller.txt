@@ -1,0 +1,3 @@
+-r requirements-runtime.txt
+openai>=2.54,<3
+httpx>=0.28,<1

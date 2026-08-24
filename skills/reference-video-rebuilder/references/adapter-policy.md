@@ -1,11 +1,12 @@
-# v0.6 controller and adapter policy
+# v0.6 controller policy and v0.7 OpenAI adapter policy
 
 ## Scope
 
-The v0.6 CLI records an execution declaration and verifies local files around
-it. It does not call an adapter. Do not describe this policy as a bundled
-virtual try-on, image-generation, video-generation, CUDA, or provider
-integration.
+The v0.6 `video_remix.py` CLI records an execution declaration and verifies
+local files around it. It does not call an adapter. The v0.7 standalone
+`openai_image_controller.py` is the sole approved networking adapter and has a
+separate, explicit contract below. Do not describe either surface as a bundled
+virtual try-on, video-generation, CUDA, or automatic controller router.
 
 Use the Generation Request/Plan `execution_profile` for one of two values only:
 
@@ -33,9 +34,9 @@ Use only if the Generation Request and approved Plan Review both set
 and (for `controller-managed`) `controller_label`; none can be a path, URL, or
 credential. Limit the upload to the minimum approved model/outfit/product/
 background references. Do not send the raw reference video, unapproved result
-candidates, credentials, or unrelated project material. The CLI still does not
-upload or authenticate anything; this profile is an auditable controller
-declaration, not technical enforcement.
+  candidates, credentials, or unrelated project material. `video_remix.py`
+  still does not upload or authenticate anything; this profile is an auditable
+  controller declaration, not technical enforcement.
 
 ## Required declaration
 
@@ -101,3 +102,70 @@ an adapter changes scope, or visual evidence conflicts with a passing media
 check. The external controller must not silently switch `adapter_id`,
 `adapter_version`, `controller_label`, route, privacy profile, or result
 semantics after plan approval.
+
+## v0.7 OpenAI GPT Image 2 controller
+
+### Only eligible adapter declaration
+
+The standalone controller accepts one provider contract only. Before preflight,
+the approved Generation Plan and its approved Plan Review must bind all of the
+following:
+
+| Field | Required value |
+| --- | --- |
+| `execution_profile` | `controller-managed` |
+| `privacy_profile` | `controller-cloud` |
+| `adapter_id` | `openai-gpt-image-2` |
+| `adapter_version` | `2026-04-21` |
+| request and review cloud consent | `cloud_upload_confirmed: true` |
+
+Do not route a `local-file-drop`, `local-only`, pending, rejected, unbound, or
+adapter-drifted plan to this controller. `video_remix.py` remains fully offline
+for every v0.6 path, including preparation, validation, result proposal, and
+assembly.
+
+### Provider request and credential isolation
+
+Every request fixes `gpt-image-2-2026-04-21`, `high`, `1024x1536`, `png`,
+`opaque`, and `auto` moderation. Omit `input_fidelity`; do not let a user or
+task change the model, quality, size, format, background, moderation, retry
+behavior, or provider route. There is no automatic retry.
+
+Read the API key only from `OPENAI_API_KEY` during `run`. Do not offer an API
+key flag, request field, plan field, config file, prompt placeholder, or second
+environment variable. Never record a secret in logs, stdout JSON, reviews,
+contact sheets, result packs, Git, or support tickets. Codex in-app image tools,
+if present, are a separate product surface: do not assert that they use this
+key, account, identity, quota, or billing.
+
+### Consent, cost, and upload minimization
+
+`preflight` is read-only and offline. `run` requires all of:
+
+- the v0.6 generation-rights confirmation;
+- a fresh `--cloud-upload-confirmed` assertion that matches the reviewed plan;
+- a fresh `--billable-requests-confirmed` assertion and a bounded
+  `--max-billable-requests` value from 1 through 32.
+
+Only reference images named by accepted, reviewed tasks may leave the machine.
+Never upload a reference video, audio, arbitrary reference-pack file,
+unapproved candidate, task from a rejected/pending review, credential, or raw
+project packet. An approved rights flag does not broaden the upload set.
+
+The cap controls billed image requests, not actual API spending. As documented
+at release time, the high-quality 1024x1536 output baseline is $0.165 per
+image, plus input costs; pricing can change. Require a reviewer to check the
+current official pricing linked in [generation-contract.md](generation-contract.md)
+before authorizing a run.
+
+### Result boundary and escalation
+
+Normalize a successful complete run into a new direct-child result pack that
+contains only metadata-free `<target_slot_id>.png` files. Any failure means no
+pack publication; do not accept partial output or retry automatically. Pass a
+published pack through the existing v0.6 result review and v0.5 asset freeze.
+
+Escalate when the uploaded reference set, task acceptance, plan binding,
+provider terms, cost cap, fixed request settings, API failure, person/brand
+consistency, or composition is ambiguous. Provider high-fidelity image input
+handling is not an identity, logo, or exact-layout guarantee.

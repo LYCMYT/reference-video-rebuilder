@@ -13,6 +13,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from dataclasses import dataclass
 import hashlib
+import io
 import json
 import math
 import os
@@ -624,12 +625,22 @@ def _parse_timeout(timeout_seconds: Any) -> float:
     return timeout
 
 
-def _snapshot_bound_asset(identity: _FileIdentity) -> tuple[BinaryIO, str]:
+def _snapshot_bound_asset(
+    identity: _FileIdentity, *, memory_only: bool = False
+) -> tuple[BinaryIO, str]:
     """Read one source descriptor once into a private immutable-byte snapshot."""
 
     digest = hashlib.sha256()
     total = 0
-    snapshot = tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+    # A controller preflight promises not to write even to the OS temp
+    # directory, so it requests a bounded in-memory snapshot and releases each
+    # one immediately after classification. Mutating workflows retain the
+    # established spooled snapshot behavior for TOCTOU-safe downstream use.
+    snapshot: BinaryIO = (
+        io.BytesIO()
+        if memory_only
+        else tempfile.SpooledTemporaryFile(max_size=8 * 1024 * 1024, mode="w+b")
+    )
     try:
         with _open_bound_file(identity, message="asset pack file changed while scanning") as handle:
             while True:
@@ -710,12 +721,15 @@ def _inspect_image(handle: BinaryIO) -> tuple[str, dict[str, Any]] | None:
 def _run_ffprobe(command: Sequence[str], source_handle: BinaryIO, timeout_seconds: float) -> bytes | None:
     """Run ffprobe over ``pipe:0`` only; never hand it a replaceable pathname."""
 
+    input_bytes: bytes | None = None
     try:
         source_handle.seek(0)
+        if isinstance(source_handle, io.BytesIO):
+            input_bytes = source_handle.read()
         process = subprocess.Popen(
             list(command),
             shell=False,
-            stdin=source_handle,
+            stdin=subprocess.PIPE if input_bytes is not None else source_handle,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=False,
@@ -726,7 +740,7 @@ def _run_ffprobe(command: Sequence[str], source_handle: BinaryIO, timeout_second
     except OSError as exc:
         raise _tool_error("could not run local FFprobe") from exc
     try:
-        stdout, _stderr = process.communicate(timeout=timeout_seconds)
+        stdout, _stderr = process.communicate(input=input_bytes, timeout=timeout_seconds)
     except subprocess.TimeoutExpired as exc:
         process.kill()
         process.communicate()
@@ -940,10 +954,11 @@ def _inspect_asset(
     *,
     ffprobe: str | os.PathLike[str],
     timeout_seconds: float,
+    memory_only: bool = False,
 ) -> tuple[str, dict[str, Any], str, BinaryIO] | None:
     """Classify only a private snapshot made from one bound source descriptor."""
 
-    snapshot, digest = _snapshot_bound_asset(identity)
+    snapshot, digest = _snapshot_bound_asset(identity, memory_only=memory_only)
     try:
         image = _inspect_image(snapshot)
         if image is not None:
@@ -973,6 +988,8 @@ def _scan_asset_pack(
     *,
     ffprobe: str | os.PathLike[str],
     timeout_seconds: float,
+    retain_snapshots: bool = True,
+    memory_only: bool = False,
 ) -> tuple[list[_ScannedAsset], list[dict[str, Any]]]:
     """Scan only direct regular files and build deterministic accepted inventory."""
 
@@ -1009,33 +1026,32 @@ def _scan_asset_pack(
     _assert_pack_live(root_identity, pack_identity)
 
     scanned: list[_ScannedAsset] = []
+    inventory_rows: list[dict[str, Any]] = []
     try:
         for name, identity in identities:
             _assert_pack_live(root_identity, pack_identity)
-            classified = _inspect_asset(identity, ffprobe=ffprobe, timeout_seconds=timeout_seconds)
+            classified = _inspect_asset(
+                identity,
+                ffprobe=ffprobe,
+                timeout_seconds=timeout_seconds,
+                memory_only=memory_only,
+            )
             if classified is None:
                 # A direct ordinary file is part of the immutable pack boundary.
                 # Unknown, animated, sidecar, video, and unsupported inputs must
                 # fail the whole proposal rather than silently escape its hash.
                 raise _invalid("asset pack contains unsupported media")
             media_type, facts, digest, snapshot = classified
-            scanned.append(
-                _ScannedAsset(
-                    name=name,
-                    identity=identity,
-                    sha256=digest,
-                    media_type=media_type,
-                    facts=facts,
-                    snapshot=snapshot,
-                )
+            item = _ScannedAsset(
+                name=name,
+                identity=identity,
+                sha256=digest,
+                media_type=media_type,
+                facts=facts,
+                snapshot=snapshot,
             )
-        _assert_pack_live(root_identity, pack_identity)
-        scanned.sort(key=lambda item: _scanned_source_path(asset_pack, item.name))
-        inventory: list[dict[str, Any]] = []
-        for index, item in enumerate(scanned, start=1):
-            inventory.append(
+            inventory_rows.append(
                 {
-                    "asset_id": f"asset.{index:04d}",
                     "source_path": _scanned_source_path(asset_pack, item.name),
                     "sha256": item.sha256,
                     "size_bytes": item.identity.size_bytes,
@@ -1043,6 +1059,18 @@ def _scan_asset_pack(
                     "facts": dict(item.facts),
                 }
             )
+            if retain_snapshots:
+                scanned.append(item)
+            else:
+                item.close()
+        _assert_pack_live(root_identity, pack_identity)
+        inventory_rows.sort(key=lambda item: str(item["source_path"]))
+        inventory: list[dict[str, Any]] = []
+        for index, row in enumerate(inventory_rows, start=1):
+            inventory.append({"asset_id": f"asset.{index:04d}", **row})
+        if retain_snapshots:
+            by_path = {_scanned_source_path(asset_pack, item.name): item for item in scanned}
+            scanned = [by_path[str(row["source_path"])] for row in inventory_rows]
         return scanned, inventory
     except Exception:
         _close_scanned_assets(scanned)

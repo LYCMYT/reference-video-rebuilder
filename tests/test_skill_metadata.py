@@ -31,6 +31,7 @@ class SkillMetadataTests(unittest.TestCase):
             ".rrv-generation-plan-*/",
             ".rrv-generation-results-proposal-*/",
             ".rrv-generation-asset-pack-*/",
+            ".rrv-openai-generation-*/",
         ):
             self.assertIn(pattern, text)
 

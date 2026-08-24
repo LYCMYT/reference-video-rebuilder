@@ -22,6 +22,33 @@ use gpt-5.6-terra with reasoning.effort max for a bounded implementation or
 deterministic test task. Terra must escalate rather than turn an unresolved
 mapping, controller policy, visual judgement, or rights judgement into code.
 
+## v0.7 OpenAI controller decision boundary
+
+The standalone v0.7 OpenAI GPT Image 2 controller is an execution surface, not
+an approver. `controller_current` and the human reviewer must decide before
+preflight whether the exact approved plan is `controller-cloud` and
+`controller-managed`, binds `openai-gpt-image-2` / `2026-04-21`, authorizes
+only its accepted reference images, and has an acceptable 1–32 billed-request
+cap. A passing read-only preflight only establishes that the bounded run is
+eligible; it does not approve rights, cloud upload, provider terms, or spend.
+
+Before run, require the separate rights, cloud-upload, and billed-request
+confirmations. Do not hand a lower-cost worker, the provider model, or the
+controller executable the authority to infer a task reference, widen an upload
+set, choose a different request setting, retry a failure, or accept a charge.
+The controller's fixed `gpt-image-2-2026-04-21` / high / 1024x1536 / PNG /
+opaque / auto configuration and its automatic high-fidelity image-input
+handling do not establish identity, brand, text, pose, or exact-composition
+fidelity.
+
+After a successful atomic PNG-only publication, `controller_current` plus a
+human must independently review every result before it reaches v0.6 result
+review and v0.5 asset freeze. A provider error, moderation block, partial
+result, or visual failure stops the run; no automatic retry is permitted. Any
+later retry is a new explicit human decision with a new result review packet.
+Never record or expose `OPENAI_API_KEY`; it is not evidence of which Codex
+account, if any, was used.
+
 ## Roles
 
 Use logical profiles in orchestration code so product logic is not coupled to a

@@ -1,6 +1,6 @@
 # QA gates
 
-## 0.6.0-alpha coverage
+## 0.7.0-alpha coverage
 
 The bundled local CLI retains the v0.4 reference Proposal/Review/freeze-plan
 path, v0.5 strict asset-pack proposal/freeze, and adds a v0.6 external-
@@ -19,6 +19,55 @@ body/pose, garment/product/background fidelity, logos/text, hands/artifacts,
 rights, and any controller-cloud consent. Gates 3, 4, and 6 still require an
 agent or human review before claiming those properties, timing intent, or
 complete removal of platform elements.
+
+`video_remix.py` remains the fully offline v0.6 path. v0.7 adds only the
+separate explicit `openai_image_controller.py` controller, which can make
+approved OpenAI API image requests after preflight and three fresh run-time
+confirmations. It is not part of `video_remix`, does not turn a v0.6 cloud
+declaration into generic upload authority, and does not replace either human
+review.
+
+## P0 — v0.7 OpenAI GPT Image 2 controller
+
+All applicable P0 checks must pass before an OpenAI request and again before
+treating its output as a v0.6 result pack:
+
+- the Plan and approved Plan Review are exact hash-bound artifacts from the
+  v0.6 workflow and declare only `controller-cloud` + `controller-managed`,
+  `adapter_id: openai-gpt-image-2`, `adapter_version: 2026-04-21`, and the
+  required request/review `cloud_upload_confirmed: true` facts;
+- preflight runs with the generation-rights confirmation before any network
+  action or output creation. It is read-only: no HTTP/API call, key validation,
+  result pack, staging directory, contact sheet, log artifact, or other write;
+- run repeats the rights confirmation and additionally requires explicit cloud
+  upload and billable-request confirmations. `max-billable-requests` is an
+  integer from 1 through 32 and covers every approved generation task; no
+  implicit default, over-cap request, fallback provider, or automatic retry is
+  allowed;
+- only reference **images** explicitly attached to accepted, reviewed tasks may
+  be uploaded. Never upload a video, audio, plan/review JSON, prompt sidecar,
+  unapproved task/reference, result candidate, arbitrary pack file, or secret;
+- API authentication reads only `OPENAI_API_KEY` at run time. The value is never
+  accepted as a CLI/config/request field and must not appear in command output,
+  logs, packets, artifacts, result files, Git, or test fixtures. Do not infer a
+  relationship to a Codex in-app image credential or billing account;
+- every provider request is fixed to `gpt-image-2-2026-04-21`, `high`,
+  `1024x1536`, `png`, `opaque`, and `auto` moderation. Omit
+  `input_fidelity`; do not emit partial images or caller-selected request
+  settings;
+- success atomically publishes a new direct-child result pack containing only
+  metadata-free PNG files named by accepted target slot. Any API, response,
+  decode, normalization, metadata, path, or publication failure leaves no
+  result pack or partial target;
+- the result still enters `propose-generation-results`, explicit result review,
+  `assemble-generation-pack`, and v0.5 asset review/freeze. Provider support
+  for multi-reference/high-fidelity image input never auto-accepts person
+  consistency, garment/product/logo/text fidelity, hands, background, or exact
+  composition;
+- record only bounded operational facts such as task and output hashes and
+  billed request count. Treat the current $0.165 high/1024x1536 output baseline
+  as an estimate plus input costs, not a locked price; check official pricing
+  before each approved spend.
 
 ## P0 — v0.6 generation bridge
 
@@ -40,8 +89,9 @@ candidate for the v0.5 asset-pack workflow:
   request and approved Plan Review. That declaration never gives the CLI upload
   authority and does not replace review of controller rights, terms, retention,
   or upload scope;
-- public CLI summaries must not echo `adapter_id`, `adapter_version`,
-  `controller_label`, prompt content, credentials, URLs, or private paths;
+- `video_remix.py` public CLI summaries must not echo `adapter_id`,
+  `adapter_version`, `controller_label`, prompt content, credentials, URLs, or
+  private paths;
 - every plan review binds the exact plan/request/template/reference evidence
   required by the schema and explicitly confirms source mappings, execution
   declaration, rights, and any cloud consent;
@@ -201,7 +251,7 @@ explicit check before relying on any of those conditions.
 ## Gate 6 — prohibited overlay removal
 
 Use known UI-region checks, contact sheets, the geometry/timing proposal
-artifacts, and a human full-playback review. The bundled `0.6.0-alpha` Skill
+artifacts, and a human full-playback review. The bundled `0.7.0-alpha` Skill
 does not include OCR or automatic platform-UI semantic detection. Require no
 residual platform logo, account text, comments, engagement rail,
 status/navigation bars, or visible reconstruction smear. This remains a

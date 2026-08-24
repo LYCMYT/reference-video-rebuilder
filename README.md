@@ -6,14 +6,40 @@ reference as a structure and timing specification, never as pixels to copy.
 Platform UI, comments, account information, and watermarks are excluded from
 the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-> Status: 0.6.0-alpha. The local, bounded new-reference path remains
-> propose -> review -> freeze-plan -> compile. v0.6 adds a reviewed bridge for
-> externally created still assets: prepare-generation -> plan review -> external
-> controller or local file drop -> result review -> assemble-generation-pack ->
-> v0.5 asset review/freeze -> render. The CLI never runs a model, shell command,
-> network request, weight download, or automatic approval. It remains limited to
+> Status: 0.7.0-alpha. The local, bounded new-reference path remains
+> propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
+> bridge for externally created still assets. v0.7 adds one separate, explicit
+> OpenAI GPT Image 2 controller after an approved cloud plan. `video_remix.py`
+> remains fully offline: it never runs a model, shell command, network request,
+> weight download, or automatic approval. The workflow remains limited to
 > authorized fixed-subject-carousel S1 work, not arbitrary-video discovery,
 > semantic classification, OCR, or concealed-pixel recovery.
+
+## What 0.7 adds
+
+v0.7 adds `scripts/openai_image_controller.py`, a standalone, opt-in network
+surface for a single reviewed `controller-cloud` + `controller-managed` plan.
+It accepts only `adapter_id: openai-gpt-image-2` and
+`adapter_version: 2026-04-21`, and its preflight is local, read-only, and makes
+no network request. Its run requires three fresh explicit confirmations: rights,
+cloud upload, and the billed request count (capped at 32).
+
+The controller uses only `OPENAI_API_KEY` at run time—never an argument,
+request/plan field, log, contact sheet, or output artifact. It uploads only
+task-approved reference images and fixes every request to
+`gpt-image-2-2026-04-21`, `high`, `1024x1536`, `png`, `opaque`, and `auto`
+moderation; `input_fidelity` is deliberately omitted and it has no automatic
+retry. On complete success it atomically publishes a new result pack containing
+only metadata-free exact-slot PNG files. A failure publishes no result pack.
+
+This is an OpenAI API controller, not a claim that a Codex in-app image feature
+uses the same key, account, identity, entitlement, or billing. GPT Image can
+use multiple reference images and processes `gpt-image-2` reference inputs at
+high fidelity, but person consistency and precise composition still require
+human review. The documented high-quality 1024x1536 output baseline is $0.165
+per image plus input costs (up to $5.28 for 32 outputs before inputs); pricing
+can change. See the official [Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+and [pricing page](https://platform.openai.com/pricing).
 
 ## What 0.6 adds
 
@@ -29,8 +55,8 @@ may be declared `local-only` or `controller-cloud`; `controller-cloud` requires
 `cloud_upload_confirmed: true` in both the request and reviewed plan. The CLI
 itself does not upload anything in either case.
 
-After an external controller (for example, a Codex image-generation step) or a
-user-operated local CUDA workflow places generated files in a new result pack,
+After an external controller or a user-operated local CUDA workflow places
+generated files in a new result pack,
 `propose-generation-results` makes a second, per-slot review packet and result
 contact sheet. The reviewer—not a metric—confirms identity continuity, body and
 pose suitability, garment/product/background fidelity, logos/text, hands and
@@ -102,7 +128,9 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Product and CLI | 0.6.0-alpha |
+| Skill and governed workflow | 0.7.0-alpha |
+| `video_remix.py` local CLI | 0.6.0-alpha |
+| `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
 | Generation Request, Plan, and Result packets | 0.6.0 |
@@ -117,7 +145,7 @@ IR, and technical QA retain their existing contracts.
 ## Supported boundary
 
 The alpha accepts only authorized fixed-subject-carousel S1 work. The bundled
-CLI is local and does not provide:
+`video_remix.py` CLI is local and does not provide:
 
 - OCR or arbitrary-video semantic classification;
 - identity, garment, product, UI, watermark, or text meaning inference;
@@ -126,11 +154,12 @@ CLI is local and does not provide:
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
 
-An external controller may create still assets after a reviewed v0.6 plan. A
-`controller-cloud` declaration requires `cloud_upload_confirmed: true` in both
-the Generation Request and Plan Review; it is a record of the controller's
-behavior, not a permission for this CLI to upload assets. Do not send the
-reference video or unapproved private assets to an external service.
+An external controller may create still assets after a reviewed v0.6 plan. The
+only bundled networking exception is the explicit v0.7 OpenAI controller and
+only for its pinned `controller-cloud`/`controller-managed` declaration. Cloud
+consent in the Generation Request and Plan Review is necessary but never broad
+upload authority: do not send the reference video or unapproved private assets
+to an external service.
 
 Windows is the audited release platform for v0.6.0-alpha. It provides the
 strong reparse-point and guarded snapshot/copy boundary for asset-pack scan,
@@ -169,13 +198,98 @@ From the repository root:
 ~~~powershell
 python -m pip install -r .\skills\reference-video-rebuilder\requirements-runtime.txt
 
+# Optional v0.7 OpenAI controller only; it adds the OpenAI SDK.
+python -m pip install -r .\skills\reference-video-rebuilder\requirements-openai-controller.txt
+
 # Contributors: runtime dependencies plus development tooling.
 python -m pip install -r .\requirements-dev.txt
 ~~~
 
 After installing the Skill by itself, run the same runtime install command from
-the installed directory that contains SKILL.md. FFmpeg and ffprobe are external
-local executables.
+the installed directory that contains SKILL.md. Install the optional OpenAI
+controller requirements there only when using its explicit v0.7 controller.
+FFmpeg and ffprobe are external local executables.
+
+## v0.7 OpenAI GPT Image 2 controller quick start
+
+Use this optional path only after completing the local v0.6
+`prepare-generation` step and manually approving its exact Plan Review. The
+new controller is separate from `video_remix.py`; the latter stays offline.
+Start the request from the bundled example, change only the task-local filenames
+and instructions, then validate and prepare it through the v0.6 bridge:
+
+~~~powershell
+Set-Location .\skills\reference-video-rebuilder
+
+$project = 'D:\video-projects\outfit-reel'
+$ffprobe = 'C:\tools\ffprobe.exe'
+$templatePacket = 'template-compile/template.ir.json'
+$requestPacket = 'generation-request.openai.json'
+$request = Join-Path $project $requestPacket
+
+Copy-Item .\assets\project-template\generation.request.openai.example.json $request
+# Edit only for this project. Keep these required values unchanged:
+# controller-cloud / controller-managed / openai-gpt-image-2 / 2026-04-21.
+python scripts/video_remix.py validate-generation-request "$request" --json
+python scripts/video_remix.py prepare-generation "$templatePacket" "$requestPacket" --project-root $project --reference-pack generation-reference-pack --output-dir generation-plan --generation-rights-confirmed --ffprobe $ffprobe --timeout 60 --json
+~~~
+
+Inspect the input contact sheet and edit the pending Plan Review. It must be
+approved, bind the exact plan, accept the requested tasks, and preserve
+`cloud_upload_confirmed: true`. The OpenAI controller does not replace this
+review or make an unapproved plan eligible.
+
+~~~powershell
+$planPacket = 'generation-plan/generation-plan.json'
+$planReviewPacket = 'generation-plan/generation-plan-review.template.json'
+$plan = Join-Path $project $planPacket
+$planReview = Join-Path $project $planReviewPacket
+
+python scripts/video_remix.py validate-generation-plan "$plan" --json
+python scripts/video_remix.py validate-generation-plan-review "$planReview" --json
+python scripts/openai_image_controller.py preflight "$planPacket" "$planReviewPacket" --project-root $project --generation-rights-confirmed --ffprobe $ffprobe --timeout-seconds 300 --json
+~~~
+
+Preflight makes no provider request, imports no OpenAI SDK, reads no API-key
+environment, and writes neither project nor OS-temporary media. It can invoke
+the user-selected local `ffprobe` while classifying a guarded pack, so treat
+that executable as a trusted dependency. Read its approved task and reference
+counts, choose a maximum request count that covers the tasks and is no greater
+than 32, and obtain a fresh spend approval. Before running, make
+`OPENAI_API_KEY` available to this process with an organization-approved
+secret mechanism; do not put a key in the command, project JSON, or a log.
+
+~~~powershell
+# Requires OPENAI_API_KEY in the process environment. This command does not
+# accept a key argument and never stores one in the project.
+python scripts/openai_image_controller.py run "$planPacket" "$planReviewPacket" --project-root $project --output-dir generation-result-pack --generation-rights-confirmed --cloud-upload-confirmed --billable-requests-confirmed --max-billable-requests 12 --ffprobe $ffprobe --timeout-seconds 300 --json
+~~~
+
+The controller issues no automatic retry. It uploads only the accepted task
+reference images and uses the fixed `gpt-image-2-2026-04-21` / high /
+1024x1536 / PNG / opaque / auto contract (without `input_fidelity`). On complete
+success, `generation-result-pack` contains only metadata-free
+`<target_slot_id>.png` files. Any failure leaves no pack to review. Do not treat
+a provider's high-fidelity reference handling as approval of identity, garment,
+text/logo, or composition quality.
+
+A failed multi-task run can still incur charges for requests already sent
+before the failure, even though no result pack is published. Inspect the cause
+and obtain all three confirmations again before any human-directed rerun.
+
+Continue with the ordinary v0.6 result proposal/review and v0.5 asset freeze:
+
+~~~powershell
+python scripts/video_remix.py propose-generation-results "$planPacket" "$planReviewPacket" --project-root $project --result-pack generation-result-pack --output-dir generation-results-proposal --generation-results-rights-confirmed --ffprobe $ffprobe --timeout 60 --json
+# Review generation-results-proposal locally, then validate its edited review.
+python scripts/video_remix.py assemble-generation-pack "$planPacket" "$planReviewPacket" 'generation-results-proposal/generation-results-proposal.json' 'generation-results-proposal/generation-results-review.template.json' --project-root $project --output-dir generation-asset-pack --ffprobe $ffprobe --timeout 60 --json
+~~~
+
+The documented high-quality 1024x1536 output estimate is $0.165 per image plus
+input costs; it is not a price guarantee. Check the official
+[Image generation guide](https://developers.openai.com/api/docs/guides/image-generation)
+and [pricing page](https://platform.openai.com/pricing) immediately before
+approving a billable run.
 
 ## v0.6 Windows generation-bridge quick start
 
@@ -439,11 +553,12 @@ garment/product fidelity, correct carousel semantics, absence of residual
 platform elements, or commercial rights.
 
 Confirm permission for the reference video, likenesses, products, logos, audio,
-and every reference/result/asset-pack file before proposal. The CLI is
+and every reference/result/asset-pack file before proposal. `video_remix.py` is
 local-only: it does not upload media, evidence, proposal artifacts, prompts, or
-derived data. A separately operated controller can use a cloud service only
-after `cloud_upload_confirmed: true` is recorded in both the request and
-reviewed plan; that consent does not change the CLI's offline behavior.
+derived data. The separate v0.7 controller may use the OpenAI API only after
+the exact reviewed cloud plan and fresh rights, upload, and billed-request
+confirmations; that narrowly scoped consent does not change the offline
+behavior of `video_remix.py`, nor authorize any other upload.
 
 See the [Compiler Plan contract](skills/reference-video-rebuilder/references/compiler-contract.md),
 [generation contract](skills/reference-video-rebuilder/references/generation-contract.md),

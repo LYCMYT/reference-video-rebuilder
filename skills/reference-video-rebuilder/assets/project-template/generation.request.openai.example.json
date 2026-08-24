@@ -1,0 +1,32 @@
+{
+  "schema_version": "0.6.0",
+  "privacy_profile": "controller-cloud",
+  "execution_profile": "controller-managed",
+  "adapter_id": "openai-gpt-image-2",
+  "adapter_version": "2026-04-21",
+  "controller_label": "OpenAI GPT Image 2",
+  "cloud_upload_confirmed": true,
+  "tasks": [
+    {
+      "target_slot_id": "outfit.01",
+      "kind": "identity-try-on",
+      "references": [
+        {
+          "source_filename": "model.identity.png",
+          "role": "identity"
+        },
+        {
+          "source_filename": "outfit.01.png",
+          "role": "garment"
+        },
+        {
+          "source_filename": "background.png",
+          "role": "background"
+        }
+      ],
+      "instructions": "Create one render-ready portrait still for the approved target slot. Keep only the approved references and requested composition in scope; do not add platform UI, account text, watermarks, or unapproved brands.",
+      "passthrough": false,
+      "omit": false
+    }
+  ]
+}

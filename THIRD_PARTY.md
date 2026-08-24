@@ -2,8 +2,9 @@
 
 This repository does not vendor third-party model weights, FFmpeg binaries, Remotion source, fonts, music, or sample reference videos. Each runtime adapter must record the exact dependency version and license in the run manifest.
 
-> Review status: the `0.3.0-alpha` local runtime inventory was reviewed on
-> 2026-08-23. Python dependency ranges are declared in the installable Skill;
+> Review status: the `0.7.0-alpha` local and optional controller dependency
+> inventory was reviewed on 2026-08-24. Python dependency ranges are declared
+> in the installable Skill;
 > resolved versions are reported by `doctor`. FFmpeg/ffprobe remain external
 > user-selected executables and are never redistributed by this repository.
 > Optional analyzers, generators, and GPU adapters remain disabled until their
@@ -16,6 +17,8 @@ This repository does not vendor third-party model weights, FFmpeg binaries, Remo
 | [jsonschema](https://github.com/python-jsonschema/jsonschema) | `>=4.23,<5` | MIT | Required at runtime for Draft 2020-12 structural validation; installed from the user's Python package index |
 | [Pillow](https://python-pillow.github.io/) | `>=10,<12` | MIT-CMU | Required at runtime for deterministic raster composition and contact sheets; installed from the user's Python package index |
 | [PyYAML](https://github.com/yaml/pyyaml) | `>=6,<7` | MIT | Development/metadata validation only; not required by the installed Skill runtime |
+| [OpenAI Python SDK](https://github.com/openai/openai-python) | `>=2.54,<3` | Apache-2.0 | Optional v0.7 controller dependency; imported only by the explicitly networked GPT Image controller after local approval and billing gates pass; never vendored and never required by the offline Skill workflow |
+| [HTTPX](https://github.com/encode/httpx) | `>=0.28,<1` | BSD-3-Clause | Direct optional v0.7 controller dependency used to disable environment-derived proxies and redirects and to bind the SDK to the explicit transport policy; never imported by the offline workflow |
 | [FFmpeg / ffprobe](https://ffmpeg.org/) | external executable | LGPL/GPL depending on build flags | Required for media operations; detected from an explicit path, environment, or `PATH`; never vendored or silently redistributed |
 
 The repository records supported ranges rather than claiming that every future
