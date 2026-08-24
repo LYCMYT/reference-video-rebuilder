@@ -6,7 +6,8 @@ reference as a structure and timing specification, never as pixels to copy.
 Platform UI, comments, account information, and watermarks are excluded from
 the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-> Status: 0.7.2-alpha. The local, bounded new-reference path remains
+> Status: 0.8.0-alpha (contract hardening; the local executable remains
+> static). The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
 > bridge for externally created still assets. v0.7 adds one separate, explicit
 > OpenAI GPT Image 2 API controller after an approved cloud plan. v0.7.1 also
@@ -16,7 +17,26 @@ the clean reconstruction; pixels fully hidden by them are not recoverable.
 > remains fully offline: it never runs a model, shell command, network request,
 > weight download, or automatic approval. Automated new-reference work remains
 > limited to authorized fixed-subject-carousel S1, not arbitrary-video discovery,
-> semantic classification, OCR, or concealed-pixel recovery.
+> semantic classification, OCR, or concealed-pixel recovery. The bundled
+> renderer composites static images, 2D effects, and selected audio; it does
+> not reproduce a person's continuous action, imitate a voice, rebuild SFX, or
+> provide lip sync.
+
+## What 0.8 adds
+
+v0.8 freezes a fail-closed acceptance contract for Template IR 0.3.0
+`rebuild_requirements` object. It distinguishes requested subject motion from
+static composition, and audio preservation/replacement from voice imitation or
+lip sync. Its exact fields and enums are in the
+[motion/audio contract](skills/reference-video-rebuilder/references/motion-audio-contract.md).
+
+This is contract hardening, not a hidden motion-controller integration. The
+current renderer still handles static images, 2D layout/transforms, effects,
+and selected audio only. Until a reviewed controller is actually integrated,
+requests for pose transfer, video-to-video motion, rebuilt SFX, authorized
+voice cloning, or lip sync must fail closed. A Template IR 0.2.0 output has no
+such requirements and may be called only `structure_only_unclaimed`—never a
+motion, voice-imitation, or lip-sync reconstruction.
 
 ## What 0.7.2 adds
 
@@ -27,9 +47,10 @@ delivery profiles, not an arbitrary landscape/aspect-ratio policy. All other
 landscape dimensions fail before encoding writes an output.
 
 This path was exercised with a clean-room, manually reviewed portal-reveal
-benchmark. It reconstructs timing and compositing from approved replacement
-assets; it does not retain reference-video pixels or make the source an
-automatic landscape template. The new-reference `propose -> review ->
+benchmark. It reconstructs timing and compositing from approved **static**
+replacement assets; it does not retain reference-video pixels, reproduce the
+reference subject's actions, or make the source an automatic landscape
+template. The new-reference `propose -> review ->
 freeze-plan -> compile` path remains portrait-only, fixed-subject-carousel S1
 automation with its existing 9:16 composition heuristic. Automatic landscape
 analysis, classification, and compiler output are explicitly future work.
@@ -175,19 +196,21 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Skill and governed workflow | 0.7.2-alpha |
-| `video_remix.py` local CLI | 0.6.0-alpha |
+| Skill and governed workflow | 0.8.0-alpha (motion/audio contract hardening) |
+| `video_remix.py` local CLI | 0.8.0-alpha |
 | `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
 | Generation Request, Plan, and Result packets | 0.6.0 |
 | Frozen Compiler Plan | 0.3.0 |
-| Template IR | 0.2.0 |
+| Template IR | 0.2.0 legacy static renderer; 0.3.0 static-subset contract, with non-static requirements fail closed until a controller matches |
 | Frozen Asset Manifest | 0.2.0 |
 
 The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
-consumers remain compatible. Deterministic compilation, rendering, Template
-IR, and technical QA retain their existing contracts.
+consumers remain compatible. Deterministic compilation, rendering, and
+technical QA retain their existing contracts. Template IR 0.3.0 is a new
+motion/audio acceptance contract; it is not a claim that the current renderer
+or any external controller has gained those capabilities.
 
 ## Supported boundary
 
@@ -201,6 +224,8 @@ portrait S1. The bundled `video_remix.py` CLI is local and does not provide:
 - identity, garment, product, UI, watermark, or text meaning inference;
 - a bundled image/video model, virtual try-on, CUDA inference, weight download,
   arbitrary shell execution, or network/upload operation;
+- subject-motion replication, pose transfer, video-to-video generation, rebuilt
+  SFX, voice imitation/cloning, or lip sync;
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
 
@@ -216,6 +241,10 @@ own pinned `controller-cloud`/`controller-managed` declaration. Cloud
 consent in the Generation Request and Plan Review is necessary but never broad
 upload authority: do not send the reference video or unapproved private assets
 to an external service.
+
+No external motion controller is currently installed or connected. In
+particular, a possible future Runway integration is not a current executor,
+upload path, or acceptance route.
 
 Windows is the audited release platform for v0.6.0-alpha. It provides the
 strong reparse-point and guarded snapshot/copy boundary for asset-pack scan,
@@ -610,6 +639,16 @@ platform elements, or commercial rights. For the fixed landscape profiles,
 also confirm the intended 16:9 framing and complete playback; their acceptance
 does not imply support for a new-reference landscape compiler.
 
+For a Template IR 0.3.0 claim, validate `rebuild_requirements` before render
+and again before final acceptance. Retaining the reference track is
+`preserve-reference`, not voice imitation; a moving still image is
+`layout-only`, not replicated subject action. The current portal-reveal request
+requires `motion_required: true`, `motion_mode: video-to-video`,
+`audio_mode: preserve-reference`, `lip_sync_required: false`, and
+`voice_likeness_rights_confirmed: false`; the existing static portal output is
+therefore `structure_only_unclaimed` until a reviewed video-to-video controller
+result passes full playback QA.
+
 Confirm permission for the reference video, likenesses, products, logos, audio,
 and every reference/result/asset-pack file before proposal. `video_remix.py` is
 local-only: it does not upload media, evidence, proposal artifacts, prompts, or
@@ -622,7 +661,9 @@ See the [Compiler Plan contract](skills/reference-video-rebuilder/references/com
 [generation contract](skills/reference-video-rebuilder/references/generation-contract.md),
 [asset contract](skills/reference-video-rebuilder/references/asset-contract.md),
 [adapter policy](skills/reference-video-rebuilder/references/adapter-policy.md),
-[QA gates](skills/reference-video-rebuilder/references/qa-gates.md), and the
+[QA gates](skills/reference-video-rebuilder/references/qa-gates.md),
+[motion/audio contract](skills/reference-video-rebuilder/references/motion-audio-contract.md),
+and the
 complete Chinese [design](docs/DESIGN.zh-CN.md).
 
 ## License

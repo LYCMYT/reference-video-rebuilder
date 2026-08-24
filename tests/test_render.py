@@ -181,6 +181,20 @@ class RendererTests(unittest.TestCase):
         assets = rrv_render.resolve_local_assets(document, manifest, self.root)
         return rrv_render.S1Renderer(document, assets), assets
 
+    @staticmethod
+    def v03_static(document, **overrides):
+        document = copy.deepcopy(document)
+        document["schema_version"] = "0.3.0"
+        document["rebuild_requirements"] = {
+            "motion_required": False,
+            "motion_mode": "static",
+            "audio_mode": "preserve-reference",
+            "lip_sync_required": False,
+            "voice_likeness_rights_confirmed": False,
+        }
+        document["rebuild_requirements"].update(overrides)
+        return document
+
     def master_sequence(self, duration, *, directory="render/master-frames", color="#ffffff"):
         frame_dir = self.root / directory
         frame_dir.mkdir(parents=True)
@@ -880,8 +894,86 @@ class RendererTests(unittest.TestCase):
             encoder_runner=lambda arguments: calls.append(arguments),
         )
         self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["technical_status"], "pass")
+        self.assertEqual(summary["completion"], {"status": "structure_only_unclaimed"})
+        self.assertEqual(summary["capabilities"], {
+            "motion_modes": ["static", "layout-only"],
+            "audio_modes": ["mute", "preserve-reference", "replace-upload"],
+            "lip_sync": False,
+            "voice_clone": False,
+        })
         self.assertEqual(len(calls), 1)
         self.assertTrue((self.root / "preflight" / "gold" / "master" / "frame_000001.png").is_file())
+
+    def test_v03_static_scope_summary_never_claims_complete(self):
+        image = self.image("assets/v03-static.png", "#2288cc")
+        slots = [{"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = self.v03_static(
+            template(slots, tracks, [layer("image", "main", "image")])
+        )
+        document["outputs"][0]["filename"] = "v03-static/delivery.mp4"
+        manifest = self.manifest({"image": image})
+        self.assertEqual(video_remix.validate_template_data(document), [])
+        calls = []
+        summary = rrv_render.render_project(
+            document,
+            manifest,
+            self.root,
+            frame_directory="v03-static/master",
+            encoder_runner=lambda arguments: calls.append(arguments),
+        )
+        self.assertEqual(summary["technical_status"], "pass")
+        self.assertEqual(
+            summary["completion"], {"status": "structural_scope_review_required"}
+        )
+        self.assertNotEqual(summary["completion"]["status"], "complete")
+        self.assertEqual(len(calls), 1)
+
+    def test_direct_renderer_and_project_fail_before_asset_or_output_work_for_motion(self):
+        slots = [{"id": "image", "type": "image", "required": True, "accepted_media": ["image/png"]}]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = self.v03_static(
+            template(slots, tracks, [layer("image", "main", "image")]),
+            motion_required=True,
+            motion_mode="pose-transfer",
+        )
+        self.assertEqual(video_remix.validate_template_data(document), [])
+        with self.assertRaisesRegex(
+            rrv_render.CapabilityUnavailableError, "capability_unavailable"
+        ):
+            rrv_render.S1Renderer(document, {})
+        with self.assertRaisesRegex(
+            rrv_render.CapabilityUnavailableError, "capability_unavailable"
+        ):
+            rrv_render.render_project(
+                document,
+                {},
+                self.root,
+                frame_directory="motion-denied/master",
+            )
+        with self.assertRaisesRegex(
+            rrv_render.CapabilityUnavailableError, "capability_unavailable"
+        ):
+            rrv_render.encode_outputs(
+                document,
+                {},
+                self.root,
+                "motion-denied/master",
+                runner=lambda _arguments: None,
+            )
+        with self.assertRaisesRegex(
+            rrv_render.CapabilityUnavailableError, "capability_unavailable"
+        ):
+            rrv_render.build_run_summary(
+                document,
+                {},
+                self.root,
+                "motion-denied/master",
+                [],
+                debug_bounds=False,
+            )
+        self.assertFalse((self.root / "motion-denied").exists())
 
     def test_master_frame_directory_never_overwrites_existing_target(self):
         image = self.image("assets/image.png", "#ff0000")
@@ -1250,6 +1342,36 @@ class RendererTests(unittest.TestCase):
         summary = rrv_render.build_run_summary(document, assets, self.root, frame_dir, encoded, debug_bounds=False)
         self.assertEqual(rrv_render.stable_summary_json(summary), rrv_render.stable_summary_json(summary))
         self.assertNotIn(str(self.root), rrv_render.stable_summary_json(summary))
+
+    def test_v03_mute_never_muxes_a_mapped_audio_asset(self):
+        frame_dir = self.master_sequence(2, directory="mute/master")
+        audio_file = self.root / "assets" / "mapped-but-muted.wav"
+        audio_file.parent.mkdir(parents=True)
+        audio_file.write_bytes(b"must-not-be-consumed")
+        slots = [{"id": "audio", "type": "audio", "required": True, "accepted_media": ["audio/wav"]}]
+        tracks = [{"id": "main", "type": "prop", "z_index": 0, "overlap_policy": "allow"}]
+        document = self.v03_static(
+            template(slots, tracks, [], duration=2),
+            audio_mode="mute",
+        )
+        document["outputs"][0]["filename"] = "mute/result.mp4"
+        assets = {
+            "audio": rrv_render.ResolvedAsset("audio", audio_file, "audio/wav", "direct"),
+        }
+        calls = []
+        encoded = rrv_render.encode_outputs(
+            document,
+            assets,
+            self.root,
+            frame_dir,
+            ffmpeg_bin="fake-ffmpeg",
+            runner=lambda arguments: calls.append(arguments),
+        )
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn(str(audio_file), calls[0])
+        self.assertNotIn("-filter_complex", calls[0])
+        self.assertIn("-an", calls[0])
+        self.assertFalse(encoded[0].audio_muxed)
 
     @unittest.skipUnless(shutil.which("ffmpeg"), "ffmpeg is required for frozen stdin integration")
     def test_frozen_wav_is_demuxed_from_verified_stdin(self):

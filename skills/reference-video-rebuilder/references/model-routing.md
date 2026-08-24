@@ -2,6 +2,34 @@
 
 Use role-based routing. Treat a model choice as an implementation detail that must not weaken product acceptance criteria.
 
+## v0.8 motion/audio decision boundary
+
+`controller_current` owns the decision whether the user requires static
+structure, layout-only movement, pose transfer, video-to-video motion, audio
+preservation/replacement, rebuilt SFX, authorized voice cloning, or lip sync.
+It must freeze the exact Template IR 0.3.0 `rebuild_requirements` values before
+any implementation or external-controller work begins:
+
+- `motion_required`;
+- `motion_mode`: `static`, `layout-only`, `pose-transfer`, or
+  `video-to-video`;
+- `audio_mode`: `mute`, `preserve-reference`, `replace-upload`,
+  `rebuild-sfx`, or `clone-authorized-voice`;
+- `lip_sync_required`; and
+- `voice_likeness_rights_confirmed`.
+
+Current static rendering can never satisfy `motion_required: true`,
+`pose-transfer`, `video-to-video`, `lip_sync_required: true`, `rebuild-sfx`,
+or `clone-authorized-voice`. A controller must not relabel static transforms,
+cross-fades, or preserved audio as a successful downgrade. Template IR 0.2.0
+outputs are `structure_only_unclaimed` only.
+
+No external motion controller is integrated at this time. A potential future
+Runway route is a product/controller decision requiring a separate approved
+adapter, upload/rights boundary, and evidence plan; it is not an installed or
+available executor. Do not delegate provider selection, voice-rights judgement,
+or motion/voice acceptance to a worker or a provider model.
+
 ## v0.6 generation and asset decision boundary
 
 controller_current owns the decisions that the strict local scanner and v0.6
@@ -79,6 +107,10 @@ Use the current primary session model for:
 - deciding keep, remove, and replace boundaries;
 - approving Template IR architecture and schema changes;
 - selecting privacy, rights, and controller policies;
+- determining whether a static, layout-only, pose-transfer, video-to-video,
+  audio, voice, or lip-sync result is actually requested and supported;
+- confirming voice-likeness authorization before
+  `clone-authorized-voice` is considered;
 - approving a Generation Request/Plan, controller declaration, and any cloud
   consent before an external controller receives assets;
 - judging every generated result's identity consistency, garment/product/logo
@@ -129,7 +161,9 @@ requires a new visual/product decision.
 Use the following gates in order:
 
 1. **G0 — contract freeze:** the controller freezes scope, interfaces,
-   invariants, tests, golden evidence, and acceptance criteria.
+   invariants, tests, golden evidence, and acceptance criteria, including the
+   exact v0.8 `rebuild_requirements` values and a capability match when motion
+   or audio rebuilding is claimed.
 2. **G1 — worker self-check:** the worker returns changed files, tests,
    warnings, assumptions, and any requested-versus-resolved model difference.
 3. **G2 — deterministic verification:** run lint, type, schema, unit, and
@@ -143,7 +177,9 @@ Use the following gates in order:
    baseline.
 7. **G6 — visual acceptance:** the current primary model reviews contact
    sheets, residual overlays, identity consistency, garment/product accuracy,
-   timing, and the complete video.
+   timing, and the complete video; it also verifies the requested subject
+   motion, audio treatment, and lip sync rather than accepting static-frame
+   similarity or audio-stream presence.
 8. **G7 — release sign-off:** record hashes, test evidence, warnings, reviewer,
    and final verdict before packaging or publishing.
 
@@ -181,6 +217,8 @@ Escalate to the current primary model when:
 - a generation plan changes executor mode, privacy profile, consent, paths, or
   media-normalization semantics;
 - frame timing, masking, occlusion, identity, garment, or product fidelity is involved;
+- a request requires pose transfer, video-to-video motion, rebuilt SFX,
+  authorized voice cloning, or lip sync;
 - generated results disagree with deterministic metrics or human review;
 - the same worker failure recurs twice;
 - a requested action is outside the frozen scope.

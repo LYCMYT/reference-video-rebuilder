@@ -314,6 +314,57 @@ class PublicCliIntegrationTests(unittest.TestCase):
             )
             self.assertFalse((root / "render").exists())
 
+    def test_v03_unsupported_rebuild_fails_closed_before_asset_renderer_or_ffmpeg_work(self):
+        """A requested motion engine must not degrade to static output."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template.json"
+            manifest = root / "assets.json"
+            template_data = json.loads(TEMPLATE_PATH.read_text(encoding="utf-8"))
+            template_data["schema_version"] = "0.3.0"
+            template_data["rebuild_requirements"] = {
+                "motion_required": True,
+                "motion_mode": "pose-transfer",
+                "audio_mode": "preserve-reference",
+                "lip_sync_required": False,
+                "voice_likeness_rights_confirmed": False,
+            }
+            template.write_text(json.dumps(template_data), encoding="utf-8")
+            manifest.write_text("{}", encoding="utf-8")
+            output = io.StringIO()
+            with mock.patch.object(
+                video_remix,
+                "validate_assets_data",
+                side_effect=AssertionError("assets must not be checked"),
+            ), mock.patch.object(
+                video_remix,
+                "_render_module",
+                side_effect=AssertionError("renderer must not load"),
+            ), mock.patch.object(
+                rrv_runtime,
+                "discover_tools",
+                side_effect=AssertionError("FFmpeg must not be discovered"),
+            ), contextlib.redirect_stdout(output):
+                status = video_remix.main(
+                    [
+                        "render",
+                        str(template),
+                        str(manifest),
+                        "--project-root",
+                        str(root),
+                        "--summary",
+                        "render/summary.json",
+                        "--json",
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+            self.assertEqual(status, 2)
+            self.assertEqual(payload["status"], "error")
+            self.assertEqual(payload["error"]["code"], rrv_runtime.ERR_CAPABILITY_UNAVAILABLE)
+            self.assertNotIn("details", payload["error"])
+            self.assertFalse((root / "render").exists())
+
     def test_render_strict_loader_rejects_duplicate_decision_fields_before_writes(self):
         """Duplicate review/rights gates are rejected before any renderer work."""
 
@@ -1519,7 +1570,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
             parser.parse_args(["--version"])
         self.assertEqual(exited.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "video-remix 0.6.0-alpha")
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.8.0-alpha")
 
         with mock.patch.object(
             video_remix,

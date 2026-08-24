@@ -54,8 +54,9 @@ COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
 ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
 ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.6.0-alpha"
+CLI_VERSION = "0.8.0-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
+SUPPORTED_TEMPLATE_IR_SCHEMA_VERSIONS = ("0.2.0", "0.3.0")
 __version__ = CLI_VERSION
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
@@ -74,6 +75,25 @@ MEDIA_TYPES = {
 }
 SHA256_CHUNK_SIZE = 1024 * 1024
 ASSET_MANIFEST_SCHEMA_VERSIONS = frozenset({"0.1.0", "0.2.0"})
+S1_STATIC_RENDERER_CAPABILITIES = {
+    "motion_modes": frozenset({"static", "layout-only"}),
+    "audio_modes": frozenset({"mute", "preserve-reference", "replace-upload"}),
+    "lip_sync": False,
+    "voice_clone": False,
+}
+_V03_REBUILD_REQUIREMENT_FIELDS = frozenset(
+    {
+        "motion_required",
+        "motion_mode",
+        "audio_mode",
+        "lip_sync_required",
+        "voice_likeness_rights_confirmed",
+    }
+)
+_V03_MOTION_MODES = frozenset({"static", "layout-only", "pose-transfer", "video-to-video"})
+_V03_AUDIO_MODES = frozenset(
+    {"mute", "preserve-reference", "replace-upload", "rebuild-sfx", "clone-authorized-voice"}
+)
 
 _schema_validators: dict[Path, Any] = {}
 _schema_validator_errors: dict[Path, str] = {}
@@ -589,6 +609,7 @@ def doctor_payload(
         "stage": "alpha",
         "version": CLI_VERSION,
         "template_ir_schema_version": TEMPLATE_IR_SCHEMA_VERSION,
+        "template_ir_schema_versions": list(SUPPORTED_TEMPLATE_IR_SCHEMA_VERSIONS),
         "platform": {
             "system": platform.system(),
             "release": platform.release(),
@@ -641,6 +662,12 @@ def doctor_payload(
             "asset_generation": False,
             "network_generation": False,
             "cloud_generation": False,
+            "subject_motion_replication": False,
+            "pose_transfer": False,
+            "video_to_video": False,
+            "audio_rebuild": False,
+            "voice_clone": False,
+            "lip_sync": False,
             "timeline_render": (
                 has_ffmpeg
                 and has_pillow
@@ -655,6 +682,7 @@ def doctor_payload(
             "Asset-pack proposal and freeze require local Pillow, FFprobe, both asset packet schemas, and their guarded local core.",
             "Generation planning and result review prepare and validate local review packets only; this Skill does not include or automatically call an asset generator, network service, or cloud provider.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
+            "Timeline render is static/2D compositing only; it does not provide subject-motion replication, voice cloning, audio rebuild, or lip sync.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
         ],
     }
@@ -2165,6 +2193,61 @@ def _template_requires_review(template: Mapping[str, Any]) -> bool:
     return isinstance(support, Mapping) and support.get("review_required") is True
 
 
+def _static_renderer_capability_unavailable(template: Mapping[str, Any]) -> str | None:
+    """Return a fixed capability key S1 cannot satisfy for Template IR 0.3.
+
+    This deliberately duplicates the renderer's tiny declaration parser.  The
+    CLI must decide before importing ``rrv_render`` or checking replacement
+    assets, so importing the renderer as a source of truth would defeat the
+    fail-closed boundary.
+    """
+
+    if template.get("schema_version") != "0.3.0":
+        return None
+    requirements = template.get("rebuild_requirements")
+    if not isinstance(requirements, Mapping) or set(requirements) != _V03_REBUILD_REQUIREMENT_FIELDS:
+        return "rebuild_requirements"
+    motion_required = requirements.get("motion_required")
+    motion_mode = requirements.get("motion_mode")
+    audio_mode = requirements.get("audio_mode")
+    lip_sync_required = requirements.get("lip_sync_required")
+    voice_rights = requirements.get("voice_likeness_rights_confirmed")
+    if not all(
+        isinstance(value, bool)
+        for value in (motion_required, lip_sync_required, voice_rights)
+    ):
+        return "rebuild_requirements"
+    if motion_mode not in _V03_MOTION_MODES or audio_mode not in _V03_AUDIO_MODES:
+        return "rebuild_requirements"
+    if motion_required and motion_mode not in {"pose-transfer", "video-to-video"}:
+        return "rebuild_requirements"
+    if not motion_required and motion_mode not in {"static", "layout-only"}:
+        return "rebuild_requirements"
+    if lip_sync_required and (not motion_required or audio_mode == "mute"):
+        return "rebuild_requirements"
+    if audio_mode == "clone-authorized-voice" and voice_rights is not True:
+        return "rebuild_requirements"
+    if motion_mode not in S1_STATIC_RENDERER_CAPABILITIES["motion_modes"]:
+        return f"motion_mode.{motion_mode}"
+    if lip_sync_required is True:
+        return "lip_sync"
+    if audio_mode == "clone-authorized-voice":
+        return "voice_clone"
+    if audio_mode not in S1_STATIC_RENDERER_CAPABILITIES["audio_modes"]:
+        return f"audio_mode.{audio_mode}"
+    return None
+
+
+def _render_completion_status(template: Mapping[str, Any]) -> str:
+    """Never overclaim semantic completion from an S1 technical render."""
+
+    return (
+        "structural_scope_review_required"
+        if template.get("schema_version") == "0.3.0"
+        else "structure_only_unclaimed"
+    )
+
+
 def _consumed_json_sha256(value: Any) -> str:
     """Hash an already-consumed JSON value without reopening its source path."""
 
@@ -2454,13 +2537,24 @@ def _require_render_inputs(
         return project_root, {}, {}, ["$: validation.invalid"]
     _set_render_input_hashes(args, template_sha256, manifest_sha256)
     template_errors = validate_template_data(template)
-    if not template_errors and _template_requires_review(template):
-        # A compiler may publish a technically valid Template IR while asking
-        # a reviewer to resolve timing.  Do not hash assets, load a renderer,
-        # or create any render output until that decision is explicit.
-        return project_root, template, manifest, [
-            "$.support.review_required must be false before rendering"
-        ]
+    if not template_errors:
+        unsupported_capability = _static_renderer_capability_unavailable(template)
+        if unsupported_capability is not None:
+            # This must precede all asset checks, renderer imports, FFmpeg
+            # discovery, and output writes.  A static compositor may not
+            # quietly substitute stills for requested motion or voice work.
+            raise runtime.RRVError(
+                runtime.ERR_CAPABILITY_UNAVAILABLE,
+                "the deterministic S1 renderer cannot satisfy the declared rebuild requirements",
+                {"capability": unsupported_capability},
+            )
+        if _template_requires_review(template):
+            # A compiler may publish a technically valid Template IR while asking
+            # a reviewer to resolve timing.  Do not hash assets, load a renderer,
+            # or create any render output until that decision is explicit.
+            return project_root, template, manifest, [
+                "$.support.review_required must be false before rendering"
+            ]
     asset_errors = validate_assets_data(
         template,
         manifest,
@@ -2578,6 +2672,8 @@ def run_render(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     summary: dict[str, Any] = {
         "schema_version": "1.0",
         "status": "pass" if qa_summary["passed"] else "fail",
+        "technical_status": "pass" if qa_summary["passed"] else "fail",
+        "completion": {"status": _render_completion_status(template)},
         "renderer": renderer_summary,
         "qa": qa_summary,
         "hashes": _render_hashes(

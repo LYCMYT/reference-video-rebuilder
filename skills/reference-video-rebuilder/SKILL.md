@@ -1,6 +1,6 @@
 ---
 name: reference-video-rebuilder
-description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict generation handoffs; and, only after an approved controller-cloud/controller-managed plan, use either the no-key Codex built-in ImageGen handoff or the separate explicit OpenAI GPT Image 2 API controller. Use for bounded reference-video proposal, generation-plan/result review, approved image-controller execution, Template IR validation, asset-pack review/freeze, frozen asset rendering, and QA. Render only the four audited fixed delivery profiles, including manually reviewed 16:9 output; new-reference proposal/compiler automation remains portrait S1 only. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, hidden-pixel recovery, or automatic landscape analysis/compiler support.
+description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict generation handoffs; and, only after an approved controller-cloud/controller-managed plan, use either the no-key Codex built-in ImageGen handoff or the separate explicit OpenAI GPT Image 2 API controller. Use for bounded reference-video proposal, generation-plan/result review, approved image-controller execution, Template IR validation, asset-pack review/freeze, frozen asset rendering, motion/audio requirement review, and QA. Render only the four audited fixed delivery profiles, including manually reviewed 16:9 output; new-reference proposal/compiler automation remains portrait S1 only. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, hidden-pixel recovery, automatic landscape analysis/compiler support, subject-motion replication, voice imitation, or lip sync.
 ---
 
 # reference-video-rebuilder
@@ -19,9 +19,15 @@ propose -> review -> freeze-plan -> compile
                               -> [optional v0.7.1 Codex built-in ImageGen]
                               -> [optional v0.7 OpenAI API controller]
                               -> propose-generation-results -> result review
-                              -> assemble-generation-pack
-                              -> propose-assets -> asset review -> freeze-assets -> render
+-> assemble-generation-pack
+-> propose-assets -> asset review -> freeze-assets -> render
 ```
+
+Before accepting a delivery that mentions subject action, voice imitation, or
+mouth/audio synchronization, read [motion-audio-contract.md](references/motion-audio-contract.md).
+The bundled renderer is static-image/2D compositing plus selected audio only.
+Static-image transforms, cross-fades, or retained audio never establish
+character-motion replication, voice imitation, or lip sync.
 
 ## Choose the path
 
@@ -48,6 +54,14 @@ propose -> review -> freeze-plan -> compile
 - Use Render only with a reviewed Template IR and the Asset Manifest 0.2.0
   produced by Freeze-assets. Inspect is diagnosis only; it writes nothing and
   never implies approval.
+- For a Template IR 0.3.0 delivery claim, require a valid
+  `rebuild_requirements` object and an execution route that can meet every
+  declared motion/audio requirement. Missing, contradictory, or unsupported
+  requirements fail closed; never downgrade a request to static composition.
+- Treat every legacy Template IR 0.2.0 output as
+  `structure_only_unclaimed`. It may be reviewed for structure, timing, static
+  appearance, effects, and selected audio, but never for subject-motion
+  replication, voice imitation, or lip sync.
 - Use a manually authored/reviewed landscape Template IR only for the exact
   `1280x720` or `1920x1080` delivery profiles. Do not route a landscape
   reference through `propose` or `compile`: that automated path remains the
@@ -67,6 +81,11 @@ propose -> review -> freeze-plan -> compile
 5. Treat contact sheets, hashes, and media probes as technical evidence only.
    They do not establish identity, pose, garment/product/logo fidelity, rights,
    or removal correctness.
+6. Do not accept a static path for `motion_required: true`,
+   `motion_mode: pose-transfer`/`video-to-video`,
+   `lip_sync_required: true`, `audio_mode: rebuild-sfx`, or
+   `audio_mode: clone-authorized-voice`. No motion/voice controller is
+   integrated today; an external provider is only a future reviewed path.
 
 ## Use Codex built-in ImageGen deliberately
 
@@ -126,12 +145,15 @@ Read [generation-contract.md](references/generation-contract.md) and
   controller, privacy profile, or local file-drop workflow.
 - Read [qa-gates.md](references/qa-gates.md) before accepting a result or
   render.
+- Read [motion-audio-contract.md](references/motion-audio-contract.md) before
+  classifying motion/audio, authoring Template IR 0.3.0, choosing a controller,
+  or accepting a result that claims performance, voice, or lip sync.
 - Read [support-levels.md](references/support-levels.md) only to assess S1
   suitability.
 - Read [model-routing.md](references/model-routing.md) before delegating work
   or accepting visual output.
 
-Use `controller_current` for semantic decisions, cloud consent, plan/result
-visual acceptance, and release acceptance. Use `gpt-5.6-terra` with max
-reasoning only for bounded implementation after the contract is frozen. Neither
-can bypass human review or P0 quality gates.
+Use `controller_current` for semantic decisions, cloud consent, motion/audio
+requirements, plan/result visual acceptance, and release acceptance. Use
+`gpt-5.6-terra` with max reasoning only for bounded implementation after the
+contract is frozen. Neither can bypass human review or P0 quality gates.

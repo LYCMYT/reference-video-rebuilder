@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deterministic S1 renderer for a validated Template IR 0.2.0 project.
+"""Deterministic S1 renderer for a validated Template IR 0.2.0/0.3.0 project.
 
 This module deliberately has no command-line interface.  A caller is expected
 to validate the Template IR and Asset Manifest with ``video_remix.py`` before
@@ -55,6 +55,26 @@ SUPPORTED_OUTPUT_SIZES = frozenset({(720, 1280), (1080, 1920), (1280, 720), (192
 SUPPORTED_MASK_TYPES = frozenset({"rect", "polygon"})
 _MASTER_FRAME_NAME_RE = re.compile(r"^frame_(\d+)\.png$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+S1_RENDERER_CAPABILITIES = {
+    "motion_modes": ("static", "layout-only"),
+    "audio_modes": ("mute", "preserve-reference", "replace-upload"),
+    "lip_sync": False,
+    "voice_clone": False,
+}
+_S1_TEMPLATE_SCHEMA_VERSIONS = frozenset({"0.2.0", "0.3.0"})
+_V03_REBUILD_REQUIREMENT_FIELDS = frozenset(
+    {
+        "motion_required",
+        "motion_mode",
+        "audio_mode",
+        "lip_sync_required",
+        "voice_likeness_rights_confirmed",
+    }
+)
+_V03_MOTION_MODES = frozenset({"static", "layout-only", "pose-transfer", "video-to-video"})
+_V03_AUDIO_MODES = frozenset(
+    {"mute", "preserve-reference", "replace-upload", "rebuild-sfx", "clone-authorized-voice"}
+)
 
 
 class RenderError(RuntimeError):
@@ -75,6 +95,10 @@ class PathPolicyError(RenderInputError):
 
 class UnsupportedFeatureError(RenderError):
     """Raised instead of silently approximating an unsupported IR feature."""
+
+
+class CapabilityUnavailableError(UnsupportedFeatureError):
+    """Raised when a declared 0.3 rebuild requirement has no S1 engine."""
 
 
 class EncoderError(RenderError):
@@ -214,6 +238,88 @@ def _require_mapping(value: Any, name: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise RenderInputError(f"{name} must be an object")
     return value
+
+
+def _validated_v03_rebuild_requirements(template: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Validate the small 0.3 capability declaration for direct S1 callers.
+
+    The public CLI performs complete JSON Schema validation first.  This
+    independent check closes the direct-import bypass before assets, Pillow,
+    FFmpeg, or output destinations are touched.
+    """
+
+    schema_version = template.get("schema_version")
+    if schema_version not in _S1_TEMPLATE_SCHEMA_VERSIONS:
+        raise RenderInputError("S1 renderer requires Template IR schema_version 0.2.0 or 0.3.0")
+    if schema_version == "0.2.0":
+        if "rebuild_requirements" in template:
+            raise RenderInputError("Template IR 0.2.0 must not declare rebuild_requirements")
+        return None
+
+    requirements = _require_mapping(
+        template.get("rebuild_requirements"), "template.rebuild_requirements"
+    )
+    if set(requirements) != _V03_REBUILD_REQUIREMENT_FIELDS:
+        raise RenderInputError(
+            "template.rebuild_requirements must contain exactly the v0.3 rebuild requirement fields"
+        )
+    motion_required = requirements.get("motion_required")
+    lip_sync_required = requirements.get("lip_sync_required")
+    voice_rights = requirements.get("voice_likeness_rights_confirmed")
+    motion_mode = requirements.get("motion_mode")
+    audio_mode = requirements.get("audio_mode")
+    if not all(isinstance(value, bool) for value in (motion_required, lip_sync_required, voice_rights)):
+        raise RenderInputError("template.rebuild_requirements boolean fields must be booleans")
+    if motion_mode not in _V03_MOTION_MODES:
+        raise RenderInputError("template.rebuild_requirements.motion_mode is invalid")
+    if audio_mode not in _V03_AUDIO_MODES:
+        raise RenderInputError("template.rebuild_requirements.audio_mode is invalid")
+    if motion_required and motion_mode not in {"pose-transfer", "video-to-video"}:
+        raise RenderInputError(
+            "template.rebuild_requirements.motion_required=true requires pose-transfer or video-to-video"
+        )
+    if not motion_required and motion_mode not in {"static", "layout-only"}:
+        raise RenderInputError(
+            "template.rebuild_requirements.motion_required=false requires static or layout-only"
+        )
+    if lip_sync_required and (not motion_required or audio_mode == "mute"):
+        raise RenderInputError(
+            "template.rebuild_requirements.lip_sync_required requires motion and non-mute audio"
+        )
+    if audio_mode == "clone-authorized-voice" and voice_rights is not True:
+        raise RenderInputError(
+            "template.rebuild_requirements.clone-authorized-voice requires voice likeness rights"
+        )
+    return requirements
+
+
+def s1_capability_unavailable(template: Mapping[str, Any]) -> str | None:
+    """Name the first declared v0.3 capability that deterministic S1 lacks."""
+
+    requirements = _validated_v03_rebuild_requirements(template)
+    if requirements is None:
+        return None
+    motion_mode = requirements["motion_mode"]
+    audio_mode = requirements["audio_mode"]
+    if motion_mode not in S1_RENDERER_CAPABILITIES["motion_modes"]:
+        return f"motion_mode.{motion_mode}"
+    if requirements["lip_sync_required"] is True:
+        return "lip_sync"
+    if audio_mode == "clone-authorized-voice":
+        return "voice_clone"
+    if audio_mode not in S1_RENDERER_CAPABILITIES["audio_modes"]:
+        return f"audio_mode.{audio_mode}"
+    return None
+
+
+def ensure_s1_capabilities(template: Mapping[str, Any]) -> None:
+    """Fail closed before work when S1 cannot satisfy a 0.3 declaration."""
+
+    capability = s1_capability_unavailable(template)
+    if capability is not None:
+        raise CapabilityUnavailableError(
+            f"capability_unavailable: deterministic S1 renderer does not support {capability}"
+        )
 
 
 def _require_list(value: Any, name: str) -> Sequence[Any]:
@@ -521,6 +627,7 @@ def resolve_local_assets(
     contract itself.  Legacy v0.1.0 callers retain path-based behavior.
     """
     template = _require_mapping(template, "template")
+    ensure_s1_capabilities(template)
     manifest = _require_mapping(manifest, "manifest")
     root = _project_root(project_root)
     template_id = template.get("template_id")
@@ -1026,11 +1133,10 @@ class S1Renderer:
     """Pillow renderer for the frozen deterministic S1 subset of the IR."""
 
     def __init__(self, template: Mapping[str, Any], assets: Mapping[str, ResolvedAsset]):
-        _require_pillow()
         self.template = _require_mapping(template, "template")
+        ensure_s1_capabilities(self.template)
+        _require_pillow()
         self.assets = dict(assets)
-        if self.template.get("schema_version") != "0.2.0":
-            raise RenderInputError("S1 renderer requires Template IR schema_version 0.2.0")
         if self.template.get("coordinate_space") != "canvas-pixels":
             raise UnsupportedFeatureError("only canvas-pixels coordinate_space is supported")
         support = _require_mapping(self.template.get("support"), "template.support")
@@ -1618,6 +1724,11 @@ def _validate_output_profile(output: Mapping[str, Any]) -> tuple[int, int, str]:
 
 
 def _audio_asset(template: Mapping[str, Any], assets: Mapping[str, ResolvedAsset]) -> ResolvedAsset | None:
+    requirements = _validated_v03_rebuild_requirements(template)
+    if requirements is not None and requirements["audio_mode"] == "mute":
+        # A mapped legacy/optional audio asset must never override the explicit
+        # v0.3 mute declaration.  The encoder will emit ``-an`` below.
+        return None
     audio = _require_mapping(template.get("audio"), "template.audio")
     slot_id = audio.get("slot_id")
     if not isinstance(slot_id, str):
@@ -1983,6 +2094,7 @@ def encode_outputs(
     as a secure production path for a frozen v0.2.0 audio asset.
     """
     template = _require_mapping(template, "template")
+    ensure_s1_capabilities(template)
     root = _project_root(project_root)
     _, timeout, audio_asset, planned_outputs = _preflight_encode_outputs(
         template,
@@ -2064,6 +2176,7 @@ def build_run_summary(
 ) -> dict[str, Any]:
     """Return a timestamp-free payload suitable for stable JSON logging."""
     template = _require_mapping(template, "template")
+    ensure_s1_capabilities(template)
     root = _project_root(project_root)
     source = _require_mapping(template.get("source"), "template.source")
     canvas = _require_mapping(template.get("canvas"), "template.canvas")
@@ -2110,9 +2223,22 @@ def build_run_summary(
         }
         for output in sorted(outputs, key=lambda item: item.output_id)
     ]
+    completion_status = (
+        "structural_scope_review_required"
+        if template.get("schema_version") == "0.3.0"
+        else "structure_only_unclaimed"
+    )
     return {
         "status": "ok",
+        "technical_status": "pass",
+        "completion": {"status": completion_status},
         "renderer": RENDERER_ID,
+        "capabilities": {
+            "motion_modes": list(S1_RENDERER_CAPABILITIES["motion_modes"]),
+            "audio_modes": list(S1_RENDERER_CAPABILITIES["audio_modes"]),
+            "lip_sync": S1_RENDERER_CAPABILITIES["lip_sync"],
+            "voice_clone": S1_RENDERER_CAPABILITIES["voice_clone"],
+        },
         "template": {
             "id": template.get("template_id"),
             "schema_version": template.get("schema_version"),
@@ -2149,6 +2275,8 @@ def render_project(
     timeout_seconds: float = DEFAULT_ENCODER_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
     """Resolve local assets, render one master sequence, encode, and summarize."""
+    template = _require_mapping(template, "template")
+    ensure_s1_capabilities(template)
     root = _project_root(project_root)
     assets: dict[str, ResolvedAsset] = {}
     try:
@@ -2199,7 +2327,9 @@ __all__ = [
     "DEFAULT_MASTER_DIRECTORY",
     "FRAME_FILENAME_PATTERN",
     "RENDERER_ID",
+    "S1_RENDERER_CAPABILITIES",
     "SUPPORTED_OUTPUT_SIZES",
+    "CapabilityUnavailableError",
     "EncodedOutput",
     "EncoderError",
     "PathPolicyError",
@@ -2213,11 +2343,13 @@ __all__ = [
     "build_run_summary",
     "close_resolved_assets",
     "encode_outputs",
+    "ensure_s1_capabilities",
     "evaluate_transform",
     "render",
     "render_master_frames",
     "render_project",
     "resolve_local_assets",
     "resolve_project_path",
+    "s1_capability_unavailable",
     "stable_summary_json",
 ]

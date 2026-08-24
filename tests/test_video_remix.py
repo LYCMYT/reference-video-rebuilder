@@ -36,6 +36,19 @@ class TemplateIRValidationTests(unittest.TestCase):
             asset["sha256"] = "0" * 64
         return manifest
 
+    def v03_template(self, **overrides):
+        document = copy.deepcopy(self.template)
+        document["schema_version"] = "0.3.0"
+        document["rebuild_requirements"] = {
+            "motion_required": False,
+            "motion_mode": "static",
+            "audio_mode": "preserve-reference",
+            "lip_sync_required": False,
+            "voice_likeness_rights_confirmed": False,
+        }
+        document["rebuild_requirements"].update(overrides)
+        return document
+
     def test_schema_example_passes_and_models_renderer_contract(self):
         self.assertEqual(self.validate(self.template), [])
         self.assertEqual(self.template["schema_version"], "0.2.0")
@@ -62,6 +75,47 @@ class TemplateIRValidationTests(unittest.TestCase):
         broken["layers"][0]["unexpected"] = True
         errors = self.validate(broken)
         self.assertTrue(any("Additional properties are not allowed" in error for error in errors), errors)
+
+    def test_v03_rebuild_requirements_are_strict_and_cross_field_safe(self):
+        self.assertEqual(self.validate(self.v03_template()), [])
+
+        cases = {
+            "v02-cannot-declare-v03-requirements": lambda document: document.update(
+                {"schema_version": "0.2.0"}
+            ),
+            "missing-requirements": lambda document: document.pop("rebuild_requirements"),
+            "unknown-requirement": lambda document: document["rebuild_requirements"].update(
+                {"unknown": True}
+            ),
+            "motion-true-static": lambda document: document["rebuild_requirements"].update(
+                {"motion_required": True, "motion_mode": "static"}
+            ),
+            "motion-false-pose-transfer": lambda document: document["rebuild_requirements"].update(
+                {"motion_required": False, "motion_mode": "pose-transfer"}
+            ),
+            "lip-sync-without-motion": lambda document: document["rebuild_requirements"].update(
+                {"lip_sync_required": True}
+            ),
+            "lip-sync-mute": lambda document: document["rebuild_requirements"].update(
+                {
+                    "motion_required": True,
+                    "motion_mode": "pose-transfer",
+                    "audio_mode": "mute",
+                    "lip_sync_required": True,
+                }
+            ),
+            "clone-without-rights": lambda document: document["rebuild_requirements"].update(
+                {
+                    "audio_mode": "clone-authorized-voice",
+                    "voice_likeness_rights_confirmed": False,
+                }
+            ),
+        }
+        for name, mutate in cases.items():
+            with self.subTest(case=name):
+                broken = self.v03_template()
+                mutate(broken)
+                self.assertTrue(self.validate(broken), name)
 
     def test_slot_accepted_media_is_limited_to_supported_media_types(self):
         broken = copy.deepcopy(self.template)
@@ -390,7 +444,18 @@ class TemplateIRValidationTests(unittest.TestCase):
 
     def test_doctor_does_not_claim_unimplemented_stages(self):
         payload = video_remix.doctor_payload()
+        self.assertEqual(payload["template_ir_schema_version"], "0.2.0")
+        self.assertEqual(payload["template_ir_schema_versions"], ["0.2.0", "0.3.0"])
         capabilities = payload["capabilities"]
+        for unavailable in (
+            "subject_motion_replication",
+            "pose_transfer",
+            "video_to_video",
+            "audio_rebuild",
+            "voice_clone",
+            "lip_sync",
+        ):
+            self.assertFalse(capabilities[unavailable])
         self.assertTrue(capabilities["template_validation"])
         self.assertTrue(capabilities["asset_manifest_structure_validation"])
         self.assertTrue(capabilities["compiler_plan_validation"])

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.invalid/reference-video-rebuilder/template-ir.schema.json",
   "title": "Reference Video Template IR executable renderer contract",
-  "description": "Structural contract for Template IR 0.2.0. Cross-field timeline and reference checks are performed by video_remix.py.",
+  "description": "Structural contract for legacy Template IR 0.2.0 and rebuild-declared Template IR 0.3.0. Cross-field timeline and reference checks are performed by video_remix.py.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,7 +21,7 @@
     "outputs"
   ],
   "properties": {
-    "schema_version": {"const": "0.2.0"},
+    "schema_version": {"enum": ["0.2.0", "0.3.0"]},
     "template_id": {"$ref": "#/$defs/id"},
     "coordinate_space": {"const": "canvas-pixels"},
     "canvas": {"$ref": "#/$defs/canvas"},
@@ -50,13 +50,103 @@
       "items": {"$ref": "#/$defs/event"}
     },
     "audio": {"$ref": "#/$defs/audio"},
+    "rebuild_requirements": {"$ref": "#/$defs/rebuildRequirements"},
     "outputs": {
       "type": "array",
       "minItems": 1,
       "items": {"$ref": "#/$defs/output"}
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"schema_version": {"const": "0.2.0"}},
+        "required": ["schema_version"]
+      },
+      "then": {
+        "not": {"required": ["rebuild_requirements"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"schema_version": {"const": "0.3.0"}},
+        "required": ["schema_version"]
+      },
+      "then": {
+        "required": ["rebuild_requirements"]
+      }
+    }
+  ],
   "$defs": {
+    "rebuildRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "motion_required",
+        "motion_mode",
+        "audio_mode",
+        "lip_sync_required",
+        "voice_likeness_rights_confirmed"
+      ],
+      "properties": {
+        "motion_required": {"type": "boolean"},
+        "motion_mode": {
+          "enum": ["static", "layout-only", "pose-transfer", "video-to-video"]
+        },
+        "audio_mode": {
+          "enum": [
+            "mute",
+            "preserve-reference",
+            "replace-upload",
+            "rebuild-sfx",
+            "clone-authorized-voice"
+          ]
+        },
+        "lip_sync_required": {"type": "boolean"},
+        "voice_likeness_rights_confirmed": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"motion_required": {"const": true}},
+            "required": ["motion_required"]
+          },
+          "then": {
+            "properties": {
+              "motion_mode": {"enum": ["pose-transfer", "video-to-video"]}
+            }
+          },
+          "else": {
+            "properties": {
+              "motion_mode": {"enum": ["static", "layout-only"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"lip_sync_required": {"const": true}},
+            "required": ["lip_sync_required"]
+          },
+          "then": {
+            "properties": {
+              "motion_required": {"const": true},
+              "audio_mode": {"not": {"const": "mute"}}
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {"audio_mode": {"const": "clone-authorized-voice"}},
+            "required": ["audio_mode"]
+          },
+          "then": {
+            "properties": {
+              "voice_likeness_rights_confirmed": {"const": true}
+            }
+          }
+        }
+      ]
+    },
     "id": {
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9._-]*$"

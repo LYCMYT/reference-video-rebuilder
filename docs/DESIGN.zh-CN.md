@@ -1,6 +1,6 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.7.2-alpha（在 0.7.1-alpha 基础上的受限渲染增量）
+版本：0.8.0-alpha（运动/声音合同硬化；非静态执行器未集成）
 日期：2026-08-24
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
@@ -38,7 +38,15 @@ file-drop，也不等同于 v0.7 的 API controller。
 能力。新参考的 `propose -> review -> freeze-plan -> compile` 仍只支持竖版
 9:16 的 fixed-subject-carousel S1 自动化；横版自动编译属于后续工作。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.8.0-alpha 新增的是**验收合同而不是运动生成器**：目标 Template IR 0.3.0
+必须声明 `rebuild_requirements`，明确是否要求连续人物动作、要求的动作模式、
+音频处理、口型同步和声线/声音肖像授权。当前本地 renderer 仍只合成静态图片、
+2D 图层/特效和选择的音轨；静态图位移、缩放、淡入淡出或轮播均不能被表述为
+人物动作复刻，保留参考音轨也不能被表述为声音模仿或口型同步。尚未集成任何
+动作/声音 controller；包括可能的 Runway 路线在内，都只是未来、另行审核的
+外部路径，当前不得声称已安装、已连接或已支持。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。当前 renderer 只接受静态素材与音轨；没有人物动作复刻、pose-transfer、video-to-video、重建音效、授权声线克隆或口型同步能力。Template IR 0.2.0 的旧输出必须标记为 `structure_only_unclaimed`；任何 0.3.0 的动作/声音要求若没有匹配的已审核执行器，必须 fail closed。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -167,9 +175,9 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 
 | 等级 | 视频特征 | 自动化承诺 | 失败策略 |
 |---|---|---|---|
-| S1 确定性模板 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加、轻微动作 | 当前仅限已授权的 fixed-subject-carousel；propose 可给出有界几何、slot_count 和时序候选 | Proposal 永远需要人工/Codex Review；不自动发现任意 family 或推断语义槽位 |
-| S2 跟踪合成 | 单主体中等运动、缓慢运镜、可跟踪遮挡、动态背景 | 中；结构和运动可保持，需动态蒙版 | 请求修正关键帧、轨迹或蒙版 |
-| S3 生成式修改 | 快速运动、转身、复杂衣服动态、强运镜、较大遮挡 | 低到中；只保证整体效果和节奏相似 | 分段生成、局部重试、明确实验性 |
+| S1 确定性结构 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加；`motion_required=false` 且 `motion_mode=static/layout-only` | 当前仅限已授权的 fixed-subject-carousel；propose 可给出有界几何、slot_count 和时序候选 | 静态图的 2D 移动不能冒充人物动作；Proposal 永远需要人工/Codex Review |
+| S2 跟踪合成 | 单主体中等运动、缓慢运镜、可跟踪遮挡、动态背景 | 当前未实现；未来需动态蒙版和跟踪执行器 | 当前 fail closed；不能降级为动作已复刻的静态结果 |
+| S3 生成式动作/声音 | `pose-transfer`、`video-to-video`、快速运动、转身、复杂衣服动态、强运镜、重建音效、授权声线克隆或口型 | 当前未实现；需已审核外部 controller 和全片人工验收 | 当前 fail closed；未来分段生成、局部重试并明确实验性 |
 | S4 不支持精确模式 | 多人紧密交互、镜面、透明物、严重遮挡、极快混剪、输入损坏 | 不承诺 | 输出分析报告并建议拆分、简化或人工模板 |
 
 分类必须保守：错误地拒绝精确模式优于静默输出错误商品、错误人物或残留平台标识。
@@ -257,7 +265,51 @@ approved_plan 规范化生成 0.3.0 Frozen Compiler Plan；Proposal 的候选、
 
 Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合同。`slots` 只描述用户输入或生成输入，`layers` 才描述实际进入画面的渲染实例；这样可以阻止 renderer 把服装平铺图直接贴到人物层上。所有时间范围采用半开区间 `[start_frame, end_frame)`，所有坐标都以 clean canvas 左上角为原点，排序固定为 `(track.z_index, layer.z_offset, layer.id)`。
 
-下面只展示代表性字段；机器可执行真相以仓库内 Draft 2020-12 Schema 和完整示例为准：
+#### 7.1.1 v0.8 的 `rebuild_requirements` 合同
+
+任何声称“复刻人物动作、声音或口型”的 Template IR 0.3.0 必须包含下列完整
+对象。它是**最小需求合同**，不是让 renderer 猜测一个较低成本替代方案的提示：
+
+```json
+{
+  "schema_version": "0.3.0",
+  "rebuild_requirements": {
+    "motion_required": true,
+    "motion_mode": "video-to-video",
+    "audio_mode": "preserve-reference",
+    "lip_sync_required": false,
+    "voice_likeness_rights_confirmed": false
+  }
+}
+```
+
+字段/枚举固定如下：
+
+| 字段 | 合法值 | 说明 |
+|---|---|---|
+| `motion_required` | boolean | 只有当需要复刻人物的连续身体、手部、面部或表演动作时为 `true`。 |
+| `motion_mode` | `static`、`layout-only`、`pose-transfer`、`video-to-video` | `layout-only` 仅指静态素材的 2D 构图/镜头感移动；不是人物动作。 |
+| `audio_mode` | `mute`、`preserve-reference`、`replace-upload`、`rebuild-sfx`、`clone-authorized-voice` | `preserve-reference` 是保留已批准参考音轨，不是声音模仿。 |
+| `lip_sync_required` | boolean | 仅当可见嘴部必须与选定音频同步时为 `true`。 |
+| `voice_likeness_rights_confirmed` | boolean | 仅当 `clone-authorized-voice` 已得到明确声线/声音肖像授权时为 `true`。 |
+
+冻结和验收时必须同时满足：`motion_required=false` 只能配 `static` 或
+`layout-only`；`motion_required=true` 必须配 `pose-transfer` 或
+`video-to-video`；`lip_sync_required=true` 还要求 `motion_required=true` 且
+`audio_mode` 不为 `mute`；`clone-authorized-voice` 必须令
+`voice_likeness_rights_confirmed=true`，其他音频模式中的该字段不能授权声线克隆。未知、缺失、
+矛盾或当前执行器不支持的值一律 P0 fail，不得静默改成静态合成。
+
+当前 renderer 只能消费 0.3.0 中 `static`/`layout-only` 与受限音频的静态
+子集；`pose-transfer`、`video-to-video`、口型、重建音效和授权声线克隆仍没有
+已审核 controller，必须 fail closed。仅将旧 JSON 的版本号字符串改成 0.3.0
+不构成升级。完整规则见
+`skills/reference-video-rebuilder/references/motion-audio-contract.md`。
+
+#### 7.1.2 旧 Template IR 0.2.0 示例
+
+下面是既有静态 0.2.0 合同的代表性字段；机器可执行真相以仓库内 Draft
+2020-12 Schema 和完整示例为准：
 
 ```json
 {
@@ -374,6 +426,11 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 ```
 
 冻结前必须把占位 source hash 换成真实 SHA-256。12套服装分别形成12个 `render-ready` layer，顶部商品滚轮用 carousel track 的项目顺序、viewport 和 group transform 表示，音频使用独立时序对象，删除层必须带有可验证的空间和帧范围。`events` 用于编辑与QA，最终 renderer 只以规范化后的 layers/track transforms 为画面真相，避免同一运动存在两套相互冲突的数据。
+
+0.2.0 没有 `rebuild_requirements`，所以其任何成片只能称
+`structure_only_unclaimed`：可审核结构、切点、静态人物外观、2D 特效、轮播和
+选择的音轨，但不得声称复刻连续人物动作、声音模仿或口型同步。静态图的位移、
+缩放、交叉淡化和音轨保留均不能改变这一结论。
 
 ### 7.2 Asset Manifest
 
@@ -757,7 +814,12 @@ height、精确 frame_count、fps 和 has_audio。
 
 ### 12.2 静态资产优先
 
-固定姿势换装视频使用一组批准的高质量静态人物图，通过硬切、轻推拉、呼吸位移和程序化滚轮产生动态效果。只有参考视频真实需要连续运动时才进入视频 adapter。
+仅当 `motion_required=false` 且 `motion_mode` 为 `static` 或 `layout-only`
+时，固定姿势换装视频才可使用一组批准的高质量静态人物图，通过硬切、轻推拉、
+位移和程序化滚轮产生**构图动态**。这些效果不复刻人物连续动作；不得把它们写成
+动作迁移、动作模仿或视频到视频重建。若参考或用户要求连续身体、手势、面部或
+表演动作，则必须声明 `motion_required=true` 与 `pose-transfer` 或
+`video-to-video`，并在存在对应已审核 controller 前 fail closed。
 
 ### 12.3 主时间轴
 
@@ -840,6 +902,47 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 - GPT Image 的多参考图和高保真输入处理不等于身份连续、服装/商品/Logo/文字正确或
   精确构图。所有结果仍必须经过 v0.6 Result Review 和 v0.5 asset freeze。
 
+### 13.0.8 v0.8 动作与声音强制门
+
+在任何交付可声称超过 `structure_only_unclaimed` 前，必须：
+
+- 对 Template IR 0.3.0 校验完整的 `rebuild_requirements`：
+  `motion_required`、`motion_mode`、`audio_mode`、`lip_sync_required`、
+  `voice_likeness_rights_confirmed`；
+- 只接受 `motion_mode` 的 `static`、`layout-only`、`pose-transfer`、
+  `video-to-video` 与 `audio_mode` 的 `mute`、`preserve-reference`、
+  `replace-upload`、`rebuild-sfx`、`clone-authorized-voice`；
+- 仅允许 `motion_required=false` 配 `static`/`layout-only`；仅允许
+  `motion_required=true` 配 `pose-transfer`/`video-to-video`；
+- 当 `lip_sync_required=true` 时，同时要求 `motion_required=true` 和非
+  `mute` 音频；当 `audio_mode=clone-authorized-voice` 时，要求
+  `voice_likeness_rights_confirmed=true`，其他音频模式中的该字段不能授权声线克隆；
+- 把静态图的位移、缩放、淡入淡出、轮播和稳定锚点只记录为 `layout-only` 证据，
+  绝不作为 pose-transfer 或 video-to-video 通过证据；
+- 把 `preserve-reference` 只记录为参考音轨保留；它不构成声音模仿、声线克隆、
+  重建音效或口型同步；
+- 对 `pose-transfer`、`video-to-video`、`rebuild-sfx`、
+  `clone-authorized-voice` 或 lip sync，记录真正执行器/模型/版本、授权上传范围、
+  相应的肖像/音频/声线权利与全片人工复核证据；以及
+- 在执行器缺失、未集成、能力不匹配、证据不完整或值未知/矛盾时 fail closed。
+
+当前 portal-reveal 示例必须冻结为：
+
+```json
+{
+  "motion_required": true,
+  "motion_mode": "video-to-video",
+  "audio_mode": "preserve-reference",
+  "lip_sync_required": false,
+  "voice_likeness_rights_confirmed": false
+}
+```
+
+现有静态门户成片只能通过结构、节奏、特效、平台元素清除和音轨保留审核，
+并标记 `structure_only_unclaimed`；在已审核的 video-to-video controller 产出
+新结果并完成全片验收前，它必须在本门失败。可能的 Runway 路线尚未接入，不能
+作为已满足该门的依据。
+
 ### 13.1 结构和媒体
 
 - 文件可解码；
@@ -848,12 +951,17 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 - 音画同步误差不超过一帧；
 - 无黑帧、坏帧、非预期冻结和尾帧截断。
 
+音频流存在、时长对齐或静态帧相似都不能证明声音模仿、口型同步、pose-transfer
+或 video-to-video 动作。
+
 ### 13.2 模板复刻
 
 - 镜头和换装切点误差不超过一帧；
 - 关键图层位置和滚轮轨迹在模板容差内；
 - 缓动、停留和节拍事件符合 IR；
 - 删除层不进入最终画面。
+
+本节只验收结构和时序；不得以它替代 `13.0.8` 的人物动作、声音或口型门。
 
 ### 13.3 人物和服装
 
@@ -862,6 +970,10 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 - 服装颜色、轮廓、领口、袖口、长度、主要印花和 Logo 单独检查；
 - 手、腿、头发和衣服边缘不存在明显生成错误；
 - 相邻帧无明显人物漂移和闪烁。
+
+当 `motion_required=true` 时，还必须在完整播放中确认人物的连续动作而不是仅
+首尾姿势或静态锚点；当 `lip_sync_required=true` 时，必须确认可见嘴部与选定
+音频同步。当前静态 renderer 无法满足这两项。
 
 ### 13.4 标识清除
 
@@ -896,6 +1008,11 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 - 低置信度槽位确认；
 - 人物和服装联系表批准；
 - 正式高清渲染前预览批准；
+- Template IR 0.3.0 `rebuild_requirements` 的完整性、枚举、组合约束和执行器
+  能力匹配；
+- 所有 `motion_required=true`、`pose-transfer`、`video-to-video`、
+  `rebuild-sfx`、`clone-authorized-voice` 或 lip sync 请求的全片动态/音频
+  人工复核；
 - 最终残留标识人工审查。
 
 局部错误只重跑受影响槽位或帧段。v0.6 的单槽重试必须使用新 result pack/
@@ -905,6 +1022,11 @@ proposal/review，不能改写 approved plan/result。Proposal 中的 chrome、�
 模型、上传媒体或改变冻结计划。v0.7 的 API 失败、额度/限流/审核失败或 PNG
 规范化失败同样停止且不发布 result pack；任何人为决定的重试都必须重新显式确认，
 不能由 controller 自动发出。
+
+动作或声音门不得降级：执行器尚未集成、能力不匹配、声线授权缺失、全片证据
+缺失，或 Template IR 仍为 0.2.0 时，必须停止对应的动作/声音交付声明。可选择
+输出并明确标记 `structure_only_unclaimed` 的静态结构预览，但不得把该预览称为
+动作复刻、声音模仿或口型同步成片。
 
 ## 15. 隐私、安全与权利
 
@@ -1101,6 +1223,10 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - 清除全部平台和弹幕元素；
 - 保存 run manifest 和 QA。
 
+本阶段的既有 Template IR 为 0.2.0 静态合同；其“本地验收”只表示结构、静态
+外观、切点、轮播、平台元素清除和音轨处理通过，必须标记
+`structure_only_unclaimed`，不表示已验收人物动作、声音模仿或口型同步。
+
 ### Phase 2：真正可复用模板（Manifest 复用已验证，其余继续建设）
 
 - 已使用第二组完整素材完成双分辨率端到端回归；
@@ -1151,8 +1277,21 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
   1080×1920；其他尺寸必须在写入前失败；
 - 已以 clean-room、人工审核的 portal-reveal Template IR 验证横版的
   资产冻结、渲染、双输出技术 QA 与全片人工验收路径；
+- 该 portal-reveal 只验证静态素材的结构、节奏、特效和音轨保留；它不是
+  人物动作复刻或声音/口型能力证明，旧输出只能称
+  `structure_only_unclaimed`；
 - 不新增横版 `propose`、视频语义分类、S2 自动跟踪或横版 compiler；这些仍是
   后续工作，不能因 renderer 可以编码 16:9 而自动放开。
+
+### Phase 3.8：动作/声音合同硬化（v0.8，已冻结；非静态执行器待实现）
+
+- 冻结 Template IR 0.3.0 `rebuild_requirements` 的字段、枚举、组合约束和
+  fail-closed QA；
+- 将 `static`/`layout-only` 与 `pose-transfer`/`video-to-video` 明确分离，
+  将音轨保留/替换与重建音效/授权声线克隆明确分离；
+- 规定 0.2.0 legacy 结果只能称 `structure_only_unclaimed`；
+- 不安装、不连接也不宣称支持任何动作、声音或口型 controller。未来 controller
+  集成必须先通过独立的权利、上传、能力、Schema、全片 QA 和回归验收。
 
 ### Phase 4：S1 通用模板族
 

@@ -1,4 +1,4 @@
 interface:
   display_name: "reference-video-rebuilder"
-  short_description: "Review, generate, freeze, and rebuild authorized S1 videos"
-  default_prompt: "Use $reference-video-rebuilder to prepare and review an authorized S1 reference-video rebuild, optionally run the explicitly approved OpenAI image controller, then assemble, freeze, render, and QA it."
+  short_description: "Review and render authorized static S1 template rebuilds"
+  default_prompt: "Use $reference-video-rebuilder to prepare and review an authorized static S1 reference-video template, enforce its motion/audio requirements, optionally run the explicitly approved image controller for still assets, then assemble, freeze, render, and QA it."

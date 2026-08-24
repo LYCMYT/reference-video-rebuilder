@@ -1,19 +1,39 @@
 # Reference video support levels
 
-Use the most conservative level that matches any material part of the reference.
+Use the most conservative level that matches any material part of the reference
+**and** its reviewed `rebuild_requirements`. A support level describes the
+complexity of the requested reconstruction; it never relaxes a declared motion,
+audio, or lip-sync requirement. Read
+[motion-audio-contract.md](motion-audio-contract.md) with this file.
 
-## S1 — deterministic template
+## Current executable boundary
+
+The bundled renderer is limited to static images, 2D layout/transforms,
+transitions, and selected audio. It has no temporal subject-motion controller,
+voice cloning, audio/SFX rebuilding, or lip-sync engine. Therefore it can
+accept only a request with `motion_required: false`, `motion_mode: static` or
+`layout-only`, `lip_sync_required: false`, and an actually supported audio
+treatment. It must fail closed for every higher requirement.
+
+An external motion provider (including a possible future Runway route) is not
+installed or connected by this repository. Do not list it as a supported S2 or
+S3 executor merely because a controller-managed handoff exists for still
+images.
+
+## S1 — deterministic structure
 
 Characteristics:
 
 - one primary subject;
 - fixed camera or negligible camera motion;
 - simple or replaceable background;
-- fixed or minor subject motion;
-- regular hard cuts, card motion, carousels, captions, or 2D overlays;
-- replaceable regions remain visible and separable.
+- regular hard cuts, card motion, carousels, captions, or 2D overlays; and
+- `motion_required: false` with `motion_mode: static` or `layout-only`.
 
-Expected result: reproduce frame timing, layout, transforms, transitions, and audio events deterministically. Use static approved assets where possible.
+Expected result: reproduce frame timing, layout, approved static appearance,
+2D transforms, transitions, and selected audio deterministically. It does not
+reproduce a person’s continuous action. A pan, zoom, transform, cross-fade, or
+carousel move of a still asset remains layout-only.
 
 ## S2 — tracked composite
 
@@ -22,39 +42,59 @@ Characteristics:
 - one primary moving subject;
 - slow camera motion;
 - moderate, trackable occlusion;
-- perspective or scale changes;
-- dynamic masks and color matching are required.
+- perspective or scale changes; and
+- dynamic masks or color matching are required.
 
-Expected result: preserve structure and most motion after keyframe or mask correction. Do not promise perfect garment consistency.
+Expected result: a future tracked-composite route may preserve structure and
+some movement after mask/keyframe correction. The current bundled renderer does
+not implement S2 tracking, so a request at this level fails closed rather than
+falling back to an unclaimed static result.
 
-## S3 — generative modification
+## S3 — performance or generative motion
 
 Characteristics:
 
-- fast movement or large pose changes;
-- cloth deformation, turning, hair motion, or strong camera movement;
-- substantial regeneration of subject or scene;
-- visible temporal consistency risk.
+- `motion_required: true` with `motion_mode: pose-transfer` or
+  `video-to-video`;
+- fast movement, large pose changes, cloth deformation, turns, hair motion, or
+  strong camera movement;
+- requested lip sync, `audio_mode: rebuild-sfx`, or
+  `audio_mode: clone-authorized-voice`; or
+- material temporal-consistency risk.
 
-Expected result: match the creative form, pacing, and broad motion. Label the workflow experimental, render short segments, and preserve manual review.
+Expected result: only a separately integrated, reviewed motion/audio controller
+may attempt this level. Require short segments, controller-specific evidence,
+and full-playback human review. Until such a controller is actually integrated,
+this repository must fail closed for the requested claim.
 
 ## S4 — unsupported exact mode
 
 Characteristics:
 
 - tightly interacting people;
-- mirrors, complex reflections, transparency, smoke, or liquids across replacement boundaries;
+- mirrors, complex reflections, transparency, smoke, or liquids across
+  replacement boundaries;
 - severe occlusion of essential content;
-- rapid mixed editing or effects not expressible by the current IR;
-- corrupted or extremely low-quality input;
+- rapid mixed editing or effects not expressible by the reviewed IR;
+- corrupted or extremely low-quality input; or
 - unclear authorization.
 
-Expected result: provide analysis and a simplification plan. Do not proceed with an exact-rebuild promise.
+Expected result: provide analysis and a simplification plan. Do not proceed
+with an exact-rebuild promise.
+
+## Legacy Template IR 0.2.0
+
+Template IR 0.2.0 contains no `rebuild_requirements`. A legacy output may only
+be called `structure_only_unclaimed`, regardless of support-level language or
+how similar an individual frame looks. It cannot be accepted as a performance,
+voice-imitation, or lip-sync rebuild.
 
 ## Classification evidence
 
-Store the evidence for the assigned level:
+Store the evidence for the assigned level and requirements:
 
+- the exact `motion_required`, `motion_mode`, `audio_mode`,
+  `lip_sync_required`, and `voice_likeness_rights_confirmed` values;
 - subject count and track continuity;
 - camera motion magnitude;
 - pose velocity;
@@ -63,4 +103,5 @@ Store the evidence for the assigned level:
 - text/UI coverage;
 - unsupported visual effects;
 - input integrity warnings;
+- controller capability evidence where a non-static result is requested; and
 - confidence and required human corrections.

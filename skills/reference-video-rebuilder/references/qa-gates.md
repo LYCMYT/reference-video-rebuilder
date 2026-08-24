@@ -1,5 +1,19 @@
 # QA gates
 
+## 0.8.0-alpha motion/audio contract hardening
+
+v0.8 defines an acceptance contract for Template IR 0.3.0; it does not make
+the existing deterministic renderer a motion, voice, or lip-sync engine. The
+current local path composites static images, 2D layout/transforms, transitions,
+and selected audio. It cannot claim continuous subject action from a still
+image, voice imitation from retained audio, or mouth/audio synchronization.
+
+Read [motion-audio-contract.md](motion-audio-contract.md) before accepting a
+Template IR 0.3.0 or any result that claims performance, voice, SFX rebuilding,
+or lip sync. The older Template IR 0.2.0 has no `rebuild_requirements`; every
+legacy render must be labelled `structure_only_unclaimed` and cannot pass a
+motion, voice, or lip-sync acceptance gate.
+
 ## 0.7.2-alpha coverage
 
 The bundled local CLI retains the v0.4 reference Proposal/Review/freeze-plan
@@ -54,6 +68,57 @@ fixed-subject-carousel S1 work.
 - Confirm the intended 16:9 composition, profile dimensions, exact decoded
   frame count, audio treatment, and absence of prohibited overlays before
   acceptance. A successful encode alone is not visual or rights approval.
+
+## P0 — v0.8 Template IR motion/audio requirements
+
+All applicable P0 checks must pass before a delivery can claim more than
+`structure_only_unclaimed`:
+
+- a Template IR 0.3.0 contains one complete `rebuild_requirements` object with
+  `motion_required`, `motion_mode`, `audio_mode`, `lip_sync_required`, and
+  `voice_likeness_rights_confirmed`;
+- `motion_mode` is exactly one of `static`, `layout-only`, `pose-transfer`, or
+  `video-to-video`; `audio_mode` is exactly one of `mute`,
+  `preserve-reference`, `replace-upload`, `rebuild-sfx`, or
+  `clone-authorized-voice`;
+- `motion_required: false` permits only `static` or `layout-only`, while
+  `motion_required: true` requires `pose-transfer` or `video-to-video`;
+- `lip_sync_required: true` requires `motion_required: true` and an audio mode
+  other than `mute`;
+- `audio_mode: clone-authorized-voice` requires
+  `voice_likeness_rights_confirmed: true`; a true value under another audio
+  mode does not authorize voice cloning;
+- an unknown, absent, contradictory, or unsupported requirement fails closed;
+  no reviewer, renderer, or controller may silently reduce it to static
+  composition;
+- a pan, zoom, transform, cross-fade, or carousel movement of a static image
+  proves only `layout-only`. It cannot satisfy `motion_required: true`,
+  `pose-transfer`, or `video-to-video`;
+- `audio_mode: preserve-reference` proves only approved reference-audio
+  preservation. It is not voice imitation, voice cloning, SFX rebuilding, or
+  lip sync;
+- a non-static result has a reviewed controller declaration naming the actual
+  execution mechanism/version, authorized upload scope, and full-playback
+  evidence for the requested motion/audio behavior; and
+- an unintegrated external provider, including a possible future Runway route,
+  is not evidence of capability. No motion controller is integrated by this
+  repository today.
+
+The current portal-reveal request is fixed as:
+
+```json
+{
+  "motion_required": true,
+  "motion_mode": "video-to-video",
+  "audio_mode": "preserve-reference",
+  "lip_sync_required": false,
+  "voice_likeness_rights_confirmed": false
+}
+```
+
+The existing static portal render can pass only structure/timing/effect and
+audio-preservation review as `structure_only_unclaimed`; it must fail this P0
+motion gate until a reviewed video-to-video result is available.
 
 ## P0 — v0.7.1 Codex built-in ImageGen handoff
 
@@ -257,6 +322,8 @@ workflow but cannot prove approval against a writer who controls the project.
 - event slot references exist;
 - output dimensions are positive and even;
 - support level and warnings are present;
+- Template IR 0.3.0 includes valid `rebuild_requirements`; Template IR 0.2.0
+  is routed only to the `structure_only_unclaimed` acceptance scope; and
 - prohibited layers are excluded.
 
 ## Gate 2 — asset readiness
@@ -285,6 +352,11 @@ workflow but cannot prove approval against a writer who controls the project.
 - cuts, slot changes, transitions, motion curves, and audio cues match the Template IR;
 - subject anchors and background remain stable;
 - no unexpected flash, freeze, black frame, or missing asset appears;
+- when `motion_required: true`, verify continuous subject action rather than
+  only 2D layer movement; when `lip_sync_required: true`, verify visible
+  mouth/audio synchronization; and
+- distinguish `preserve-reference`, `replace-upload`, `rebuild-sfx`, and
+  `clone-authorized-voice` in the recorded audio review; and
 - all warnings are visible to the reviewer.
 
 ## Gate 5 — final media
@@ -292,6 +364,9 @@ workflow but cannot prove approval against a writer who controls the project.
 - output opens and fully decodes;
 - expected frame rate, exact decoded frame count, dimensions, audio-stream presence, and container/video duration agreement pass;
 - all requested output profiles derive from the same master timeline.
+
+An audio stream proves neither voice imitation nor lip sync. Frame decoding and
+static-frame similarity prove neither pose transfer nor video-to-video motion.
 
 The alpha verifier does not yet establish pixel format, codec policy,
 faststart/mobile behavior, subjective audio sync, or visual quality. Add an
