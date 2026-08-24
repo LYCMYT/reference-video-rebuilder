@@ -47,7 +47,11 @@ ASSET_SNAPSHOT_MEMORY_LIMIT = 8 * 1024 * 1024
 ENCODER_STDERR_LIMIT_BYTES = 8 * 1024
 SUPPORTED_IMAGE_MEDIA_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 SUPPORTED_AUDIO_MEDIA_TYPES = frozenset({"audio/wav", "audio/mpeg", "audio/mp4", "audio/x-matroska"})
-SUPPORTED_OUTPUT_SIZES = frozenset({(720, 1280), (1080, 1920)})
+# This is deliberately a fixed allowlist rather than an aspect-ratio policy.
+# Each listed profile is an audited deterministic H.264/yuv420p delivery
+# target; accepting arbitrary even-sized dimensions would expand the S1
+# delivery contract without equivalent QA coverage.
+SUPPORTED_OUTPUT_SIZES = frozenset({(720, 1280), (1080, 1920), (1280, 720), (1920, 1080)})
 SUPPORTED_MASK_TYPES = frozenset({"rect", "polygon"})
 _MASTER_FRAME_NAME_RE = re.compile(r"^frame_(\d+)\.png$")
 _SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -1598,7 +1602,8 @@ def _validate_output_profile(output: Mapping[str, Any]) -> tuple[int, int, str]:
     height = _integer(output.get("height"), f"output {output_id}.height")
     if (width, height) not in SUPPORTED_OUTPUT_SIZES:
         raise UnsupportedFeatureError(
-            f"output {output_id} is {width}x{height}; frozen S1 delivery profiles are 720x1280 and 1080x1920"
+            f"output {output_id} is {width}x{height}; frozen S1 delivery profiles are "
+            "720x1280, 1080x1920, 1280x720, and 1920x1080"
         )
     if output.get("codec") != "h264":
         raise UnsupportedFeatureError(f"output {output_id} requests {output.get('codec')!r}; only H.264 is implemented")

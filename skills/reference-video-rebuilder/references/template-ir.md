@@ -9,11 +9,21 @@ rather than approximate.
 
 ## Alpha renderer subset
 
-The bundled renderer accepts reviewed S1 templates with local JPEG, PNG, or
-WebP render-ready layers; `contain`, `cover`, or `stretch` layout; hold, linear,
-or cubic-bezier transforms; normal blending; rect/polygon masks; and a finite
-horizontal non-repeating carousel. It emits H.264/yuv420p at 720x1280 and/or
-1080x1920 and can mux the supported local audio types.
+The bundled renderer accepts the deterministic subset of a reviewed Template IR
+with local JPEG, PNG, or WebP render-ready layers; `contain`, `cover`, or
+`stretch` layout; hold, linear, or cubic-bezier transforms; normal blending;
+rect/polygon masks; and a finite horizontal non-repeating carousel. It emits
+H.264/yuv420p only at the four
+fixed delivery profiles `720x1280`, `1080x1920`, `1280x720`, and `1920x1080`,
+and can mux the supported local audio types.
+
+The two 16:9 profiles are renderer/encoder delivery targets, not a landscape
+reference-analysis policy. They may be used by an already manually authored and
+reviewed Template IR (including the clean-room portal-reveal benchmark), but
+the new-reference `propose -> review -> freeze-plan -> compile` workflow
+remains portrait 9:16, fixed-subject-carousel S1 automation. Do not claim
+automatic landscape analysis, semantic classification, or compiler output;
+arbitrary landscape dimensions also remain unsupported.
 
 The broader schema also preserves forward-compatible authoring intent. A
 schema-valid feature outside the subset (for example HEVC, 10-bit output,

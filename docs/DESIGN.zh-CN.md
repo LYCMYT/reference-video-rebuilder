@@ -1,6 +1,6 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.7.1-alpha（在 0.7.0-alpha 基础上的策略增量）
+版本：0.7.2-alpha（在 0.7.1-alpha 基础上的受限渲染增量）
 日期：2026-08-24
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
@@ -31,7 +31,14 @@ Image 2 请求；preflight 永不联网、永不写入，run 才在三重显式�
 参考图片，结果仍逐槽审核并进入 v0.5 冻结与最终成片验收。它不是本地
 file-drop，也不等同于 v0.7 的 API controller。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界 S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.7.2-alpha 仅把确定性 renderer 的交付白名单扩展为四个固定尺寸：
+`720x1280`、`1080x1920`、`1280x720`、`1920x1080`。其中两种 16:9
+尺寸已经在一个 clean-room、人工审核的 portal-reveal 基准中走通；它们是
+已审核 Template IR 的渲染/编码目标，不是“任意横版视频自动分析、分类或编译”
+能力。新参考的 `propose -> review -> freeze-plan -> compile` 仍只支持竖版
+9:16 的 fixed-subject-carousel S1 自动化；横版自动编译属于后续工作。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -758,7 +765,11 @@ height、精确 frame_count、fps 和 has_audio。
 
 ### 12.4 输出
 
-默认 H.264/AAC、`yuv420p`、恒定帧率和 faststart；主输出 1080×1920，同时生成 720×1280。保留可配置 HEVC、透明中间文件和无音频母版。
+当前确定性 renderer 只接受 H.264、`yuv420p` 的四个固定交付尺寸：
+720×1280、1080×1920、1280×720、1920×1080；音频输出可为 AAC 或 Opus，
+并使用恒定帧率和 faststart。1280×720 与 1920×1080 只可由人工编写并审核的
+Template IR 使用，不代表任意横版尺寸、HEVC、透明中间文件或横版自动编译
+已经支持。
 
 ## 13. 质量验收
 
@@ -1133,6 +1144,15 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
   `input_fidelity`、不自动 retry；只上传 accepted task 的 reference images；
 - 成功只发布 metadata-free PNG result pack，任何失败零发布，且仍必须走 v0.6
   Result Review 与 v0.5 freeze。
+
+### Phase 3.7：受限横版交付（v0.7.2，已实现）
+
+- renderer 白名单新增 1280×720 与 1920×1080，并保留原有 720×1280 与
+  1080×1920；其他尺寸必须在写入前失败；
+- 已以 clean-room、人工审核的 portal-reveal Template IR 验证横版的
+  资产冻结、渲染、双输出技术 QA 与全片人工验收路径；
+- 不新增横版 `propose`、视频语义分类、S2 自动跟踪或横版 compiler；这些仍是
+  后续工作，不能因 renderer 可以编码 16:9 而自动放开。
 
 ### Phase 4：S1 通用模板族
 

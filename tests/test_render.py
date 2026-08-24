@@ -934,6 +934,70 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertFalse((self.root / "preflight" / "encode").exists())
 
+    def test_encode_accepts_both_frozen_landscape_profiles(self):
+        frame_dir = self.master_sequence(2)
+        document = template([], [], [], duration=2)
+        landscape_720 = copy.deepcopy(document["outputs"][0])
+        landscape_720.update(
+            {
+                "id": "landscape-720",
+                "width": 1280,
+                "height": 720,
+                "filename": "deliveries/landscape-720.mp4",
+            }
+        )
+        landscape_1080 = copy.deepcopy(document["outputs"][0])
+        landscape_1080.update(
+            {
+                "id": "landscape-1080",
+                "width": 1920,
+                "height": 1080,
+                "filename": "deliveries/landscape-1080.mp4",
+            }
+        )
+        document["outputs"] = [landscape_720, landscape_1080]
+        calls = []
+
+        encoded = rrv_render.encode_outputs(
+            document, {}, self.root, frame_dir, runner=lambda arguments: calls.append(arguments)
+        )
+
+        self.assertEqual(
+            [(item.output_id, item.width, item.height) for item in encoded],
+            [("landscape-720", 1280, 720), ("landscape-1080", 1920, 1080)],
+        )
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            [call[call.index("-vf") + 1] for call in calls],
+            [
+                "scale=1280:720:force_original_aspect_ratio=decrease:flags=lanczos,"
+                "pad=1280:720:(ow-iw)*0.5:(oh-ih)*0.5:color=0xffffff",
+                "scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,"
+                "pad=1920:1080:(ow-iw)*0.5:(oh-ih)*0.5:color=0xffffff",
+            ],
+        )
+
+    def test_encode_rejects_arbitrary_landscape_dimensions_without_writes(self):
+        frame_dir = self.master_sequence(2)
+        document = template([], [], [], duration=2)
+        document["outputs"][0].update(
+            {
+                "id": "arbitrary-landscape",
+                "width": 1366,
+                "height": 768,
+                "filename": "preflight/arbitrary-landscape/result.mp4",
+            }
+        )
+        calls = []
+
+        with self.assertRaisesRegex(rrv_render.UnsupportedFeatureError, "frozen S1 delivery profiles"):
+            rrv_render.encode_outputs(
+                document, {}, self.root, frame_dir, runner=lambda arguments: calls.append(arguments)
+            )
+
+        self.assertEqual(calls, [])
+        self.assertFalse((self.root / "preflight" / "arbitrary-landscape").exists())
+
     def test_encode_refuses_existing_master_asset_and_duplicate_output_paths(self):
         frame_dir = self.master_sequence(2)
 

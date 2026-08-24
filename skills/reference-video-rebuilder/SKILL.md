@@ -1,12 +1,16 @@
 ---
 name: reference-video-rebuilder
-description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict generation handoffs; and, only after an approved controller-cloud/controller-managed plan, use either the no-key Codex built-in ImageGen handoff or the separate explicit OpenAI GPT Image 2 API controller. Use for bounded reference-video proposal, generation-plan/result review, approved image-controller execution, Template IR validation, asset-pack review/freeze, frozen asset rendering, and QA. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, or hidden-pixel recovery.
+description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict generation handoffs; and, only after an approved controller-cloud/controller-managed plan, use either the no-key Codex built-in ImageGen handoff or the separate explicit OpenAI GPT Image 2 API controller. Use for bounded reference-video proposal, generation-plan/result review, approved image-controller execution, Template IR validation, asset-pack review/freeze, frozen asset rendering, and QA. Render only the four audited fixed delivery profiles, including manually reviewed 16:9 output; new-reference proposal/compiler automation remains portrait S1 only. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, hidden-pixel recovery, or automatic landscape analysis/compiler support.
 ---
 
 # reference-video-rebuilder
 
-Use this Skill only for authorized, fixed-subject-carousel S1 work. Treat a
-reference as a structure and timing specification, not pixels to copy.
+Use the automated new-reference path only for authorized,
+fixed-subject-carousel S1 work. Treat a reference as a structure and timing
+specification, not pixels to copy. A manually authored and visually reviewed
+Template IR may use one of the four fixed output profiles, including 16:9, but
+this does not imply automatic landscape analysis, support-level classification,
+or compilation.
 
 ```text
 propose -> review -> freeze-plan -> compile
@@ -44,6 +48,10 @@ propose -> review -> freeze-plan -> compile
 - Use Render only with a reviewed Template IR and the Asset Manifest 0.2.0
   produced by Freeze-assets. Inspect is diagnosis only; it writes nothing and
   never implies approval.
+- Use a manually authored/reviewed landscape Template IR only for the exact
+  `1280x720` or `1920x1080` delivery profiles. Do not route a landscape
+  reference through `propose` or `compile`: that automated path remains the
+  portrait 9:16 S1 family and is future work for landscape.
 
 ## Enforce the boundary
 

@@ -1,6 +1,6 @@
 # QA gates
 
-## 0.7.1-alpha coverage
+## 0.7.2-alpha coverage
 
 The bundled local CLI retains the v0.4 reference Proposal/Review/freeze-plan
 path, v0.5 strict asset-pack proposal/freeze, and adds a v0.6 external-
@@ -31,6 +31,29 @@ v0.7.1 also permits a distinct, manually orchestrated Codex built-in ImageGen
 handoff after an approved cloud plan. It needs no API key, is not a CLI
 subcommand, and does not weaken the upload, result-review, asset-freeze, or
 visual-acceptance gates.
+
+v0.7.2 additionally permits deterministic output encoding to the exact
+`1280x720` and `1920x1080` profiles, alongside `720x1280` and `1080x1920`.
+This is renderer-only support for a manual/reviewed Template IR; it does not
+widen the automated new-reference proposal/compiler path beyond portrait,
+fixed-subject-carousel S1 work.
+
+## P0 — v0.7.2 fixed landscape delivery
+
+- Accept only the exact frozen output profiles `720x1280`, `1080x1920`,
+  `1280x720`, and `1920x1080`; arbitrary portrait or landscape dimensions must
+  fail before encoder output is written.
+- Treat `1280x720` and `1920x1080` as delivery/reframe targets of a manually
+  authored and visually reviewed Template IR. They do not authorize
+  `propose`, support-level classification, or `compile` to analyze or generate
+  a landscape reference plan.
+- Keep the ordinary reviewed asset-freeze path, source-pixel exclusion,
+  technical media verification, contact-sheet inspection, and human
+  full-playback review. The clean-room portal-reveal benchmark is evidence for
+  this bounded manual path, not a claim of arbitrary-video or S2 automation.
+- Confirm the intended 16:9 composition, profile dimensions, exact decoded
+  frame count, audio treatment, and absence of prohibited overlays before
+  acceptance. A successful encode alone is not visual or rights approval.
 
 ## P0 — v0.7.1 Codex built-in ImageGen handoff
 
@@ -277,7 +300,7 @@ explicit check before relying on any of those conditions.
 ## Gate 6 — prohibited overlay removal
 
 Use known UI-region checks, contact sheets, the geometry/timing proposal
-artifacts, and a human full-playback review. The bundled `0.7.1-alpha` Skill
+artifacts, and a human full-playback review. The bundled `0.7.2-alpha` Skill
 does not include OCR or automatic platform-UI semantic detection. Require no
 residual platform logo, account text, comments, engagement rail,
 status/navigation bars, or visible reconstruction smear. This remains a

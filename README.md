@@ -6,16 +6,33 @@ reference as a structure and timing specification, never as pixels to copy.
 Platform UI, comments, account information, and watermarks are excluded from
 the clean reconstruction; pixels fully hidden by them are not recoverable.
 
-> Status: 0.7.1-alpha. The local, bounded new-reference path remains
+> Status: 0.7.2-alpha. The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
 > bridge for externally created still assets. v0.7 adds one separate, explicit
 > OpenAI GPT Image 2 API controller after an approved cloud plan. v0.7.1 also
 > defines a no-API-key Codex built-in ImageGen handoff under a distinct approved
-> cloud-controller declaration. `video_remix.py`
+> cloud-controller declaration. v0.7.2 adds two fixed, audited landscape
+> delivery profiles to the deterministic renderer only. `video_remix.py`
 > remains fully offline: it never runs a model, shell command, network request,
-> weight download, or automatic approval. The workflow remains limited to
-> authorized fixed-subject-carousel S1 work, not arbitrary-video discovery,
+> weight download, or automatic approval. Automated new-reference work remains
+> limited to authorized fixed-subject-carousel S1, not arbitrary-video discovery,
 > semantic classification, OCR, or concealed-pixel recovery.
+
+## What 0.7.2 adds
+
+v0.7.2 documents a deliberately narrow renderer capability: in addition to
+the existing portrait outputs, an already authored and reviewed Template IR can
+encode to exactly `1280x720` or `1920x1080`. These are fixed H.264/yuv420p
+delivery profiles, not an arbitrary landscape/aspect-ratio policy. All other
+landscape dimensions fail before encoding writes an output.
+
+This path was exercised with a clean-room, manually reviewed portal-reveal
+benchmark. It reconstructs timing and compositing from approved replacement
+assets; it does not retain reference-video pixels or make the source an
+automatic landscape template. The new-reference `propose -> review ->
+freeze-plan -> compile` path remains portrait-only, fixed-subject-carousel S1
+automation with its existing 9:16 composition heuristic. Automatic landscape
+analysis, classification, and compiler output are explicitly future work.
 
 ## What 0.7.1 adds
 
@@ -158,7 +175,7 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Skill and governed workflow | 0.7.0-alpha |
+| Skill and governed workflow | 0.7.2-alpha |
 | `video_remix.py` local CLI | 0.6.0-alpha |
 | `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
@@ -174,8 +191,11 @@ IR, and technical QA retain their existing contracts.
 
 ## Supported boundary
 
-The alpha accepts only authorized fixed-subject-carousel S1 work. The bundled
-`video_remix.py` CLI is local and does not provide:
+The automated new-reference path accepts only authorized fixed-subject-carousel
+S1 work. A separately authored, visually reviewed Template IR may use one of
+the four fixed renderer delivery profiles (`720x1280`, `1080x1920`, `1280x720`,
+or `1920x1080`), but that does not expand proposal/compiler automation beyond
+portrait S1. The bundled `video_remix.py` CLI is local and does not provide:
 
 - OCR or arbitrary-video semantic classification;
 - identity, garment, product, UI, watermark, or text meaning inference;
@@ -183,6 +203,11 @@ The alpha accepts only authorized fixed-subject-carousel S1 work. The bundled
   arbitrary shell execution, or network/upload operation;
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
+
+In particular, it does not automatically analyze, classify, or compile an
+arbitrary landscape reference. A landscape clean-room reconstruction requires a
+manual/reviewed Template IR, the ordinary asset freeze, and the same full visual
+QA gates as portrait work.
 
 An external controller may create still assets after a reviewed v0.6 plan. The
 approved networking surfaces are the explicit v0.7 OpenAI API controller and
@@ -581,7 +606,9 @@ python -m unittest discover -s tests -v
 Validate the local technical gates, then perform human visual and rights
 review. A successful media decode does not establish identity consistency,
 garment/product fidelity, correct carousel semantics, absence of residual
-platform elements, or commercial rights.
+platform elements, or commercial rights. For the fixed landscape profiles,
+also confirm the intended 16:9 framing and complete playback; their acceptance
+does not imply support for a new-reference landscape compiler.
 
 Confirm permission for the reference video, likenesses, products, logos, audio,
 and every reference/result/asset-pack file before proposal. `video_remix.py` is
