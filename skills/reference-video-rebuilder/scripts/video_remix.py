@@ -49,12 +49,13 @@ GENERATION_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-plan.schema.json"
 GENERATION_PLAN_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-plan-review.schema.json"
 GENERATION_RESULTS_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-proposal.schema.json"
 GENERATION_RESULTS_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-review.schema.json"
+FAITHFUL_REBUILD_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "faithful-rebuild-plan.schema.json"
 # Descriptive aliases remain public for callers that name the artifact type.
 COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
 ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
 ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.8.0-alpha"
+CLI_VERSION = "0.9.0-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 SUPPORTED_TEMPLATE_IR_SCHEMA_VERSIONS = ("0.2.0", "0.3.0")
 __version__ = CLI_VERSION
@@ -157,6 +158,12 @@ def _generation_module() -> Any:
     """Load reviewed generation-packet support only for v0.6 commands."""
 
     return _lazy_module("rrv_generation")
+
+
+def _faithful_module() -> Any:
+    """Load the v0.9 faithful-rebuild core only for faithful commands."""
+
+    return _lazy_module("rrv_faithful")
 
 
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
@@ -509,6 +516,12 @@ def doctor_payload(
         )
         is not None
     )
+    faithful_rebuild_plan_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            FAITHFUL_REBUILD_PLAN_SCHEMA_PATH, "faithful rebuild plan"
+        )
+        is not None
+    )
     # A discovered regular file is not evidence that it is an executable
     # media tool.  Advertise every operational capability only after the
     # bounded version probe succeeds.
@@ -527,6 +540,7 @@ def doctor_payload(
     generation_assembly_core_available = _generation_module_available(
         "assemble_generation_pack"
     )
+    faithful_core_available = _faithful_module_available()
     asset_bound_render_core_available = _asset_bound_render_available()
     compiler_prerequisites = (
         has_ffmpeg
@@ -604,6 +618,13 @@ def doctor_payload(
         and generation_schemas_available
         and generation_assembly_core_available
     )
+    faithful_rebuild_prerequisites = (
+        has_jsonschema
+        and has_ffmpeg
+        and has_ffprobe
+        and faithful_rebuild_plan_schema_available
+        and faithful_core_available
+    )
     return {
         "status": "ok",
         "stage": "alpha",
@@ -654,6 +675,7 @@ def doctor_payload(
             "generation_planning": generation_planning_prerequisites,
             "generation_result_review": generation_result_review_prerequisites,
             "generation_pack_assembly": generation_pack_assembly_prerequisites,
+            "faithful_rebuild": faithful_rebuild_prerequisites,
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
             "reference_analysis": compiler_prerequisites,
@@ -681,6 +703,7 @@ def doctor_payload(
             "Compiler Plan proposal and freeze are limited to authorized local fixed-subject-carousel S1 work and always require explicit human review before freeze.",
             "Asset-pack proposal and freeze require local Pillow, FFprobe, both asset packet schemas, and their guarded local core.",
             "Generation planning and result review prepare and validate local review packets only; this Skill does not include or automatically call an asset generator, network service, or cloud provider.",
+            "Faithful rebuild is available only with a valid reviewed plan, local FFmpeg and FFprobe version probes, the faithful-plan schema, and its guarded local core.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "Timeline render is static/2D compositing only; it does not provide subject-motion replication, voice cloning, audio rebuild, or lip sync.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
@@ -772,6 +795,19 @@ def _generation_module_available(operation: str) -> bool:
 
     try:
         return callable(getattr(_generation_module(), operation, None))
+    except Exception:
+        return False
+
+
+def _faithful_module_available() -> bool:
+    """Check the complete public v0.9 faithful-rebuild surface."""
+
+    try:
+        module = _faithful_module()
+        return (
+            callable(getattr(module, "validate_faithful_plan", None))
+            and callable(getattr(module, "execute_faithful_rebuild", None))
+        )
     except Exception:
         return False
 
@@ -3550,6 +3586,235 @@ def run_assemble_generation_pack(args: argparse.Namespace) -> tuple[dict[str, An
         return _generation_workflow_error_payload("generation pack assembly", exc), 2
 
 
+_FAITHFUL_SAFE_ERROR_CODES = frozenset(
+    {
+        "invalid_argument",
+        "project_root_invalid",
+        "output_path_outside_project_root",
+        "output_already_exists",
+        "source_not_found",
+        "tool_not_found",
+        "tool_execution_failed",
+        "tool_timeout",
+        "probe_failed",
+        "capability_unavailable",
+    }
+)
+
+
+def _validate_faithful_plan_file(path: Path) -> list[str]:
+    """Validate a v0.9 plan without exposing JSON or schema diagnostics."""
+
+    try:
+        plan, _plan_sha256 = _load_public_json_snapshot(path)
+    except Exception as exc:
+        return [_public_json_error(exc)]
+    try:
+        validator = getattr(_faithful_module(), "validate_faithful_plan", None)
+        if not callable(validator):
+            return ["$: validation.unavailable"]
+        validator(plan)
+    except Exception:
+        # Schema and semantic errors can contain plan text, source paths, or
+        # tool-facing values.  Public validation intentionally has one class.
+        return ["$: validation.invalid"]
+    return []
+
+
+def _faithful_workflow_error_payload(
+    operation: str, error: BaseException
+) -> dict[str, Any]:
+    """Return a fixed v0.9 error envelope with no plan or tool text."""
+
+    message = f"{operation} failed"
+    try:
+        runtime = _runtime_module()
+    except Exception:
+        return {
+            "schema_version": "1.0",
+            "status": "error",
+            "error": {
+                "code": "invalid_argument" if isinstance(error, CliArgumentError) else "operation_failed",
+                "message": message,
+            },
+        }
+    if isinstance(error, CliArgumentError):
+        code = runtime.ERR_INVALID_ARGUMENT
+    else:
+        code = getattr(error, "code", None)
+        if not isinstance(code, str) or code not in _FAITHFUL_SAFE_ERROR_CODES:
+            code = runtime.ERR_TOOL_EXECUTION
+    return runtime.error_payload(runtime.RRVError(code, message))
+
+
+def _compact_faithful_payload_hash(value: Any, field: str) -> dict[str, Any]:
+    """Expose a bounded packet digest without subprocess or source details."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError(f"faithful rebuild returned an invalid {field}")
+    digest = value.get("sha256")
+    packet_count = value.get("packet_count")
+    if (
+        not isinstance(digest, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(digest)
+        or not _is_int(packet_count)
+        or not 1 <= packet_count <= 10_000_000
+    ):
+        raise TypeError(f"faithful rebuild returned an invalid {field}")
+    return {"sha256": digest, "packet_count": packet_count}
+
+
+def _compact_faithful_media_facts(value: Any) -> dict[str, Any]:
+    """Keep numerical media facts only; codec/container strings are tool text."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("faithful rebuild returned invalid media_facts")
+    width = value.get("width")
+    height = value.get("height")
+    fps = value.get("fps")
+    frame_count = value.get("frame_count")
+    duration_seconds = value.get("duration_seconds")
+    has_audio = value.get("has_audio")
+    audio_stream_count = value.get("audio_stream_count")
+    if (
+        not _is_int(width)
+        or not 1 <= width <= 1920
+        or not _is_int(height)
+        or not 1 <= height <= 1920
+        or not _is_number(fps)
+        or not 0 < float(fps) <= 120
+        or not _is_int(frame_count)
+        or not 1 <= frame_count <= 7200
+        or not _is_number(duration_seconds)
+        or not 0 < float(duration_seconds) <= 60
+        or not isinstance(has_audio, bool)
+        or not _is_int(audio_stream_count)
+        or not 0 <= audio_stream_count <= 64
+    ):
+        raise TypeError("faithful rebuild returned invalid media_facts")
+    return {
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "frame_count": frame_count,
+        "duration_seconds": duration_seconds,
+        "has_audio": has_audio,
+        "audio_stream_count": audio_stream_count,
+    }
+
+
+def _compact_faithful_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the safe handoff facts from a successful faithful rebuild."""
+
+    if result.get("schema_version") != "0.9.0":
+        raise TypeError("faithful rebuild returned an invalid schema_version")
+    if result.get("completion") != "faithful_source_preservation":
+        raise TypeError("faithful rebuild returned an invalid completion")
+    replica_sha256 = result.get("replica_sha256")
+    plan_sha256 = result.get("plan_sha256")
+    if (
+        not isinstance(replica_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(replica_sha256)
+        or not isinstance(plan_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(plan_sha256)
+    ):
+        raise TypeError("faithful rebuild returned invalid digests")
+    text_inventory_count = result.get("text_inventory_count")
+    metadata = result.get("metadata")
+    if (
+        not _is_int(text_inventory_count)
+        or not 1 <= text_inventory_count <= 256
+        or not isinstance(metadata, Mapping)
+        or metadata.get("strip_all") is not True
+        or metadata.get("verified") is not True
+    ):
+        raise TypeError("faithful rebuild returned invalid completion facts")
+    raw_payload_hashes = result.get("payload_hashes")
+    if not isinstance(raw_payload_hashes, Mapping):
+        raise TypeError("faithful rebuild returned invalid payload_hashes")
+    raw_video = raw_payload_hashes.get("video")
+    raw_audio = raw_payload_hashes.get("audio")
+    if not isinstance(raw_video, Mapping) or not isinstance(raw_audio, Mapping):
+        raise TypeError("faithful rebuild returned invalid payload_hashes")
+    audio_mode = raw_audio.get("mode")
+    if audio_mode not in {"preserve-bitstream", "mute"}:
+        raise TypeError("faithful rebuild returned invalid payload_hashes.audio.mode")
+
+    def compact_optional_payload(value: Any, field: str) -> dict[str, Any] | None:
+        if value is None:
+            return None
+        return _compact_faithful_payload_hash(value, field)
+
+    return {
+        "schema_version": "0.9.0",
+        "completion": "faithful_source_preservation",
+        "output_dir": _compact_workflow_relative_path(result.get("output_dir"), "output_dir"),
+        "replica_path": _compact_workflow_relative_path(result.get("replica_path"), "replica_path"),
+        "rebuild_summary_path": _compact_workflow_relative_path(
+            result.get("rebuild_summary_path"), "rebuild_summary_path"
+        ),
+        "replica_sha256": replica_sha256,
+        "plan_sha256": plan_sha256,
+        "media_facts": _compact_faithful_media_facts(result.get("media_facts")),
+        "payload_hashes": {
+            "video": {
+                "source": _compact_faithful_payload_hash(
+                    raw_video.get("source"), "payload_hashes.video.source"
+                ),
+                "replica": _compact_faithful_payload_hash(
+                    raw_video.get("replica"), "payload_hashes.video.replica"
+                ),
+            },
+            "audio": {
+                "mode": audio_mode,
+                "source": compact_optional_payload(
+                    raw_audio.get("source"), "payload_hashes.audio.source"
+                ),
+                "replica": compact_optional_payload(
+                    raw_audio.get("replica"), "payload_hashes.audio.replica"
+                ),
+            },
+        },
+        "text_inventory_count": text_inventory_count,
+        "metadata": {"strip_all": True, "verified": True},
+    }
+
+
+def run_faithful_rebuild(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Execute an explicitly approved v0.9 faithful rebuild.
+
+    The only pre-core input access is a strict read of the plan needed to
+    check its top-level rights gate.  In particular, a rejected plan never
+    imports the faithful core, resolves the project root, discovers media
+    tools, accesses its source, or creates an output directory.
+    """
+
+    try:
+        plan, _plan_sha256 = _load_public_json_snapshot(args.plan)
+    except Exception:
+        return _faithful_workflow_error_payload(
+            "faithful rebuild", CliArgumentError("invalid faithful plan")
+        ), 2
+    if not isinstance(plan, Mapping) or plan.get("rights_confirmed") is not True:
+        return _faithful_workflow_error_payload(
+            "faithful rebuild", CliArgumentError("rights confirmation is required")
+        ), 2
+    try:
+        result = _faithful_module().execute_faithful_rebuild(
+            plan,
+            args.project_root,
+            args.output_dir,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("faithful rebuild returned an invalid result")
+        return _runtime_module().success_payload(_compact_faithful_result(result)), 0
+    except Exception as exc:
+        return _faithful_workflow_error_payload("faithful rebuild", exc), 2
+
+
 def _add_runtime_arguments(
     parser: argparse.ArgumentParser,
     *,
@@ -3653,6 +3918,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_generation_results_review.add_argument("review", type=Path)
     validate_generation_results_review.add_argument("--json", action="store_true", dest="as_json")
+    validate_faithful_plan = subparsers.add_parser(
+        "validate-faithful-plan",
+        help="Validate a v0.9 local faithful rebuild plan",
+    )
+    validate_faithful_plan.add_argument("plan", type=Path)
+    validate_faithful_plan.add_argument("--json", action="store_true", dest="as_json")
 
     probe = subparsers.add_parser("probe", help="Probe one local media source")
     probe.add_argument("source", type=Path)
@@ -3828,6 +4099,18 @@ def build_parser() -> argparse.ArgumentParser:
     assemble_generation_pack.add_argument("--timeout", type=float, default=60.0)
     assemble_generation_pack.add_argument("--json", action="store_true", dest="as_json")
 
+    faithful_rebuild = subparsers.add_parser(
+        "faithful-rebuild",
+        help="Create a metadata-free faithful local source replica from an approved plan",
+    )
+    faithful_rebuild.add_argument("plan", type=Path)
+    faithful_rebuild.add_argument("--project-root", type=Path, required=True)
+    faithful_rebuild.add_argument("--output-dir", type=Path, default=Path("faithful-rebuild"))
+    faithful_rebuild.add_argument("--ffmpeg", type=Path)
+    faithful_rebuild.add_argument("--ffprobe", type=Path)
+    faithful_rebuild.add_argument("--timeout-seconds", type=float, default=60.0)
+    faithful_rebuild.add_argument("--json", action="store_true", dest="as_json")
+
     render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
     render.add_argument("template", type=Path)
     render.add_argument("manifest", type=Path)
@@ -3903,6 +4186,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, status = run_assemble_generation_pack(args)
             _emit_stable_json(payload)
             return status
+        if args.command == "faithful-rebuild":
+            payload, status = run_faithful_rebuild(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "render":
             try:
                 payload, status = run_render(args)
@@ -3959,6 +4246,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             errors = _validate_generation_packet_file(
                 args.review, validate_generation_results_review_data
             )
+        elif args.command == "validate-faithful-plan":
+            errors = _validate_faithful_plan_file(args.plan)
         else:
             try:
                 template, _template_sha256 = _load_public_json_snapshot(args.template)

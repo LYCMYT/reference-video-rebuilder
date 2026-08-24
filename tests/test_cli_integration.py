@@ -269,6 +269,49 @@ class PublicCliIntegrationTests(unittest.TestCase):
         values.update(overrides)
         return SimpleNamespace(**values)
 
+    def _faithful_plan(self, *, rights_confirmed: bool = True) -> dict:
+        return {
+            "schema_version": "0.9.0",
+            "rights_confirmed": rights_confirmed,
+            "operation": "faithful-reference-rebuild",
+            "source": {
+                "path": "source.mp4",
+                "sha256": "a" * 64,
+                "width": 1280,
+                "height": 720,
+                "fps": 30.0,
+                "frame_count": 30,
+                "duration_seconds": 1.0,
+                "has_audio": True,
+            },
+            "visible_text_policy": "preserve-exact",
+            "text_inventory": [
+                {
+                    "id": "title",
+                    "start_frame": 0,
+                    "end_frame": 30,
+                    "lines": ["Approved text"],
+                    "region": {"x": 1, "y": 1, "width": 10, "height": 10},
+                    "human_reviewed": True,
+                }
+            ],
+            "video_mode": "preserve-bitstream",
+            "audio_mode": "preserve-bitstream",
+            "metadata": {"strip_all": True},
+        }
+
+    def _faithful_rebuild_args(self, root: Path, plan: Path, **overrides):
+        values = {
+            "plan": plan,
+            "project_root": root,
+            "output_dir": Path("faithful-rebuild"),
+            "ffmpeg": Path("ffmpeg"),
+            "ffprobe": Path("ffprobe"),
+            "timeout_seconds": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
     def test_render_validates_template_and_assets_before_loading_renderer_or_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1460,7 +1503,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 output_dir=Path("frozen-plan"),
             )
 
-    def test_v06_parser_exposes_asset_and_generation_commands_defaults_and_version(self):
+    def test_v09_parser_exposes_asset_generation_and_faithful_commands_defaults_and_version(self):
         parser = video_remix.build_parser()
         proposed = parser.parse_args(
             [
@@ -1543,6 +1586,34 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertEqual(generation_assembly.ffprobe, Path("ffprobe"))
         self.assertEqual(generation_assembly.timeout, 60.0)
 
+        faithful_validation = parser.parse_args(
+            ["validate-faithful-plan", "faithful-plan.json", "--json"]
+        )
+        self.assertEqual(faithful_validation.command, "validate-faithful-plan")
+        self.assertEqual(faithful_validation.plan, Path("faithful-plan.json"))
+        self.assertTrue(faithful_validation.as_json)
+
+        faithful_rebuild = parser.parse_args(
+            [
+                "faithful-rebuild",
+                "faithful-plan.json",
+                "--project-root",
+                "project",
+                "--ffmpeg",
+                "portable-ffmpeg",
+                "--ffprobe",
+                "portable-ffprobe",
+                "--timeout-seconds",
+                "12.5",
+                "--json",
+            ]
+        )
+        self.assertEqual(faithful_rebuild.output_dir, Path("faithful-rebuild"))
+        self.assertEqual(faithful_rebuild.ffmpeg, Path("portable-ffmpeg"))
+        self.assertEqual(faithful_rebuild.ffprobe, Path("portable-ffprobe"))
+        self.assertEqual(faithful_rebuild.timeout_seconds, 12.5)
+        self.assertTrue(faithful_rebuild.as_json)
+
         with self.assertRaises(video_remix.CliArgumentError):
             parser.parse_args(
                 [
@@ -1570,7 +1641,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
             parser.parse_args(["--version"])
         self.assertEqual(exited.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "video-remix 0.8.0-alpha")
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.9.0-alpha")
 
         with mock.patch.object(
             video_remix,
@@ -2307,6 +2378,260 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertFalse(capabilities["asset_pack_proposal"])
         self.assertFalse(capabilities["asset_review_freeze"])
         self.assertFalse(capabilities["asset_bound_render"])
+
+    def test_v09_faithful_rebuild_delegates_strict_plan_and_compacts_result(self):
+        result = {
+            "schema_version": "0.9.0",
+            "completion": "faithful_source_preservation",
+            "output_dir": "faithful-rebuild",
+            "replica_path": "faithful-rebuild/replica.mp4",
+            "rebuild_summary_path": "faithful-rebuild/rebuild-summary.json",
+            "replica_sha256": "b" * 64,
+            "plan_sha256": "c" * 64,
+            "source": {"path": "C:/PRIVATE/source.mp4", "sha256": "a" * 64},
+            "media_facts": {
+                "width": 1280,
+                "height": 720,
+                "fps": 30.0,
+                "frame_count": 30,
+                "duration_seconds": 1.0,
+                "has_audio": True,
+                "audio_stream_count": 1,
+                "video_codec": "C:/PRIVATE/ffprobe-output",
+                "container": "PRIVATE container",
+            },
+            "payload_hashes": {
+                "video": {
+                    "source": {"sha256": "d" * 64, "packet_count": 7},
+                    "replica": {"sha256": "d" * 64, "packet_count": 7},
+                },
+                "audio": {
+                    "mode": "preserve-bitstream",
+                    "source": {"sha256": "e" * 64, "packet_count": 4},
+                    "replica": {"sha256": "e" * 64, "packet_count": 4},
+                },
+            },
+            "text_inventory_count": 1,
+            "visible_text_policy": "preserve-exact",
+            "metadata": {"strip_all": True, "verified": True},
+            "tool_stderr": "C:/PRIVATE/ffmpeg secret",
+        }
+        core = SimpleNamespace(execute_faithful_rebuild=mock.Mock(return_value=result))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan_path = root / "faithful-plan.json"
+            plan = self._faithful_plan()
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            with mock.patch.object(video_remix, "_faithful_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ):
+                payload, status = video_remix.run_faithful_rebuild(
+                    self._faithful_rebuild_args(root, plan_path)
+                )
+        self.assertEqual(status, 0)
+        self.assertEqual(
+            payload["result"],
+            {
+                "schema_version": "0.9.0",
+                "completion": "faithful_source_preservation",
+                "output_dir": "faithful-rebuild",
+                "replica_path": "faithful-rebuild/replica.mp4",
+                "rebuild_summary_path": "faithful-rebuild/rebuild-summary.json",
+                "replica_sha256": "b" * 64,
+                "plan_sha256": "c" * 64,
+                "media_facts": {
+                    "width": 1280,
+                    "height": 720,
+                    "fps": 30.0,
+                    "frame_count": 30,
+                    "duration_seconds": 1.0,
+                    "has_audio": True,
+                    "audio_stream_count": 1,
+                },
+                "payload_hashes": {
+                    "video": {
+                        "source": {"sha256": "d" * 64, "packet_count": 7},
+                        "replica": {"sha256": "d" * 64, "packet_count": 7},
+                    },
+                    "audio": {
+                        "mode": "preserve-bitstream",
+                        "source": {"sha256": "e" * 64, "packet_count": 4},
+                        "replica": {"sha256": "e" * 64, "packet_count": 4},
+                    },
+                },
+                "text_inventory_count": 1,
+                "metadata": {"strip_all": True, "verified": True},
+            },
+        )
+        self.assertNotIn("PRIVATE", json.dumps(payload))
+        core.execute_faithful_rebuild.assert_called_once_with(
+            plan,
+            root,
+            Path("faithful-rebuild"),
+            ffmpeg=Path("ffmpeg"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+
+    def test_v09_faithful_rebuild_rights_gate_and_errors_are_zero_touch_and_redacted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan_path = root / "unapproved-plan.json"
+            unapproved = self._faithful_plan(rights_confirmed=False)
+            unapproved["source"]["path"] = "C:/PRIVATE/source.mp4"
+            plan_path.write_text(json.dumps(unapproved), encoding="utf-8")
+            with mock.patch.object(
+                video_remix,
+                "_faithful_module",
+                side_effect=AssertionError("rights gate must not import the faithful core"),
+            ) as faithful:
+                payload, status = video_remix.run_faithful_rebuild(
+                    self._faithful_rebuild_args(root / "not-touched", plan_path)
+                )
+            self.assertEqual(status, 2)
+            self.assertEqual(payload["error"]["code"], rrv_runtime.ERR_INVALID_ARGUMENT)
+            self.assertNotIn("PRIVATE", json.dumps(payload))
+            self.assertFalse((root / "faithful-rebuild").exists())
+            faithful.assert_not_called()
+
+            approved = self._faithful_plan()
+            plan_path.write_text(json.dumps(approved), encoding="utf-8")
+            core = SimpleNamespace(
+                execute_faithful_rebuild=mock.Mock(
+                    side_effect=rrv_runtime.RRVError(
+                        rrv_runtime.ERR_INVALID_ARGUMENT,
+                        "C:/PRIVATE/source.mp4 -- private FFmpeg stderr",
+                    )
+                )
+            )
+            with mock.patch.object(video_remix, "_faithful_module", return_value=core):
+                payload, status = video_remix.run_faithful_rebuild(
+                    self._faithful_rebuild_args(root, plan_path)
+                )
+            self.assertEqual(status, 2)
+            self.assertEqual(payload["error"]["code"], rrv_runtime.ERR_INVALID_ARGUMENT)
+            self.assertNotIn("PRIVATE", json.dumps(payload))
+            self.assertNotIn("stderr", json.dumps(payload))
+
+    def test_v09_validate_faithful_plan_is_strict_redacted_and_lazy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            duplicate = root / "duplicate.json"
+            duplicate.write_text(
+                '{"rights_confirmed":true,"rights_confirmed":"C:/PRIVATE/secret.json"}',
+                encoding="utf-8",
+            )
+            nonfinite = root / "nonfinite.json"
+            nonfinite.write_text('{"rights_confirmed":NaN}', encoding="utf-8")
+            for plan_path, expected in (
+                (duplicate, "$: json.duplicate_key"),
+                (nonfinite, "$: json.finite_number"),
+            ):
+                with self.subTest(plan=plan_path.name), mock.patch.object(
+                    video_remix,
+                    "_faithful_module",
+                    side_effect=AssertionError("strict JSON failure must not import core"),
+                ) as faithful:
+                    output = io.StringIO()
+                    with contextlib.redirect_stdout(output):
+                        status = video_remix.main(
+                            ["validate-faithful-plan", str(plan_path), "--json"]
+                        )
+                    self.assertEqual(status, 2)
+                    self.assertEqual(json.loads(output.getvalue()), {"status": "fail", "errors": [expected]})
+                    self.assertNotIn("PRIVATE", output.getvalue())
+                    faithful.assert_not_called()
+
+            invalid = root / "invalid.json"
+            invalid.write_text(json.dumps(self._faithful_plan()), encoding="utf-8")
+            core = SimpleNamespace(
+                validate_faithful_plan=mock.Mock(
+                    side_effect=ValueError("C:/PRIVATE/plan.json invalid value")
+                )
+            )
+            with mock.patch.object(video_remix, "_faithful_module", return_value=core):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = video_remix.main(["validate-faithful-plan", str(invalid), "--json"])
+            self.assertEqual(status, 2)
+            self.assertEqual(
+                json.loads(output.getvalue()),
+                {"status": "fail", "errors": ["$: validation.invalid"]},
+            )
+            self.assertNotIn("PRIVATE", output.getvalue())
+
+    def test_v09_main_dispatches_faithful_rebuild_and_legacy_paths_stay_lazy(self):
+        ready = {"schema_version": "1.0", "status": "ok", "result": {}}
+        with mock.patch.object(video_remix, "run_faithful_rebuild", return_value=(ready, 0)) as rebuild:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = video_remix.main(
+                    [
+                        "faithful-rebuild",
+                        "faithful-plan.json",
+                        "--project-root",
+                        "project",
+                        "--json",
+                    ]
+                )
+        self.assertEqual(status, 0)
+        self.assertEqual(json.loads(output.getvalue()), ready)
+        self.assertEqual(rebuild.call_args.args[0].plan, Path("faithful-plan.json"))
+        self.assertEqual(rebuild.call_args.args[0].project_root, Path("project"))
+
+        with tempfile.TemporaryDirectory() as directory:
+            invalid_template = Path(directory) / "invalid-template.json"
+            invalid_template.write_text("{}", encoding="utf-8")
+            with mock.patch.object(
+                video_remix,
+                "_faithful_module",
+                side_effect=AssertionError("legacy validation must not import faithful core"),
+            ) as faithful:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = video_remix.main(
+                        ["validate-template", str(invalid_template), "--json"]
+                    )
+            self.assertEqual(status, 2)
+            faithful.assert_not_called()
+
+    def test_v09_doctor_requires_all_faithful_rebuild_gates(self):
+        executable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
+        faithful = SimpleNamespace(
+            validate_faithful_plan=mock.Mock(), execute_faithful_rebuild=mock.Mock()
+        )
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+            video_remix, "_faithful_module", return_value=faithful
+        ):
+            self.assertTrue(video_remix.doctor_payload()["capabilities"]["faithful_rebuild"])
+
+        no_probe = rrv_runtime.RuntimeTools(
+            ffmpeg=executable_tools.ffmpeg,
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", None),
+        )
+        with mock.patch.object(
+            video_remix,
+            "_runtime_module",
+            return_value=SimpleNamespace(discover_tools=mock.Mock(return_value=no_probe)),
+        ), mock.patch.object(video_remix, "_faithful_module", return_value=faithful):
+            self.assertFalse(video_remix.doctor_payload()["capabilities"]["faithful_rebuild"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            missing_schema = Path(directory) / "faithful-rebuild-plan.schema.json"
+            with mock.patch.object(video_remix, "FAITHFUL_REBUILD_PLAN_SCHEMA_PATH", missing_schema), mock.patch.object(
+                video_remix, "_runtime_module", return_value=runtime
+            ), mock.patch.object(video_remix, "_faithful_module", return_value=faithful):
+                self.assertFalse(video_remix.doctor_payload()["capabilities"]["faithful_rebuild"])
+
+        incomplete = SimpleNamespace(validate_faithful_plan=mock.Mock())
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+            video_remix, "_faithful_module", return_value=incomplete
+        ):
+            self.assertFalse(video_remix.doctor_payload()["capabilities"]["faithful_rebuild"])
 
     def test_v06_doctor_gates_generation_packet_capabilities_without_claiming_generation(self):
         executable_tools = rrv_runtime.RuntimeTools(

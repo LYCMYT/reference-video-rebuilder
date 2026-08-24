@@ -1,4 +1,4 @@
 interface:
   display_name: "reference-video-rebuilder"
-  short_description: "Review and render authorized static S1 template rebuilds"
-  default_prompt: "Use $reference-video-rebuilder to prepare and review an authorized static S1 reference-video template, enforce its motion/audio requirements, optionally run the explicitly approved image controller for still assets, then assemble, freeze, render, and QA it."
+  short_description: "Review static S1 rebuilds or faithfully preserve an authorized source"
+  default_prompt: "Use $reference-video-rebuilder to either prepare and review an authorized static S1 reference-video template, or—only when visible content must remain unchanged—follow the faithful source-preservation contract with a manually reviewed text inventory. Enforce motion/audio requirements, use approved still-image controllers only when applicable, then assemble, freeze, render or preserve, and QA it."

@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/faithful-rebuild-plan.schema.json",
+  "title": "Faithful Reference Rebuild Plan",
+  "description": "A reviewed local-only 0.9.0 plan for a bitstream-preserving source-video replica. It intentionally permits no visual, textual, timing, or audio transformation other than an explicit mute.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "rights_confirmed",
+    "operation",
+    "source",
+    "visible_text_policy",
+    "text_inventory",
+    "video_mode",
+    "audio_mode",
+    "metadata"
+  ],
+  "properties": {
+    "schema_version": {"const": "0.9.0"},
+    "rights_confirmed": {"const": true},
+    "operation": {"const": "faithful-reference-rebuild"},
+    "source": {"$ref": "#/$defs/source"},
+    "visible_text_policy": {"const": "preserve-exact"},
+    "text_inventory": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/textInventoryItem"}
+    },
+    "video_mode": {"const": "preserve-bitstream"},
+    "audio_mode": {"enum": ["preserve-bitstream", "mute"]},
+    "metadata": {"$ref": "#/$defs/metadata"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "relativePath": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(?:^|/)\\.{1,2}(?:/|$)).+$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "width",
+        "height",
+        "fps",
+        "frame_count",
+        "duration_seconds",
+        "has_audio"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/relativePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "width": {"type": "integer", "minimum": 1, "maximum": 1920},
+        "height": {"type": "integer", "minimum": 1, "maximum": 1920},
+        "fps": {"type": "number", "exclusiveMinimum": 0, "maximum": 120},
+        "frame_count": {"type": "integer", "minimum": 1, "maximum": 7200},
+        "duration_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+        "has_audio": {"type": "boolean"}
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {"properties": {"width": {"const": 720}, "height": {"const": 1280}}},
+            {"properties": {"width": {"const": 1080}, "height": {"const": 1920}}},
+            {"properties": {"width": {"const": 1280}, "height": {"const": 720}}},
+            {"properties": {"width": {"const": 1920}, "height": {"const": 1080}}}
+          ]
+        }
+      ]
+    },
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "textInventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "start_frame",
+        "end_frame",
+        "lines",
+        "region",
+        "human_reviewed"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+        },
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 1},
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {"type": "string", "minLength": 1, "maxLength": 512}
+        },
+        "region": {"$ref": "#/$defs/rect"},
+        "human_reviewed": {"const": true}
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strip_all"],
+      "properties": {
+        "strip_all": {"const": true}
+      }
+    }
+  }
+}

@@ -1,16 +1,21 @@
 ---
 name: reference-video-rebuilder
-description: Build, explicitly review, freeze, and render authorized fixed-subject-carousel S1 templates; prepare and review strict generation handoffs; and, only after an approved controller-cloud/controller-managed plan, use either the no-key Codex built-in ImageGen handoff or the separate explicit OpenAI GPT Image 2 API controller. Use for bounded reference-video proposal, generation-plan/result review, approved image-controller execution, Template IR validation, asset-pack review/freeze, frozen asset rendering, motion/audio requirement review, and QA. Render only the four audited fixed delivery profiles, including manually reviewed 16:9 output; new-reference proposal/compiler automation remains portrait S1 only. Never claim that video_remix runs a model, shell, CUDA job, network/upload, weight download, automatic approval, arbitrary-video discovery, OCR, semantic inference, hidden-pixel recovery, automatic landscape analysis/compiler support, subject-motion replication, voice imitation, or lip sync.
+description: Use for authorized fixed-subject-carousel S1 template rebuilds, strict local proposal/assets/review/QA workflow, approved still-image generation handoffs, or v0.9 faithful source preservation of an authorized human-reviewed source. Only four audited delivery profiles are supported; proposal/compiler automation remains portrait S1. Never claim OCR, semantic inference, cloud/CUDA execution, generated motion/voice/lip sync, visible-content replacement, or full reconstruction through faithful preservation.
 ---
 
 # reference-video-rebuilder
 
 Use the automated new-reference path only for authorized,
-fixed-subject-carousel S1 work. Treat a reference as a structure and timing
-specification, not pixels to copy. A manually authored and visually reviewed
-Template IR may use one of the four fixed output profiles, including 16:9, but
-this does not imply automatic landscape analysis, support-level classification,
-or compilation.
+fixed-subject-carousel S1 work. The ordinary path treats a reference as a
+structure and timing specification, not pixels to copy. A manually authored
+and visually reviewed Template IR may use one of the four fixed output
+profiles, including 16:9, but this does not imply automatic landscape analysis,
+support-level classification, or compilation.
+
+The distinct v0.9 faithful source-preservation path is only for an authorized
+source whose visible picture, text, timing, and action must remain unchanged.
+It is source preservation, not a template rebuild or a way to remove platform
+elements, replace assets, or recover hidden pixels.
 
 ```text
 propose -> review -> freeze-plan -> compile
@@ -31,6 +36,18 @@ character-motion replication, voice imitation, or lip sync.
 
 ## Choose the path
 
+- Use faithful source preservation only with a human-reviewed v0.9 plan that
+  inventories all visible text and declares exact preservation, source-video
+  bitstream preservation, permitted audio treatment, and inherited/user-authored
+  metadata stripping (not unavoidable muxer structural tags).
+  It has no OCR, semantic inference, replacement, visible-content removal, or
+  full-reconstruction claim. Read
+  [faithful-rebuild-contract.md](references/faithful-rebuild-contract.md)
+  before preparing or accepting this path.
+  Validate first with `video-remix validate-faithful-plan <plan> --json`, then
+  run `video-remix faithful-rebuild <plan> --project-root <dir> [--output-dir
+  <new-child>] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <n>]
+  --json`. Rights confirmation is inside the approved plan, not a CLI flag.
 - Use Propose, Review, and Freeze-plan only for a new authorized local S1
   reference.
 - Use Propose-assets for already render-ready local media against an existing
@@ -86,6 +103,10 @@ character-motion replication, voice imitation, or lip sync.
    `lip_sync_required: true`, `audio_mode: rebuild-sfx`, or
    `audio_mode: clone-authorized-voice`. No motion/voice controller is
    integrated today; an external provider is only a future reviewed path.
+7. Do not route a request to remove, replace, translate, synthesize, or infer
+   visible content through faithful source preservation. It preserves approved
+   source video/text/action exactly and either preserves the approved source
+   audio bitstream or mutes it; it is never a full reconstruction claim.
 
 ## Use Codex built-in ImageGen deliberately
 
@@ -148,6 +169,8 @@ Read [generation-contract.md](references/generation-contract.md) and
 - Read [motion-audio-contract.md](references/motion-audio-contract.md) before
   classifying motion/audio, authoring Template IR 0.3.0, choosing a controller,
   or accepting a result that claims performance, voice, or lip sync.
+- Read [faithful-rebuild-contract.md](references/faithful-rebuild-contract.md)
+  before preparing or accepting v0.9 faithful source preservation.
 - Read [support-levels.md](references/support-levels.md) only to assess S1
   suitability.
 - Read [model-routing.md](references/model-routing.md) before delegating work

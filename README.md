@@ -1,12 +1,18 @@
 # reference-video-rebuilder
 
 reference-video-rebuilder is a Codex Skill and local CLI for rebuilding one
-authorized, bounded reference-video family as a reusable template. It treats a
-reference as a structure and timing specification, never as pixels to copy.
-Platform UI, comments, account information, and watermarks are excluded from
-the clean reconstruction; pixels fully hidden by them are not recoverable.
+authorized, bounded reference-video family as a reusable template. The ordinary
+clean-reconstruction path treats a reference as a structure and timing
+specification, not pixels to copy. Platform UI, comments, account information,
+and watermarks are excluded from that clean reconstruction; pixels fully hidden
+by them are not recoverable.
 
-> Status: 0.8.0-alpha (contract hardening; the local executable remains
+A separately gated faithful source-preservation path is the narrow exception:
+it preserves an authorized source rather than rebuilding it, so it cannot
+remove, replace, infer, or reconstruct any visible content.
+
+> Status: 0.9.0-alpha (faithful source preservation is separate from the
+> static template renderer; the local template executable remains
 > static). The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
 > bridge for externally created still assets. v0.7 adds one separate, explicit
@@ -21,6 +27,31 @@ the clean reconstruction; pixels fully hidden by them are not recoverable.
 > renderer composites static images, 2D effects, and selected audio; it does
 > not reproduce a person's continuous action, imitate a voice, rebuild SFX, or
 > provide lip sync.
+
+## What 0.9 adds
+
+v0.9 adds a separate, fail-closed **faithful source-preservation** operation
+for an authorized, manually reviewed source. It does not create a template or
+perform a clean-room reconstruction: it preserves the source video bitstream,
+preserves the source audio bitstream or explicitly mutes it, and strips
+inherited/user-authored container metadata. Unavoidable MP4 muxer structural
+tags may remain. It verifies the declared source fingerprint and packet payload
+equivalence after remuxing.
+
+The reviewed plan uses `faithful-rebuild-plan.schema.json` `0.9.0` and requires
+`rights_confirmed: true`, `operation: faithful-reference-rebuild`,
+`visible_text_policy: preserve-exact`, a manually reviewed visible-text
+inventory, `video_mode: preserve-bitstream`, an allowed audio mode, and
+`metadata.strip_all: true`. The inventory is supplied by a reviewer; it is not
+OCR and it does not permit text editing or semantic inference.
+
+This path preserves the source picture, visible text, timing, and action. It
+cannot remove platform UI, captions, watermarks, logos, comments, people,
+products, backgrounds, or text; those requests change visible content and must
+go through separately reviewed reconstruction work. Its success state is
+`faithful_source_preservation`, never a claim of full reconstruction. Read the
+[faithful source-preservation contract](skills/reference-video-rebuilder/references/faithful-rebuild-contract.md)
+before using it.
 
 ## What 0.8 adds
 
@@ -196,8 +227,8 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Skill and governed workflow | 0.8.0-alpha (motion/audio contract hardening) |
-| `video_remix.py` local CLI | 0.8.0-alpha |
+| Skill and governed workflow | 0.9.0-alpha (faithful source preservation, separate from template rebuild) |
+| `video_remix.py` local CLI | 0.9.0-alpha |
 | `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
@@ -205,12 +236,41 @@ the canonical frozen Compiler Plan.
 | Frozen Compiler Plan | 0.3.0 |
 | Template IR | 0.2.0 legacy static renderer; 0.3.0 static-subset contract, with non-static requirements fail closed until a controller matches |
 | Frozen Asset Manifest | 0.2.0 |
+| Faithful Rebuild Plan | 0.9.0 |
 
 The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
 consumers remain compatible. Deterministic compilation, rendering, and
 technical QA retain their existing contracts. Template IR 0.3.0 is a new
 motion/audio acceptance contract; it is not a claim that the current renderer
 or any external controller has gained those capabilities.
+
+The v0.9 Faithful Rebuild Plan is not a Template IR, Asset Manifest, proposal,
+or generation contract. It is deliberately isolated so that source preservation
+does not weaken the clean-reconstruction boundary or claim replacement,
+semantic understanding, or full reconstruction.
+
+## v0.9 faithful source-preservation quick start
+
+Prepare the `0.9.0` plan manually from the schema and contract; do not derive
+its visible-text inventory with OCR. Validate it before opening the source for
+the preservation run:
+
+```powershell
+video-remix validate-faithful-plan .\faithful-rebuild-plan.json --json
+video-remix faithful-rebuild .\faithful-rebuild-plan.json `
+  --project-root . `
+  --output-dir faithful-rebuild `
+  --ffmpeg <path-to-ffmpeg> `
+  --ffprobe <path-to-ffprobe> `
+  --timeout-seconds 60 `
+  --json
+```
+
+`faithful-rebuild` takes rights confirmation from the approved plan, not a
+command-line flag. `--output-dir` must be a new safe project-root child. On
+success it publishes `replica.mp4` and `rebuild-summary.json` under that
+directory with completion `faithful_source_preservation`; it does not produce
+a template or a content-rebuilt delivery.
 
 ## Supported boundary
 
@@ -228,6 +288,12 @@ portrait S1. The bundled `video_remix.py` CLI is local and does not provide:
   SFX, voice imitation/cloning, or lip sync;
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
+
+These clean-reconstruction limits do not prevent the separate v0.9 faithful
+source-preservation operation from carrying an authorized source forward
+unchanged. That operation has no OCR, semantic analysis, replacement,
+concealed-pixel recovery, or platform-element removal capability; it is not an
+action-replication or voice-imitation engine.
 
 In particular, it does not automatically analyze, classify, or compile an
 arbitrary landscape reference. A landscape clean-room reconstruction requires a

@@ -1,5 +1,29 @@
 # QA gates
 
+## 0.9.0-alpha faithful source-preservation
+
+Faithful source preservation is a separate, exact-preservation route for an
+authorized source; it is not a Template IR render, clean-room reconstruction,
+or replacement workflow. Read
+[faithful-rebuild-contract.md](faithful-rebuild-contract.md) before accepting
+it.
+
+P0 requires a hash-bound `0.9.0` plan with `rights_confirmed: true`,
+`operation: faithful-reference-rebuild`, `visible_text_policy: preserve-exact`,
+a human-created and reviewed inventory of every visible text item,
+`video_mode: preserve-bitstream`, `audio_mode: preserve-bitstream` or `mute`,
+and `metadata.strip_all: true`. The inventory is review evidence, not OCR; the
+validator cannot infer missing text or certify that a reviewer missed none.
+
+Accept only after the source fingerprint, source-video packet payload, selected
+audio treatment, inherited/user-authored metadata stripping, and full playback
+all match the reviewed plan. Unavoidable MP4 muxer structural tags may remain.
+The result may preserve source audio exactly or be intentionally muted; it must
+not replace, clone, synthesize, translate, remove, or otherwise alter visible
+content. Do not use it to remove UI, captions, watermarks, logos, comments,
+people, products, backgrounds, or text. Its only success claim is
+`faithful_source_preservation`, never full reconstruction.
+
 ## 0.8.0-alpha motion/audio contract hardening
 
 v0.8 defines an acceptance contract for Template IR 0.3.0; it does not make
