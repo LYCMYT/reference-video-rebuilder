@@ -11,22 +11,47 @@ A separately gated faithful source-preservation path is the narrow exception:
 it preserves an authorized source rather than rebuilding it, so it cannot
 remove, replace, infer, or reconstruct any visible content.
 
-> Status: 0.9.1-alpha (faithful source preservation is separate from the
-> static template renderer; the local template executable remains
-> static). The local, bounded new-reference path remains
+> Status: 0.10.0-alpha (faithful source preservation and temporal file-drop
+> review are separate from the static template renderer; the local template
+> executable remains static). The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
 > bridge for externally created still assets. v0.7 adds one separate, explicit
 > OpenAI GPT Image 2 API controller after an approved cloud plan. v0.7.1 also
 > defines a no-API-key Codex built-in ImageGen handoff under a distinct approved
 > cloud-controller declaration. v0.7.2 adds two fixed, audited landscape
-> delivery profiles to the deterministic renderer only. `video_remix.py`
-> remains fully offline: it never runs a model, shell command, network request,
-> weight download, or automatic approval. Automated new-reference work remains
-> limited to authorized fixed-subject-carousel S1, not arbitrary-video discovery,
-> semantic classification, OCR, or concealed-pixel recovery. The bundled
-> renderer composites static images, 2D effects, and selected audio; it does
-> not reproduce a person's continuous action, imitate a voice, rebuild SFX, or
+> delivery profiles to the deterministic renderer only. v0.10 adds a separate
+> provider-neutral local file-drop review/freeze chain for one user-operated
+> local temporal MP4; it accepts only `local-only` + `local-file-drop` with no
+> cloud upload, and neither invokes nor attests a provider. `video_remix.py`
+> remains fully offline for this path: it never runs a model, shell command,
+> network request, browser, CUDA job, weight download, or automatic approval.
+> Automated new-reference work remains limited to authorized
+> fixed-subject-carousel S1, not arbitrary-video discovery, semantic
+> classification, OCR, or concealed-pixel recovery. The bundled renderer
+> composites static images, 2D effects, and selected audio; it does not
+> reproduce a person's continuous action, imitate a voice, rebuild SFX, or
 > provide lip sync.
+
+## What 0.10 adds
+
+v0.10 adds an independent, provider-neutral **temporal replacement file-drop**
+chain. It accepts only a reviewed Template IR 0.3 that requires
+`pose-transfer` or `video-to-video`, a frozen Asset Manifest 0.2 with a
+minimal selected input set, and one action-reference MP4. The CLI prepares and
+reviews local packets; the Request must be exactly `privacy_profile: local-only`,
+`execution_profile: local-file-drop`, and `cloud_upload_confirmed: false`.
+The user independently operates any local tool, then creates a new local result
+pack containing exactly metadata-clean `temporal-replacement.mp4`.
+
+The local CLI technically rejects unsafe or mismatched media, creates contact
+sheets and negative temporal checks, and requires full-playback human Plan and
+Results Reviews. It cannot prove semantic action, face/hands/limbs, garment,
+sound, voice, lip sync, rights, or provider behavior from those checks. Freeze
+byte-copies the approved result and reports
+`completion: temporal_replacement_reviewed`, `bitstream_faithful: false`, and
+`provider_provenance: unattested-local-file-drop`. This is neither a faithful
+archive nor provider attestation. Read the
+[temporal replacement contract](skills/reference-video-rebuilder/references/temporal-replacement-contract.md).
 
 ## What 0.9.1 adds
 
@@ -87,11 +112,14 @@ lip sync. Its exact fields and enums are in the
 
 This is contract hardening, not a hidden motion-controller integration. The
 current renderer still handles static images, 2D layout/transforms, effects,
-and selected audio only. Until a reviewed controller is actually integrated,
-requests for pose transfer, video-to-video motion, rebuilt SFX, authorized
-voice cloning, or lip sync must fail closed. A Template IR 0.2.0 output has no
-such requirements and may be called only `structure_only_unclaimed`—never a
-motion, voice-imitation, or lip-sync reconstruction.
+and selected audio only. It must fail closed for pose transfer, video-to-video
+motion, rebuilt SFX, authorized voice cloning, and lip sync. v0.10 separately
+allows a user-operated, local-only temporal file drop to be reviewed and
+byte-copy frozen; it does not integrate a controller or make the renderer
+temporal. A Template IR
+0.2.0 output has no such requirements and may be called only
+`structure_only_unclaimed`—never a motion, voice-imitation, or lip-sync
+reconstruction.
 
 ## What 0.7.2 adds
 
@@ -251,8 +279,8 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Skill and governed workflow | 0.9.1-alpha (evidence, provenance, and a separate NLE derivative) |
-| `video_remix.py` local CLI | 0.9.1-alpha |
+| Skill and governed workflow | 0.10.0-alpha (provider-neutral temporal file-drop review/freeze) |
+| `video_remix.py` local CLI | 0.10.0-alpha |
 | `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
@@ -263,6 +291,7 @@ the canonical frozen Compiler Plan.
 | Faithful Rebuild Plan | 0.9.0 |
 | Faithful Evidence Report | 0.9.1 |
 | Jianying-compatible derivative report | 0.9.1 (`jianying-compatible-v1`) |
+| Temporal Request, Plan, Plan Review, Results Proposal/Review, Delivery Report | 0.10.0 |
 
 The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
 consumers remain compatible. Deterministic compilation, rendering, and
@@ -274,6 +303,12 @@ The v0.9 Faithful Rebuild Plan is not a Template IR, Asset Manifest, proposal,
 or generation contract. It is deliberately isolated so that source preservation
 does not weaken the clean-reconstruction boundary or claim replacement,
 semantic understanding, or full reconstruction.
+
+The v0.10 temporal Request/Plan/Reviews/Delivery Report are also independent
+packets. They bind one reviewed, user-operated local result to Template IR 0.3
+and frozen Manifest 0.2, but do not change either contract, make the renderer
+temporal, authorize cloud/provider work, or prove any provider generated the
+result.
 
 ## v0.9 faithful source-preservation quick start
 
@@ -351,6 +386,89 @@ The derivative is deliberately re-encoded and therefore never satisfies the
 faithful bitstream contract. Keep its `nle-delivery-report.json` beside it and
 retain the faithful archive and summary as the audit source.
 
+## v0.10 temporal replacement quick start
+
+Use this route only for a reviewed Template IR `0.3.0` whose
+`rebuild_requirements` has `motion_required: true` and `motion_mode` of
+`pose-transfer` or `video-to-video`. Keep it separate from the static renderer
+and from faithful preservation. Start with the schema-valid
+[request example](skills/reference-video-rebuilder/examples/temporal-replacement-request.example.json),
+then replace its bounded fields for the project. The Request's `input_slot_ids`
+may name only selected, rights-confirmed frozen Manifest slots. Its execution
+triple is fixed: `local-only`, `local-file-drop`, and
+`cloud_upload_confirmed: false`; do not use a cloud/controller declaration.
+
+```powershell
+$skillRoot = 'C:\absolute\path\to\reference-video-rebuilder'
+$project = 'D:\absolute\path\to\media-project'
+$cli = Join-Path $skillRoot 'scripts\video_remix.py'
+$ffmpeg = 'C:\absolute\path\to\ffmpeg.exe'
+$ffprobe = 'C:\absolute\path\to\ffprobe.exe'
+$template = 'template.ir.json'
+$manifest = 'frozen-assets/assets.json'
+$request = 'temporal-request.json'
+
+python $cli validate-temporal-request $request --json
+python $cli prepare-temporal-replacement $template $manifest $request `
+  --project-root $project `
+  --reference-pack temporal-reference-pack `
+  --temporal-rights-confirmed `
+  --output-dir temporal-plan `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --timeout-seconds 60 `
+  --json
+
+# Review and explicitly approve temporal-plan/temporal-replacement-plan-review.template.json.
+$plan = 'temporal-plan/temporal-replacement-plan.json'
+$planReview = 'temporal-plan/temporal-replacement-plan-review.template.json'
+python $cli validate-temporal-plan $plan --json
+python $cli validate-temporal-plan-review $planReview --json
+
+# The user independently operates a local tool, then creates a new direct-child
+# temporal-result-pack containing exactly metadata-clean temporal-replacement.mp4.
+python $cli propose-temporal-results $plan $planReview `
+  --project-root $project `
+  --result-pack temporal-result-pack `
+  --temporal-results-rights-confirmed `
+  --output-dir temporal-results-proposal `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --timeout-seconds 60 `
+  --json
+
+# Complete full-playback human review, then approve the Results Review.
+$proposal = 'temporal-results-proposal/temporal-results-proposal.json'
+$resultsReview = 'temporal-results-proposal/temporal-results-review.template.json'
+python $cli validate-temporal-results-proposal $proposal --json
+python $cli validate-temporal-results-review $resultsReview --json
+python $cli freeze-temporal-delivery $plan $planReview $proposal $resultsReview `
+  --project-root $project `
+  --output-dir temporal-delivery `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --timeout-seconds 60 `
+  --json
+python $cli verify-temporal-delivery 'temporal-delivery/temporal-delivery-report.json' `
+  --project-root $project `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --timeout-seconds 60 `
+  --json
+```
+
+The reference and result must meet the strict MP4/CFR/H.264 High/8-bit
+`yuv420p`/zero-rotation/at-most-60-seconds profile. If audio exists it must be
+one AAC-LC 48 kHz stereo stream. Contact sheets, frame differences, stream
+facts, hashes, and audio payload matching are only technical negative checks;
+complete human action, face/hands/limbs, garment/product, timing, audio,
+rights, and conditional voice/lip review remain mandatory. A rejected result
+requires a new result pack and review cycle. A clone-voice authorization must
+be unexpired at prepare, propose, and freeze; historical verify rechecks its
+binding without renewing it. See the
+[temporal replacement contract](skills/reference-video-rebuilder/references/temporal-replacement-contract.md)
+for profile, artifact, and provenance details.
+
 ## Supported boundary
 
 The automated new-reference path accepts only authorized fixed-subject-carousel
@@ -363,8 +481,10 @@ portrait S1. The bundled `video_remix.py` CLI is local and does not provide:
 - identity, garment, product, UI, watermark, or text meaning inference;
 - a bundled image/video model, virtual try-on, CUDA inference, weight download,
   arbitrary shell execution, or network/upload operation;
-- subject-motion replication, pose transfer, video-to-video generation, rebuilt
-  SFX, voice imitation/cloning, or lip sync;
+- a built-in subject-motion, pose-transfer, video-to-video, SFX, voice, or
+  lip-sync generator/controller. v0.10 only validates, reviews, and freezes an
+  independently user-operated local temporal MP4; it never invokes or proves a
+  provider;
 - automatic approval or recovery of concealed pixels;
 - automatic family discovery beyond the bounded S1 workflow.
 
@@ -388,8 +508,11 @@ upload authority: do not send the reference video or unapproved private assets
 to an external service.
 
 No external motion controller is currently installed or connected. In
-particular, a possible future Runway integration is not a current executor,
-upload path, or acceptance route.
+particular, a possible future Runway integration is not a bundled executor or
+upload path. v0.10 accepts no provider/cloud/controller route: only a user
+independently operating a local tool may place one result in its local file-drop
+chain after Plan Review. Its declaration and frozen bytes remain
+`unattested-local-file-drop`, not provider evidence.
 
 Windows is the audited release platform for v0.6.0-alpha. It provides the
 strong reparse-point and guarded snapshot/copy boundary for asset-pack scan,
@@ -791,8 +914,17 @@ and again before final acceptance. Retaining the reference track is
 requires `motion_required: true`, `motion_mode: video-to-video`,
 `audio_mode: preserve-reference`, `lip_sync_required: false`, and
 `voice_likeness_rights_confirmed: false`; the existing static portal output is
-therefore `structure_only_unclaimed` until a reviewed video-to-video controller
-result passes full playback QA.
+therefore `structure_only_unclaimed` until a reviewed local-only v0.10
+video-to-video file-drop result passes full playback QA.
+
+For a v0.10 temporal result, review the full action-reference and result, not
+only contact sheets or frame metrics. Confirm motion/action, face/hands/limbs,
+garment/product continuity, timing, audio treatment, rights, and watermark
+absence; additionally confirm scoped voice authorization/voice likeness and lip
+sync when requested. The frozen delivery is a byte-copy review record with
+`bitstream_faithful: false` and
+`provider_provenance: unattested-local-file-drop`, never a faithful or provider
+claim. It may subsequently take the separate Jianying export/verify route.
 
 Confirm permission for the reference video, likenesses, products, logos, audio,
 and every reference/result/asset-pack file before proposal. `video_remix.py` is
@@ -808,6 +940,7 @@ See the [Compiler Plan contract](skills/reference-video-rebuilder/references/com
 [adapter policy](skills/reference-video-rebuilder/references/adapter-policy.md),
 [QA gates](skills/reference-video-rebuilder/references/qa-gates.md),
 [motion/audio contract](skills/reference-video-rebuilder/references/motion-audio-contract.md),
+[temporal replacement contract](skills/reference-video-rebuilder/references/temporal-replacement-contract.md),
 and the
 complete Chinese [design](docs/DESIGN.zh-CN.md).
 

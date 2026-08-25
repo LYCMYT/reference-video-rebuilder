@@ -1,3 +1,4 @@
+import argparse
 import contextlib
 import copy
 import hashlib
@@ -1795,7 +1796,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
             parser.parse_args(["--version"])
         self.assertEqual(exited.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "video-remix 0.9.1-alpha")
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.10.0-alpha")
 
         with mock.patch.object(
             video_remix,
@@ -3131,6 +3132,305 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertTrue(capabilities["generation_planning"])
         self.assertFalse(capabilities["generation_result_review"])
         self.assertFalse(capabilities["generation_pack_assembly"])
+
+    def test_v10_temporal_parser_dispatch_and_rights_gates(self):
+        parser = video_remix.build_parser()
+        prepared = parser.parse_args(
+            [
+                "prepare-temporal-replacement",
+                "template.json",
+                "assets.json",
+                "request.json",
+                "--project-root",
+                "project",
+                "--reference-pack",
+                "reference-pack",
+                "--temporal-rights-confirmed",
+            ]
+        )
+        self.assertEqual(prepared.output_dir, Path("temporal-plan"))
+        self.assertEqual(prepared.timeout_seconds, 60.0)
+        proposed = parser.parse_args(
+            [
+                "propose-temporal-results",
+                "plan.json",
+                "plan-review.json",
+                "--project-root",
+                "project",
+                "--result-pack",
+                "result-pack",
+                "--temporal-results-rights-confirmed",
+            ]
+        )
+        self.assertEqual(proposed.output_dir, Path("temporal-results-proposal"))
+        frozen = parser.parse_args(
+            [
+                "freeze-temporal-delivery",
+                "plan.json",
+                "plan-review.json",
+                "proposal.json",
+                "results-review.json",
+                "--project-root",
+                "project",
+            ]
+        )
+        self.assertEqual(frozen.output_dir, Path("temporal-delivery"))
+
+        with mock.patch.object(
+            video_remix,
+            "_temporal_module",
+            side_effect=AssertionError("rights failure must not import temporal core"),
+        ) as temporal:
+            denied, status = video_remix.run_prepare_temporal_replacement(
+                argparse.Namespace(temporal_rights_confirmed=False)
+            )
+            denied_results, results_status = video_remix.run_propose_temporal_results(
+                argparse.Namespace(temporal_results_rights_confirmed=False)
+            )
+        self.assertEqual((status, results_status), (2, 2))
+        self.assertEqual(denied["error"]["code"], "invalid_argument")
+        self.assertEqual(denied_results["error"]["code"], "invalid_argument")
+        temporal.assert_not_called()
+
+        ready = {"schema_version": "1.0", "status": "ok", "result": {}}
+        commands = (
+            (
+                "prepare-temporal-replacement",
+                "run_prepare_temporal_replacement",
+                [
+                    "template.json",
+                    "manifest.json",
+                    "request.json",
+                    "--project-root",
+                    "project",
+                    "--reference-pack",
+                    "reference-pack",
+                    "--temporal-rights-confirmed",
+                ],
+            ),
+            (
+                "propose-temporal-results",
+                "run_propose_temporal_results",
+                [
+                    "plan.json",
+                    "review.json",
+                    "--project-root",
+                    "project",
+                    "--result-pack",
+                    "result-pack",
+                    "--temporal-results-rights-confirmed",
+                ],
+            ),
+            (
+                "freeze-temporal-delivery",
+                "run_freeze_temporal_delivery",
+                [
+                    "plan.json",
+                    "plan-review.json",
+                    "proposal.json",
+                    "results-review.json",
+                    "--project-root",
+                    "project",
+                ],
+            ),
+            (
+                "verify-temporal-delivery",
+                "run_verify_temporal_delivery",
+                ["report.json", "--project-root", "project"],
+            ),
+        )
+        for command, runner_name, arguments in commands:
+            with self.subTest(command=command), mock.patch.object(
+                video_remix, runner_name, return_value=(ready, 0)
+            ) as runner:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = video_remix.main([command, *arguments, "--json"])
+                self.assertEqual(status, 0)
+                self.assertEqual(json.loads(output.getvalue()), ready)
+                runner.assert_called_once()
+
+    def test_v10_temporal_workflow_compacts_and_redacts_results(self):
+        digest = "a" * 64
+
+        def artifact(path):
+            return {"path": path, "sha256": digest, "private": "C:/PRIVATE/source"}
+
+        core = SimpleNamespace(
+            prepare_temporal_replacement=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.0",
+                    "review_required": True,
+                    "execution_profile": "local-file-drop",
+                    "counts": {"reference_inventory_entries": 1, "input_assets": 2},
+                    "artifacts": {
+                        "temporal_plan": artifact("temporal-plan/temporal-replacement-plan.json"),
+                        "review_template": artifact("temporal-plan/temporal-replacement-plan-review.template.json"),
+                        "input_contact_sheet": artifact("temporal-plan/temporal-input-contact-sheet.png"),
+                    },
+                    "private": "C:/PRIVATE/source",
+                }
+            ),
+            propose_temporal_results=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.0",
+                    "review_required": True,
+                    "counts": {"result_inventory_entries": 1},
+                    "artifacts": {
+                        "proposal": artifact("temporal-results-proposal/temporal-results-proposal.json"),
+                        "review_template": artifact("temporal-results-proposal/temporal-results-review.template.json"),
+                        "results_contact_sheet": artifact("temporal-results-proposal/temporal-results-contact-sheet.png"),
+                        "technical_sanity": artifact("temporal-results-proposal/temporal-technical-sanity.json"),
+                    },
+                }
+            ),
+            freeze_temporal_delivery=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.0",
+                    "completion": "temporal_replacement_reviewed",
+                    "review_required": False,
+                    "bitstream_faithful": False,
+                    "provider_provenance": "unattested-local-file-drop",
+                    "artifacts": {
+                        "temporal_replacement": artifact("temporal-delivery/temporal-replacement.mp4"),
+                        "delivery_report": artifact("temporal-delivery/temporal-delivery-report.json"),
+                    },
+                }
+            ),
+            verify_temporal_delivery=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.0",
+                    "verified": True,
+                    "completion": "temporal_replacement_reviewed",
+                    "final_video": artifact("temporal-delivery/temporal-replacement.mp4"),
+                }
+            ),
+        )
+        root = Path("project")
+        common = dict(
+            project_root=root,
+            output_dir=Path("temporal-plan"),
+            ffmpeg=Path("ffmpeg"),
+            ffprobe=Path("ffprobe"),
+            timeout_seconds=60.0,
+        )
+        with mock.patch.object(video_remix, "_temporal_module", return_value=core), mock.patch.object(
+            video_remix, "_runtime_module", return_value=rrv_runtime
+        ):
+            prepared, prepared_status = video_remix.run_prepare_temporal_replacement(
+                argparse.Namespace(
+                    template=Path("template.json"),
+                    manifest=Path("manifest.json"),
+                    request=Path("request.json"),
+                    reference_pack=Path("reference-pack"),
+                    temporal_rights_confirmed=True,
+                    **common,
+                )
+            )
+            proposed, proposed_status = video_remix.run_propose_temporal_results(
+                argparse.Namespace(
+                    plan=Path("plan.json"),
+                    plan_review=Path("plan-review.json"),
+                    result_pack=Path("result-pack"),
+                    temporal_results_rights_confirmed=True,
+                    **{**common, "output_dir": Path("temporal-results-proposal")},
+                )
+            )
+            frozen, frozen_status = video_remix.run_freeze_temporal_delivery(
+                argparse.Namespace(
+                    plan=Path("plan.json"),
+                    plan_review=Path("plan-review.json"),
+                    proposal=Path("proposal.json"),
+                    results_review=Path("results-review.json"),
+                    **{**common, "output_dir": Path("temporal-delivery")},
+                )
+            )
+            verified, verified_status = video_remix.run_verify_temporal_delivery(
+                argparse.Namespace(
+                    report=Path("report.json"),
+                    project_root=root,
+                    ffmpeg=Path("ffmpeg"),
+                    ffprobe=Path("ffprobe"),
+                    timeout_seconds=60.0,
+                )
+            )
+        self.assertEqual(
+            (prepared_status, proposed_status, frozen_status, verified_status),
+            (0, 0, 0, 0),
+        )
+        public = json.dumps([prepared, proposed, frozen, verified])
+        self.assertNotIn("PRIVATE", public)
+        self.assertEqual(
+            frozen["result"]["provider_provenance"],
+            "unattested-local-file-drop",
+        )
+        self.assertTrue(verified["result"]["verified"])
+
+    def test_v10_temporal_validators_are_strict_and_nonreflective(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            duplicate = root / "duplicate.json"
+            duplicate.write_text(
+                '{"schema_version":"0.10.0","instructions":"PRIVATE",'
+                '"instructions":"PRIVATE-SECOND"}',
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = video_remix.main(
+                    ["validate-temporal-request", str(duplicate), "--json"]
+                )
+            payload = json.loads(output.getvalue())
+            self.assertEqual(status, 2)
+            self.assertEqual(payload["errors"], ["$: json.duplicate_key"])
+            self.assertNotIn("PRIVATE", output.getvalue())
+
+            invalid = root / "invalid.json"
+            invalid.write_text("{}", encoding="utf-8")
+            temporal = SimpleNamespace(
+                validate_temporal_request_data=mock.Mock(
+                    return_value=["C:/PRIVATE/source: secret"]
+                )
+            )
+            with mock.patch.object(video_remix, "_temporal_module", return_value=temporal):
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = video_remix.main(
+                        ["validate-temporal-request", str(invalid), "--json"]
+                    )
+            self.assertEqual(status, 2)
+            self.assertEqual(json.loads(output.getvalue())["errors"], ["$: validation.invalid"])
+            self.assertNotIn("PRIVATE", output.getvalue())
+
+    def test_v10_doctor_requires_temporal_semantic_validators(self):
+        unavailable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", None, None, None),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
+        )
+        runtime = SimpleNamespace(
+            discover_tools=mock.Mock(return_value=unavailable_tools)
+        )
+        with mock.patch.object(
+            video_remix, "_runtime_module", return_value=runtime
+        ), mock.patch.object(
+            video_remix,
+            "_temporal_module",
+            side_effect=ImportError("synthetic unavailable temporal core"),
+        ):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        for name in (
+            "temporal_request_validation",
+            "temporal_plan_validation",
+            "temporal_plan_review_validation",
+            "temporal_results_proposal_validation",
+            "temporal_results_review_validation",
+            "temporal_delivery_report_validation",
+            "temporal_replacement_planning",
+            "temporal_result_review",
+            "temporal_delivery_freeze",
+            "temporal_delivery_verify",
+        ):
+            self.assertFalse(capabilities[name], name)
 
 
 if __name__ == "__main__":

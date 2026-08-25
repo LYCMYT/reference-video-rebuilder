@@ -88,6 +88,16 @@ jianying-delivery*/
 .rrv-faithful-evidence-*/
 .rrv-nle-*/
 
+# Private v0.10 temporal file-drop packets, evidence, deliveries, and staging
+temporal-reference-pack*/
+temporal-result-pack*/
+temporal-plan*/
+temporal-results-proposal*/
+temporal-delivery*/
+temporal-request.json
+temporal-request.private*.json
+.rrv-temporal-*/
+
 # Models and checkpoints
 models/
 checkpoints/

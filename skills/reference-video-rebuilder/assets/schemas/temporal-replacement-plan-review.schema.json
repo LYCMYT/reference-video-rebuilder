@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/temporal-replacement-plan-review.schema.json",
+  "title": "Temporal Replacement Plan Review",
+  "description": "Explicit human authorization before a separate local process creates a new result pack.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "plan_sha256", "privacy_profile", "cloud_upload_confirmed", "decision", "input_contact_sheet_reviewed", "request_reviewed", "execution_profile_confirmed", "full_playback_reviewed", "motion_action_confirmed", "face_hands_limbs_confirmed", "garment_product_confirmed", "timing_confirmed", "audio_confirmed", "rights_confirmed", "watermark_reviewed", "voice_authorization_required", "voice_authorization_sha256", "voice_authorization_confirmed", "lip_sync_required", "lip_sync_confirmed"],
+  "properties": {
+    "schema_version": {"const": "0.10.0"},
+    "plan_sha256": {"$ref": "#/$defs/sha256"},
+    "privacy_profile": {"const": "local-only"},
+    "cloud_upload_confirmed": {"const": false},
+    "decision": {"enum": ["pending", "approved", "rejected"]},
+    "input_contact_sheet_reviewed": {"type": "boolean"},
+    "request_reviewed": {"type": "boolean"},
+    "execution_profile_confirmed": {"type": "boolean"},
+    "full_playback_reviewed": {"type": "boolean"},
+    "motion_action_confirmed": {"type": "boolean"},
+    "face_hands_limbs_confirmed": {"type": "boolean"},
+    "garment_product_confirmed": {"type": "boolean"},
+    "timing_confirmed": {"type": "boolean"},
+    "audio_confirmed": {"type": "boolean"},
+    "rights_confirmed": {"type": "boolean"},
+    "watermark_reviewed": {"type": "boolean"},
+    "voice_authorization_required": {"type": "boolean"},
+    "voice_authorization_sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "voice_authorization_confirmed": {"type": "boolean"},
+    "lip_sync_required": {"type": "boolean"},
+    "lip_sync_confirmed": {"type": "boolean"}
+  },
+  "allOf": [
+    {"if": {"properties": {"decision": {"const": "approved"}}, "required": ["decision"]}, "then": {"properties": {"input_contact_sheet_reviewed": {"const": true}, "request_reviewed": {"const": true}, "execution_profile_confirmed": {"const": true}, "full_playback_reviewed": {"const": true}, "motion_action_confirmed": {"const": true}, "face_hands_limbs_confirmed": {"const": true}, "garment_product_confirmed": {"const": true}, "timing_confirmed": {"const": true}, "audio_confirmed": {"const": true}, "rights_confirmed": {"const": true}, "watermark_reviewed": {"const": true}}}},
+    {"if": {"properties": {"decision": {"const": "approved"}, "voice_authorization_required": {"const": true}}, "required": ["decision", "voice_authorization_required"]}, "then": {"properties": {"voice_authorization_confirmed": {"const": true}}}},
+    {"if": {"properties": {"decision": {"const": "approved"}, "lip_sync_required": {"const": true}}, "required": ["decision", "lip_sync_required"]}, "then": {"properties": {"lip_sync_confirmed": {"const": true}}}}
+  ],
+  "$defs": {"sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+}

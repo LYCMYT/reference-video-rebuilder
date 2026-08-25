@@ -644,6 +644,30 @@ class ProposalTestCase(unittest.TestCase):
             if target.exists():
                 shutil.rmtree(target)
 
+    def test_expected_publish_set_rejects_unlisted_stage_artifacts(self):
+        _, root = self.make_workspace()
+        stage = rrv_propose._new_staging_directory(root, "exact-publication")
+        expected = rrv_propose._stage_path(root, stage, "expected.json")
+        unexpected = rrv_propose._stage_path(root, stage, "private-extra.txt")
+        rrv_propose._write_json_new(expected, {"ok": True}, label="expected", stage=stage)
+        with rrv_propose._open_stage_output_file(stage, unexpected, "unexpected") as handle:
+            handle.write(b"must never be published")
+        digest = rrv_propose._hash_regular_file_no_follow(expected, "expected")
+        target = root / "exact-publication-output"
+        try:
+            with self.assertRaises(rrv_runtime.RRVError):
+                rrv_propose._publish_stage(
+                    root,
+                    stage,
+                    target,
+                    label="test",
+                    expected_files={"expected.json": digest},
+                )
+            self.assertFalse(target.exists())
+            self.assertTrue(stage.path.is_dir())
+        finally:
+            rrv_propose._cleanup_directory(root, stage)
+
     def test_posix_noreplace_without_linux_primitive_fails_closed(self):
         _, root = self.make_workspace()
         stage = rrv_propose._new_staging_directory(root, "noreplace-unavailable")

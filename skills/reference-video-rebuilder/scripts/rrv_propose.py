@@ -1322,15 +1322,26 @@ def _hash_regular_file_no_follow(path: Path, label: str) -> str:
 
 
 def _assert_expected_files(base: Path, expected_files: Mapping[str, str], label: str) -> None:
-    """Bind the final publish set to caller-supplied content digests."""
+    """Bind the exact flat publish set to caller-supplied content digests."""
 
+    expected_names: set[str] = set()
     for relative, expected_sha256 in sorted(expected_files.items()):
         parts = _relative_parts(relative, f"{label} expected artifact")
+        if len(parts) != 1 or parts[0] in expected_names:
+            raise _tool_error(f"{label} expected artifact set is invalid")
+        expected_names.add(parts[0])
         if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
             raise _tool_error(f"{label} expected artifact digest is invalid")
         actual = _hash_regular_file_no_follow(base.joinpath(*parts), f"{label} artifact")
         if actual != expected_sha256:
             raise _tool_error(f"{label} artifact changed before publication")
+    try:
+        with os.scandir(base) as entries:
+            actual_names = {entry.name for entry in entries}
+    except OSError as exc:
+        raise _tool_error(f"{label} artifact set could not be inspected") from exc
+    if actual_names != expected_names:
+        raise _tool_error(f"{label} contains an unexpected publication artifact")
 
 
 def _publish_stage(

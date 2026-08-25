@@ -1,5 +1,76 @@
 # QA gates
 
+## 0.10.0-alpha temporal file-drop review and freeze
+
+v0.10 is a separate provider-neutral temporal replacement chain. It neither
+changes Template IR 0.3, Asset Manifest 0.2, the static renderer, faithful
+source preservation, nor the still-image generation bridge. It never calls a
+provider, uses a browser/CUDA job, reads an API key, uploads media, or generates
+video. This Alpha permits only `privacy_profile: local-only`,
+`execution_profile: local-file-drop`, and `cloud_upload_confirmed: false`: a
+user independently operates any local tool, then drops bytes locally. It only
+reviews those bytes and, after approval, byte-copies one result into a frozen
+delivery.
+
+P0 eligibility requires all of the following before planning:
+
+- a reviewed Template IR `0.3.0` with `support.review_required: false`,
+  `motion_required: true`, and `motion_mode: pose-transfer` or
+  `video-to-video`;
+- its selected output, a frozen local-only Asset Manifest `0.2.0`, and a
+  Temporal Request whose `input_slot_ids` resolve only to selected
+  rights-confirmed frozen Manifest bytes; the Plan records the opaque
+  `input_assets` list plus its canonical hash, and the Request declares only
+  `local-only` + `local-file-drop` + `cloud_upload_confirmed: false`;
+- one direct-child action-reference pack containing exactly one safe MP4 and no
+  sidecars; and
+- the explicit temporal rights flag before the CLI reads the private Request or
+  reference pack.
+
+P0 technical profile applies to both the action reference and result: MP4,
+exact CFR, zero rotation, H.264 High/8-bit `yuv420p`, no unsupported side
+streams, at most 60 seconds, full local decode, and the bound frame count/FPS/
+dimensions. When audio exists, permit exactly one AAC-LC 48 kHz stereo stream;
+otherwise require no audio stream. The result pack is a distinct guarded
+direct-child directory containing exactly one file named
+`temporal-replacement.mp4`. That candidate must contain no inherited or
+user-authored metadata.
+
+P0 Plan Review must bind the exact Plan and explicitly confirm the limited
+input set, action-reference contact sheet, execution/privacy declaration,
+full-playback intent, motion/action, face/hands/limbs, garment/product,
+timing, audio, rights, and watermark review. The reviewer rejects every
+controller/cloud/API declaration: v0.10 permits only the three local values
+above, and no declaration authorizes this CLI to upload anything. An adapter/
+tool/version declaration remains local and does not prove any claimed work.
+
+P0 Results Review must bind the exact proposal and confirm, after full playback,
+continuous action; face, hands, limbs, hair, clothing and product continuity;
+timing; audio treatment; rights; and watermark absence. For a requested voice
+clone, require the scope-bound local authorization assertion's canonical hash in
+the Plan/Plan Review plus explicit voice-likeness review. For requested lip
+sync, require explicit visible mouth-to-audio review. Neither condition is
+independently proven by the local authorization or any technical metric. The
+voice assertion must be unexpired for prepare, propose, and freeze; later
+historical verification rechecks the frozen binding without renewing it.
+
+The result contact sheet, technical-sanity record, hashes, frame-difference/
+freeze metrics, stream presence, audio payload matching, and complete decode
+are negative technical checks only. They can reject bad media, drift, black
+frames, extreme freezes, or a changed file. They cannot prove semantic action,
+sound recreation, voice likeness, lip sync, rights, garment fidelity, or
+provider provenance; `semantic_action_not_proven: true` is mandatory.
+
+`freeze-temporal-delivery` publishes no partial final target. On success it
+byte-copies the reviewed result and writes a report with
+`completion: temporal_replacement_reviewed`, `bitstream_faithful: false`, and
+`provider_provenance: unattested-local-file-drop`. This is not faithful source
+preservation or provider attestation. Rejections/retries use a new result pack
+and proposal/review; ignored `.rrv-temporal-*` staging is never a delivery.
+`verify-temporal-delivery` independently rechecks the exact packet bindings,
+bytes, technical evidence, profile, and decode. A frozen MP4 may later use the
+separate `jianying-export`/`jianying-verify` contract.
+
 ## 0.9.1-alpha faithful evidence, provenance, and NLE derivative
 
 The faithful plan remains schema `0.9.0`; v0.9.1 adds evidence/report schema
@@ -151,7 +222,8 @@ All applicable P0 checks must pass before a delivery can claim more than
   evidence for the requested motion/audio behavior; and
 - an unintegrated external provider, including a possible future Runway route,
   is not evidence of capability. No motion controller is integrated by this
-  repository today.
+  repository today; v0.10's local file-drop review/freeze route is not an
+  integration or provider attestation.
 
 The current portal-reveal request is fixed as:
 

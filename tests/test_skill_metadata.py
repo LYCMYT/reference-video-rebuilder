@@ -68,7 +68,7 @@ class SkillMetadataTests(unittest.TestCase):
                 timeout=15,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.9.1-alpha", result.stdout)
+        self.assertIn("0.10.0-alpha", result.stdout)
 
     def test_codex_builtin_imagegen_example_is_cloud_managed_and_keyless(self):
         example = SKILL_ROOT / "assets" / "project-template" / "generation.request.codex-builtin.example.json"

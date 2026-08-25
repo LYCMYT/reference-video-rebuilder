@@ -10,15 +10,23 @@ audio, or lip-sync requirement. Read
 
 The bundled renderer is limited to static images, 2D layout/transforms,
 transitions, and selected audio. It has no temporal subject-motion controller,
-voice cloning, audio/SFX rebuilding, or lip-sync engine. Therefore it can
-accept only a request with `motion_required: false`, `motion_mode: static` or
-`layout-only`, `lip_sync_required: false`, and an actually supported audio
-treatment. It must fail closed for every higher requirement.
+voice cloning, audio/SFX rebuilding, or lip-sync engine. Therefore renderer
+acceptance remains limited to `motion_required: false`, `motion_mode: static`
+or `layout-only`, `lip_sync_required: false`, and an actually supported audio
+treatment.
+
+v0.10 adds a separate provider-neutral local file-drop review/freeze chain for
+a reviewed S3 temporal result. It permits only `local-only` + `local-file-drop`
+with `cloud_upload_confirmed: false`: the user independently operates any local
+tool, then drops the result locally. It does not make the renderer a temporal
+executor, invoke a provider, upload a file, read a key, or attest a provider's
+capability. A frozen delivery always records
+`provider_provenance: unattested-local-file-drop` and
+`bitstream_faithful: false`.
 
 An external motion provider (including a possible future Runway route) is not
-installed or connected by this repository. Do not list it as a supported S2 or
-S3 executor merely because a controller-managed handoff exists for still
-images.
+installed or connected by this repository. Do not list it as a bundled S2/S3
+executor merely because v0.10 can review a local dropped result.
 
 ## S1 — deterministic structure
 
@@ -62,10 +70,12 @@ Characteristics:
   `audio_mode: clone-authorized-voice`; or
 - material temporal-consistency risk.
 
-Expected result: only a separately integrated, reviewed motion/audio controller
-may attempt this level. Require short segments, controller-specific evidence,
-and full-playback human review. Until such a controller is actually integrated,
-this repository must fail closed for the requested claim.
+Expected result: the user may independently operate one local tool, then put
+one local result in a new pack for v0.10 to bind to the reviewed Template IR
+0.3, frozen Manifest 0.2, and action reference. Require the strict MP4 profile,
+metadata cleanliness, technical negative checks, and full-playback human
+review. The result remains an unattested local file drop—not a bundled
+controller capability or automatic motion/audio proof.
 
 ## S4 — unsupported exact mode
 
@@ -103,5 +113,7 @@ Store the evidence for the assigned level and requirements:
 - text/UI coverage;
 - unsupported visual effects;
 - input integrity warnings;
-- controller capability evidence where a non-static result is requested; and
+- reviewed temporal Plan/Results evidence for a non-static result, including
+  the selected frozen input-slot hashes, action-reference/result inventories,
+  and the explicit limitation that provider provenance is unattested; and
 - confidence and required human corrections.

@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/temporal-replacement-request.schema.json",
+  "title": "Private Temporal Replacement Request",
+  "description": "A bounded local file-drop declaration for temporal replacement. The local verifier never calls a provider or transmits this request.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "output_id", "input_slot_ids", "privacy_profile", "execution_profile", "adapter_id", "adapter_version", "cloud_upload_confirmed", "instructions", "capabilities"],
+  "properties": {
+    "schema_version": {"const": "0.10.0"},
+    "output_id": {"$ref": "#/$defs/id"},
+    "input_slot_ids": {"type": "array", "minItems": 1, "maxItems": 128, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "privacy_profile": {"const": "local-only"},
+    "execution_profile": {"const": "local-file-drop"},
+    "adapter_id": {"$ref": "#/$defs/adapterId"},
+    "adapter_version": {"$ref": "#/$defs/adapterVersion"},
+    "cloud_upload_confirmed": {"const": false},
+    "instructions": {"type": "string", "minLength": 1, "maxLength": 4000},
+    "capabilities": {"$ref": "#/$defs/capabilities"},
+    "local_authorization_assertion": {"$ref": "#/$defs/localAuthorization"}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "adapterId": {"type": "string", "minLength": 1, "maxLength": 32, "pattern": "^[a-z][a-z0-9-]{0,31}$"},
+    "adapterVersion": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["motion_modes", "audio_modes", "lip_sync_supported", "clone_authorized_voice_supported"],
+      "properties": {
+        "motion_modes": {"type": "array", "minItems": 1, "maxItems": 2, "uniqueItems": true, "items": {"enum": ["pose-transfer", "video-to-video"]}},
+        "audio_modes": {"type": "array", "minItems": 1, "maxItems": 5, "uniqueItems": true, "items": {"enum": ["mute", "preserve-reference", "replace-upload", "rebuild-sfx", "clone-authorized-voice"]}},
+        "lip_sync_supported": {"type": "boolean"},
+        "clone_authorized_voice_supported": {"type": "boolean"}
+      }
+    },
+    "localAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "purpose", "provider", "output_id", "expires_at"],
+      "properties": {
+        "subject": {"type": "string", "minLength": 1, "maxLength": 256},
+        "purpose": {"const": "temporal-replacement"},
+        "provider": {"$ref": "#/$defs/adapterId"},
+        "output_id": {"$ref": "#/$defs/id"},
+        "expires_at": {"type": "string", "minLength": 20, "maxLength": 40, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+      }
+    }
+  }
+}

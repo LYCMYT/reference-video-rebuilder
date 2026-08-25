@@ -1,0 +1,24 @@
+{
+  "schema_version": "0.10.0",
+  "output_id": "portrait-1080",
+  "input_slot_ids": [
+    "model.identity",
+    "outfit.01"
+  ],
+  "privacy_profile": "local-only",
+  "execution_profile": "local-file-drop",
+  "adapter_id": "user-operated-local-tool",
+  "adapter_version": "2026-08-25",
+  "cloud_upload_confirmed": false,
+  "instructions": "Create one user-operated, local-only temporal replacement for the approved output. Use only the listed frozen inputs and approved action reference; do not upload media or add platform UI, watermarks, unapproved brands, or unrelated media.",
+  "capabilities": {
+    "motion_modes": [
+      "video-to-video"
+    ],
+    "audio_modes": [
+      "preserve-reference"
+    ],
+    "lip_sync_supported": false,
+    "clone_authorized_voice_supported": false
+  }
+}

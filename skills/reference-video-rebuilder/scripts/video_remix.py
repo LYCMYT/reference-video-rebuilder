@@ -51,12 +51,20 @@ GENERATION_RESULTS_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results
 GENERATION_RESULTS_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-review.schema.json"
 FAITHFUL_REBUILD_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "faithful-rebuild-plan.schema.json"
 FAITHFUL_EVIDENCE_REPORT_SCHEMA_PATH = SCHEMA_DIRECTORY / "faithful-evidence-report.schema.json"
+# v0.10 temporal replacement packets are deliberately separate from the
+# static-image generation bridge and the deterministic S1 renderer.
+TEMPORAL_REQUEST_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-replacement-request.schema.json"
+TEMPORAL_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-replacement-plan.schema.json"
+TEMPORAL_PLAN_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-replacement-plan-review.schema.json"
+TEMPORAL_RESULTS_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-results-proposal.schema.json"
+TEMPORAL_RESULTS_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-results-review.schema.json"
+TEMPORAL_DELIVERY_REPORT_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-delivery-report.schema.json"
 # Descriptive aliases remain public for callers that name the artifact type.
 COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
 ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
 ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.9.1-alpha"
+CLI_VERSION = "0.10.0-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 SUPPORTED_TEMPLATE_IR_SCHEMA_VERSIONS = ("0.2.0", "0.3.0")
 JIANYING_PROFILE = "jianying-compatible-v1"
@@ -180,6 +188,12 @@ def _nle_module() -> Any:
     """Load the Jianying-compatible local delivery core only on demand."""
 
     return _lazy_module("rrv_nle")
+
+
+def _temporal_module() -> Any:
+    """Load the offline temporal file-drop review core only on demand."""
+
+    return _lazy_module("rrv_temporal")
 
 
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
@@ -549,6 +563,38 @@ def doctor_payload(
         )
         is not None
     )
+    temporal_request_schema_available = has_jsonschema and (
+        _get_schema_validator(TEMPORAL_REQUEST_SCHEMA_PATH, "temporal replacement request")
+        is not None
+    )
+    temporal_plan_schema_available = has_jsonschema and (
+        _get_schema_validator(TEMPORAL_PLAN_SCHEMA_PATH, "temporal replacement plan")
+        is not None
+    )
+    temporal_plan_review_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            TEMPORAL_PLAN_REVIEW_SCHEMA_PATH, "temporal replacement plan review"
+        )
+        is not None
+    )
+    temporal_results_proposal_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            TEMPORAL_RESULTS_PROPOSAL_SCHEMA_PATH, "temporal results proposal"
+        )
+        is not None
+    )
+    temporal_results_review_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            TEMPORAL_RESULTS_REVIEW_SCHEMA_PATH, "temporal results review"
+        )
+        is not None
+    )
+    temporal_delivery_report_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            TEMPORAL_DELIVERY_REPORT_SCHEMA_PATH, "temporal delivery report"
+        )
+        is not None
+    )
     # A discovered regular file is not evidence that it is the requested
     # executable.  Advertise media capabilities only after its own bounded
     # version probe identifies FFmpeg or FFprobe by the official prefix.
@@ -571,6 +617,36 @@ def doctor_payload(
     faithful_evidence_core_available = _faithful_evidence_module_available()
     jianying_export_core_available = _nle_module_available("export_nle_delivery")
     jianying_verify_core_available = _nle_module_available("verify_nle_delivery")
+    temporal_prepare_core_available = _temporal_module_available(
+        "prepare_temporal_replacement"
+    )
+    temporal_results_core_available = _temporal_module_available(
+        "propose_temporal_results"
+    )
+    temporal_freeze_core_available = _temporal_module_available(
+        "freeze_temporal_delivery"
+    )
+    temporal_verify_core_available = _temporal_module_available(
+        "verify_temporal_delivery"
+    )
+    temporal_request_validator_available = _temporal_module_available(
+        "validate_temporal_request_data"
+    )
+    temporal_plan_validator_available = _temporal_module_available(
+        "validate_temporal_plan_data"
+    )
+    temporal_plan_review_validator_available = _temporal_module_available(
+        "validate_temporal_plan_review_data"
+    )
+    temporal_results_proposal_validator_available = _temporal_module_available(
+        "validate_temporal_results_proposal_data"
+    )
+    temporal_results_review_validator_available = _temporal_module_available(
+        "validate_temporal_results_review_data"
+    )
+    temporal_delivery_report_validator_available = _temporal_module_available(
+        "validate_temporal_delivery_report_data"
+    )
     jianying_export_encoders_available = (
         _ffmpeg_has_jianying_encoders(tools.ffmpeg)
         if has_ffmpeg and has_ffprobe and jianying_export_core_available
@@ -679,6 +755,36 @@ def doctor_payload(
     jianying_verify_prerequisites = (
         has_ffmpeg and has_ffprobe and jianying_verify_core_available
     )
+    temporal_schemas_available = all(
+        (
+            temporal_request_schema_available,
+            temporal_plan_schema_available,
+            temporal_plan_review_schema_available,
+            temporal_results_proposal_schema_available,
+            temporal_results_review_schema_available,
+            temporal_delivery_report_schema_available,
+        )
+    )
+    temporal_validators_available = all(
+        (
+            temporal_request_validator_available,
+            temporal_plan_validator_available,
+            temporal_plan_review_validator_available,
+            temporal_results_proposal_validator_available,
+            temporal_results_review_validator_available,
+            temporal_delivery_report_validator_available,
+        )
+    )
+    temporal_common_prerequisites = (
+        has_jsonschema
+        and has_pillow
+        and has_ffmpeg
+        and has_ffprobe
+        and template_schema_available
+        and asset_manifest_schema_available
+        and temporal_schemas_available
+        and temporal_validators_available
+    )
     public_ffmpeg = _public_doctor_tool(tools.ffmpeg)
     public_ffprobe = _public_doctor_tool(tools.ffprobe)
     return {
@@ -735,6 +841,40 @@ def doctor_payload(
             "faithful_evidence": faithful_evidence_prerequisites,
             "jianying_export": jianying_export_prerequisites,
             "jianying_verify": jianying_verify_prerequisites,
+            "temporal_request_validation": (
+                temporal_request_schema_available and temporal_request_validator_available
+            ),
+            "temporal_plan_validation": (
+                temporal_plan_schema_available and temporal_plan_validator_available
+            ),
+            "temporal_plan_review_validation": (
+                temporal_plan_review_schema_available
+                and temporal_plan_review_validator_available
+            ),
+            "temporal_results_proposal_validation": (
+                temporal_results_proposal_schema_available
+                and temporal_results_proposal_validator_available
+            ),
+            "temporal_results_review_validation": (
+                temporal_results_review_schema_available
+                and temporal_results_review_validator_available
+            ),
+            "temporal_delivery_report_validation": (
+                temporal_delivery_report_schema_available
+                and temporal_delivery_report_validator_available
+            ),
+            "temporal_replacement_planning": (
+                temporal_common_prerequisites and temporal_prepare_core_available
+            ),
+            "temporal_result_review": (
+                temporal_common_prerequisites and temporal_results_core_available
+            ),
+            "temporal_delivery_freeze": (
+                temporal_common_prerequisites and temporal_freeze_core_available
+            ),
+            "temporal_delivery_verify": (
+                temporal_common_prerequisites and temporal_verify_core_available
+            ),
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
             "reference_analysis": compiler_prerequisites,
@@ -765,6 +905,7 @@ def doctor_payload(
             "Faithful rebuild is available only with a valid reviewed plan, local FFmpeg and FFprobe version probes, the faithful-plan schema, and its guarded local core.",
             "Faithful evidence requires an approved faithful plan plus local FFmpeg, FFprobe, Pillow, both faithful schemas, and its guarded local core; it performs no OCR or semantic inference.",
             "Jianying-compatible delivery export and verification require explicit rights confirmation, local FFmpeg and FFprobe version probes, and their guarded local core.",
+            "Temporal replacement planning, result review, freeze, and verification are offline file-drop gates only; they do not call or attest a motion, voice, lip-sync, network, or cloud executor.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "Timeline render is static/2D compositing only; it does not provide subject-motion replication, voice cloning, audio rebuild, or lip sync.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
@@ -887,6 +1028,15 @@ def _nle_module_available(operation: str) -> bool:
 
     try:
         return callable(getattr(_nle_module(), operation, None))
+    except Exception:
+        return False
+
+
+def _temporal_module_available(operation: str) -> bool:
+    """Check one offline temporal packet entry point without import details."""
+
+    try:
+        return callable(getattr(_temporal_module(), operation, None))
     except Exception:
         return False
 
@@ -2166,6 +2316,61 @@ def validate_generation_results_review_data(data: Any) -> list[str]:
 
 def _validate_generation_packet_file(path: Path, validator: Any) -> list[str]:
     """Strict-load a v0.6 packet without reflecting prompts or filenames."""
+
+    try:
+        data = _load_contract_json(path)
+    except _ContractDuplicateKeyError:
+        return ["$: json.duplicate_key"]
+    except _ContractNonfiniteNumberError:
+        return ["$: json.finite_number"]
+    except Exception:
+        return ["$: json.invalid"]
+    try:
+        return _generation_validation_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def _validate_temporal_packet_data(operation: str, data: Any) -> list[str]:
+    """Run one pure v0.10 validator without exposing private packet values."""
+
+    try:
+        validator = getattr(_temporal_module(), operation, None)
+        if not callable(validator):
+            return ["$: validation.unavailable"]
+        return _generation_validation_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def validate_temporal_request_data(data: Any) -> list[str]:
+    return _validate_temporal_packet_data("validate_temporal_request_data", data)
+
+
+def validate_temporal_plan_data(data: Any) -> list[str]:
+    return _validate_temporal_packet_data("validate_temporal_plan_data", data)
+
+
+def validate_temporal_plan_review_data(data: Any) -> list[str]:
+    return _validate_temporal_packet_data("validate_temporal_plan_review_data", data)
+
+
+def validate_temporal_results_proposal_data(data: Any) -> list[str]:
+    return _validate_temporal_packet_data(
+        "validate_temporal_results_proposal_data", data
+    )
+
+
+def validate_temporal_results_review_data(data: Any) -> list[str]:
+    return _validate_temporal_packet_data("validate_temporal_results_review_data", data)
+
+
+def validate_temporal_delivery_report_data(data: Any) -> list[str]:
+    return _validate_temporal_packet_data("validate_temporal_delivery_report_data", data)
+
+
+def _validate_temporal_packet_file(path: Path, validator: Any) -> list[str]:
+    """Strict-load a temporal packet while keeping all instance text private."""
 
     try:
         data = _load_contract_json(path)
@@ -3719,6 +3924,239 @@ def run_assemble_generation_pack(args: argparse.Namespace) -> tuple[dict[str, An
         return _generation_workflow_error_payload("generation pack assembly", exc), 2
 
 
+_TEMPORAL_SCHEMA_VERSION = "0.10.0"
+
+
+def _temporal_workflow_error_payload(
+    operation: str, error: BaseException
+) -> dict[str, Any]:
+    """Return a fixed temporal error envelope without packet or tool text."""
+
+    return _faithful_workflow_error_payload(operation, error)
+
+
+def _compact_temporal_counts(value: Any, allowed: Sequence[str]) -> dict[str, int]:
+    if not isinstance(value, Mapping) or set(value) != set(allowed):
+        raise TypeError("temporal workflow returned invalid counts")
+    compact: dict[str, int] = {}
+    for key in allowed:
+        count = value.get(key)
+        if not _is_int(count) or not 0 <= count <= 256:
+            raise TypeError("temporal workflow returned invalid counts")
+        compact[key] = count
+    return compact
+
+
+def _compact_temporal_artifacts(
+    value: Any, names: Sequence[str]
+) -> dict[str, dict[str, str]]:
+    if not isinstance(value, Mapping) or set(value) != set(names):
+        raise TypeError("temporal workflow returned invalid artifacts")
+    return {
+        name: _compact_workflow_artifact(value.get(name), f"artifacts.{name}")
+        for name in names
+    }
+
+
+def _compact_temporal_prepare_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        result.get("schema_version") != _TEMPORAL_SCHEMA_VERSION
+        or result.get("review_required") is not True
+        or result.get("execution_profile") != "local-file-drop"
+    ):
+        raise TypeError("temporal planning returned invalid workflow facts")
+    return {
+        "schema_version": _TEMPORAL_SCHEMA_VERSION,
+        "review_required": True,
+        "execution_profile": result["execution_profile"],
+        "counts": _compact_temporal_counts(
+            result.get("counts"), ("reference_inventory_entries", "input_assets")
+        ),
+        "artifacts": _compact_temporal_artifacts(
+            result.get("artifacts"),
+            ("temporal_plan", "review_template", "input_contact_sheet"),
+        ),
+    }
+
+
+def _compact_temporal_proposal_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        result.get("schema_version") != _TEMPORAL_SCHEMA_VERSION
+        or result.get("review_required") is not True
+    ):
+        raise TypeError("temporal result review returned invalid workflow facts")
+    return {
+        "schema_version": _TEMPORAL_SCHEMA_VERSION,
+        "review_required": True,
+        "counts": _compact_temporal_counts(
+            result.get("counts"), ("result_inventory_entries",)
+        ),
+        "artifacts": _compact_temporal_artifacts(
+            result.get("artifacts"),
+            (
+                "proposal",
+                "review_template",
+                "results_contact_sheet",
+                "technical_sanity",
+            ),
+        ),
+    }
+
+
+def _compact_temporal_delivery_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        result.get("schema_version") != _TEMPORAL_SCHEMA_VERSION
+        or result.get("completion") != "temporal_replacement_reviewed"
+        or result.get("review_required") is not False
+        or result.get("bitstream_faithful") is not False
+        or result.get("provider_provenance")
+        != "unattested-local-file-drop"
+    ):
+        raise TypeError("temporal delivery returned invalid workflow facts")
+    return {
+        "schema_version": _TEMPORAL_SCHEMA_VERSION,
+        "completion": "temporal_replacement_reviewed",
+        "review_required": False,
+        "bitstream_faithful": False,
+        "provider_provenance": "unattested-local-file-drop",
+        "artifacts": _compact_temporal_artifacts(
+            result.get("artifacts"), ("temporal_replacement", "delivery_report")
+        ),
+    }
+
+
+def _compact_temporal_verify_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    if (
+        result.get("schema_version") != _TEMPORAL_SCHEMA_VERSION
+        or result.get("verified") is not True
+        or result.get("completion") != "temporal_replacement_reviewed"
+    ):
+        raise TypeError("temporal verification returned invalid workflow facts")
+    return {
+        "schema_version": _TEMPORAL_SCHEMA_VERSION,
+        "verified": True,
+        "completion": "temporal_replacement_reviewed",
+        "final_video": _compact_workflow_artifact(
+            result.get("final_video"), "final_video"
+        ),
+    }
+
+
+def _temporal_rights_error(operation: str) -> tuple[dict[str, Any], int]:
+    return _temporal_workflow_error_payload(
+        operation, CliArgumentError("rights confirmation is required")
+    ), 2
+
+
+def run_prepare_temporal_replacement(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    """Delegate a rights-confirmed temporal plan without pre-reading packets."""
+
+    operation = "temporal replacement planning"
+    if getattr(args, "temporal_rights_confirmed", False) is not True:
+        return _temporal_rights_error(operation)
+    try:
+        result = _temporal_module().prepare_temporal_replacement(
+            args.template,
+            args.manifest,
+            args.request,
+            project_root=args.project_root,
+            reference_pack=args.reference_pack,
+            temporal_rights_confirmed=True,
+            output_dir=args.output_dir,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("temporal planning returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_temporal_prepare_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
+def run_propose_temporal_results(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    """Delegate a rights-confirmed result drop without pre-reading packets."""
+
+    operation = "temporal result review"
+    if getattr(args, "temporal_results_rights_confirmed", False) is not True:
+        return _temporal_rights_error(operation)
+    try:
+        result = _temporal_module().propose_temporal_results(
+            args.plan,
+            args.plan_review,
+            project_root=args.project_root,
+            result_pack=args.result_pack,
+            temporal_results_rights_confirmed=True,
+            output_dir=args.output_dir,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("temporal result review returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_temporal_proposal_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
+def run_freeze_temporal_delivery(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    """Delegate all approved packet reads to the descriptor-safe core."""
+
+    operation = "temporal delivery freeze"
+    try:
+        result = _temporal_module().freeze_temporal_delivery(
+            args.plan,
+            args.plan_review,
+            args.proposal,
+            args.results_review,
+            project_root=args.project_root,
+            output_dir=args.output_dir,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("temporal delivery returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_temporal_delivery_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
+def run_verify_temporal_delivery(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    """Read-only verify a temporal report through the guarded core."""
+
+    operation = "temporal delivery verification"
+    try:
+        result = _temporal_module().verify_temporal_delivery(
+            args.report,
+            project_root=args.project_root,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("temporal verification returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_temporal_verify_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
 _FAITHFUL_SAFE_ERROR_CODES = frozenset(
     {
         "invalid_argument",
@@ -4399,6 +4837,42 @@ def build_parser() -> argparse.ArgumentParser:
     )
     validate_generation_results_review.add_argument("review", type=Path)
     validate_generation_results_review.add_argument("--json", action="store_true", dest="as_json")
+    temporal_validators = (
+        (
+            "validate-temporal-request",
+            "Validate a private v0.10 temporal replacement request",
+            "request",
+        ),
+        (
+            "validate-temporal-plan",
+            "Validate a v0.10 temporal replacement plan",
+            "plan",
+        ),
+        (
+            "validate-temporal-plan-review",
+            "Validate a v0.10 temporal plan review",
+            "review",
+        ),
+        (
+            "validate-temporal-results-proposal",
+            "Validate a v0.10 temporal results proposal",
+            "proposal",
+        ),
+        (
+            "validate-temporal-results-review",
+            "Validate a v0.10 temporal results review",
+            "review",
+        ),
+        (
+            "validate-temporal-delivery-report",
+            "Validate a v0.10 temporal delivery report",
+            "report",
+        ),
+    )
+    for command_name, command_help, argument_name in temporal_validators:
+        command = subparsers.add_parser(command_name, help=command_help)
+        command.add_argument(argument_name, type=Path)
+        command.add_argument("--json", action="store_true", dest="as_json")
     validate_faithful_plan = subparsers.add_parser(
         "validate-faithful-plan",
         help="Validate a v0.9 local faithful rebuild plan",
@@ -4580,6 +5054,69 @@ def build_parser() -> argparse.ArgumentParser:
     assemble_generation_pack.add_argument("--timeout", type=float, default=60.0)
     assemble_generation_pack.add_argument("--json", action="store_true", dest="as_json")
 
+    prepare_temporal = subparsers.add_parser(
+        "prepare-temporal-replacement",
+        help="Prepare an offline review plan for one temporal replacement",
+    )
+    prepare_temporal.add_argument("template", type=Path)
+    prepare_temporal.add_argument("manifest", type=Path)
+    prepare_temporal.add_argument("request", type=Path)
+    prepare_temporal.add_argument("--project-root", type=Path, required=True)
+    prepare_temporal.add_argument("--reference-pack", type=Path, required=True)
+    prepare_temporal.add_argument(
+        "--temporal-rights-confirmed", action="store_true", required=True
+    )
+    prepare_temporal.add_argument("--output-dir", type=Path, default=Path("temporal-plan"))
+    prepare_temporal.add_argument("--ffmpeg", type=Path, default=Path("ffmpeg"))
+    prepare_temporal.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    prepare_temporal.add_argument("--timeout-seconds", type=float, default=60.0)
+    prepare_temporal.add_argument("--json", action="store_true", dest="as_json")
+
+    propose_temporal = subparsers.add_parser(
+        "propose-temporal-results",
+        help="Create review evidence for one offline temporal result drop",
+    )
+    propose_temporal.add_argument("plan", type=Path)
+    propose_temporal.add_argument("plan_review", type=Path)
+    propose_temporal.add_argument("--project-root", type=Path, required=True)
+    propose_temporal.add_argument("--result-pack", type=Path, required=True)
+    propose_temporal.add_argument(
+        "--temporal-results-rights-confirmed", action="store_true", required=True
+    )
+    propose_temporal.add_argument(
+        "--output-dir", type=Path, default=Path("temporal-results-proposal")
+    )
+    propose_temporal.add_argument("--ffmpeg", type=Path, default=Path("ffmpeg"))
+    propose_temporal.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    propose_temporal.add_argument("--timeout-seconds", type=float, default=60.0)
+    propose_temporal.add_argument("--json", action="store_true", dest="as_json")
+
+    freeze_temporal = subparsers.add_parser(
+        "freeze-temporal-delivery",
+        help="Freeze one fully reviewed temporal MP4 by byte copy",
+    )
+    freeze_temporal.add_argument("plan", type=Path)
+    freeze_temporal.add_argument("plan_review", type=Path)
+    freeze_temporal.add_argument("proposal", type=Path)
+    freeze_temporal.add_argument("results_review", type=Path)
+    freeze_temporal.add_argument("--project-root", type=Path, required=True)
+    freeze_temporal.add_argument("--output-dir", type=Path, default=Path("temporal-delivery"))
+    freeze_temporal.add_argument("--ffmpeg", type=Path, default=Path("ffmpeg"))
+    freeze_temporal.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    freeze_temporal.add_argument("--timeout-seconds", type=float, default=60.0)
+    freeze_temporal.add_argument("--json", action="store_true", dest="as_json")
+
+    verify_temporal = subparsers.add_parser(
+        "verify-temporal-delivery",
+        help="Read-only verify a frozen temporal delivery report and MP4",
+    )
+    verify_temporal.add_argument("report", type=Path)
+    verify_temporal.add_argument("--project-root", type=Path, required=True)
+    verify_temporal.add_argument("--ffmpeg", type=Path, default=Path("ffmpeg"))
+    verify_temporal.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    verify_temporal.add_argument("--timeout-seconds", type=float, default=60.0)
+    verify_temporal.add_argument("--json", action="store_true", dest="as_json")
+
     faithful_rebuild = subparsers.add_parser(
         "faithful-rebuild",
         help="Create a metadata-free faithful local source replica from an approved plan",
@@ -4707,6 +5244,22 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, status = run_assemble_generation_pack(args)
             _emit_stable_json(payload)
             return status
+        if args.command == "prepare-temporal-replacement":
+            payload, status = run_prepare_temporal_replacement(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "propose-temporal-results":
+            payload, status = run_propose_temporal_results(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "freeze-temporal-delivery":
+            payload, status = run_freeze_temporal_delivery(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "verify-temporal-delivery":
+            payload, status = run_verify_temporal_delivery(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "faithful-rebuild":
             payload, status = run_faithful_rebuild(args)
             _emit_stable_json(payload)
@@ -4778,6 +5331,30 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "validate-generation-results-review":
             errors = _validate_generation_packet_file(
                 args.review, validate_generation_results_review_data
+            )
+        elif args.command == "validate-temporal-request":
+            errors = _validate_temporal_packet_file(
+                args.request, validate_temporal_request_data
+            )
+        elif args.command == "validate-temporal-plan":
+            errors = _validate_temporal_packet_file(
+                args.plan, validate_temporal_plan_data
+            )
+        elif args.command == "validate-temporal-plan-review":
+            errors = _validate_temporal_packet_file(
+                args.review, validate_temporal_plan_review_data
+            )
+        elif args.command == "validate-temporal-results-proposal":
+            errors = _validate_temporal_packet_file(
+                args.proposal, validate_temporal_results_proposal_data
+            )
+        elif args.command == "validate-temporal-results-review":
+            errors = _validate_temporal_packet_file(
+                args.review, validate_temporal_results_review_data
+            )
+        elif args.command == "validate-temporal-delivery-report":
+            errors = _validate_temporal_packet_file(
+                args.report, validate_temporal_delivery_report_data
             )
         elif args.command == "validate-faithful-plan":
             errors = _validate_faithful_plan_file(args.plan)

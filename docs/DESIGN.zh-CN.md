@@ -1,6 +1,6 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.9.1-alpha（faithful 证据/provenance 与独立 NLE 派生交付）
+版本：0.10.0-alpha（provider-neutral temporal file-drop 审核/冻结）
 日期：2026-08-25
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
@@ -60,14 +60,25 @@ faithful summary 中绑定原始/规范计划、执行器、调用策略和本�
 声明 `nle_compatible_derivative` 和 `bitstream_faithful: false`，不是剪映官方
 认证、私有工程文件、可编辑时间线或图层包，不能继承 faithful 声明。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。当前 renderer 只接受静态素材与音轨；没有人物动作复刻、pose-transfer、video-to-video、重建音效、授权声线克隆或口型同步能力。Template IR 0.2.0 的旧输出必须标记为 `structure_only_unclaimed`；任何 0.3.0 的动作/声音要求若没有匹配的已审核执行器，必须 fail closed。唯一的 0.9 例外是 faithful 源保留：它不理解、推断、重建或替换任何内容，而是在已审核计划下保留源画面/文字/动作及指定音频处理，并移除继承/用户 metadata。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.10.0-alpha 新增一条与 Template IR、静态 renderer、v0.6 静态素材桥和
+Faithful 都独立的 **provider-neutral temporal file-drop 审核/冻结链**。它只接受
+已审核 Template IR `0.3.0` 中 `motion_required=true` 且
+`motion_mode=pose-transfer|video-to-video` 的请求，绑定冻结 Asset Manifest `0.2.0`
+的最小已选槽位和一条 action-reference MP4。CLI 不调用 provider、不读 API key、
+不联网、不启动 browser/CUDA/shell、不生成视频；外部操作只在仓库外把一个新的
+`temporal-replacement.mp4` 放入 result pack。随后 CLI 只能做本地技术负向检查、
+完整人工审核和 byte-copy 冻结。Delivery Report 固定
+`provider_provenance=unattested-local-file-drop` 与
+`bitstream_faithful=false`，不能写成 provider 证明或 Faithful 源保留。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。当前 renderer 只接受静态素材与音轨；没有内置人物动作复刻、pose-transfer、video-to-video、重建音效、授权声线克隆或口型同步执行器。v0.10 仅可对一个外部落地的 temporal MP4 做本地 file-drop 审核/byte-copy 冻结，绝不调用或证明 provider。Template IR 0.2.0 的旧输出必须标记为 `structure_only_unclaimed`；动态 Template IR 0.3.0 不能降级到静态 renderer，只有完整 v0.10 审核链才可接受对应外部结果。唯一的 0.9 例外是 faithful 源保留：它不理解、推断、重建或替换任何内容，而是在已审核计划下保留源画面/文字/动作及指定音频处理，并移除继承/用户 metadata。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
 1. [执行摘要](#1-执行摘要)
 2. [产品目标](#2-产品目标)
 3. [非目标与承诺边界](#3-非目标与承诺边界)
-4. [两种工作模式](#4-两种工作模式)
+4. [主要工作模式](#4-主要工作模式)
 5. [支持等级](#5-支持等级)
 6. [总体架构](#6-总体架构)
 7. [核心数据模型](#7-核心数据模型)
@@ -91,6 +102,7 @@ faithful summary 中绑定原始/规范计划、执行器、调用策略和本�
 25. [v0.5 严格本地资产包增量](#25-v05-严格本地资产包增量)
 26. [v0.6 外部生成资产桥](#26-v06-外部生成资产桥)
 27. [v0.7 OpenAI GPT Image 2 独立控制器](#27-v07-openai-gpt-image-2-独立控制器)
+28. [v0.10 Temporal file-drop 审核/冻结](#28-v010-temporal-file-drop-审核冻结)
 
 ## 1. 执行摘要
 
@@ -158,7 +170,7 @@ faithful summary 中绑定原始/规范计划、执行器、调用策略和本�
 - 将第三方开源模型的许可证自动转化为本项目许可证；
 - 在没有适合 GPU 的机器上提供高质量本地视频扩散速度保证。
 
-## 4. 两种工作模式
+## 4. 主要工作模式
 
 ### 4.1 Propose -> Review -> Freeze -> Compile：新参考视频编译模式
 
@@ -205,13 +217,30 @@ v0.9.1 的 review evidence 只把已声明的区域画到确定性联系表上�
 固定 H.264 High/yuv420p/CFR/AAC-LC 48 kHz stereo/faststart 配置；它是平面视频，
 与本节的 faithful archive 是两个独立产品和验收结论。
 
+### 4.4 Temporal：外部时序结果的本地审核/冻结模式
+
+该模式只接收用户独立操作**本地**工具后落入本地 pack 的 temporal MP4；它不是本机
+motion controller、provider adapter 或视频生成器。输入必须是已审核的动态 Template
+IR `0.3.0`、冻结 Asset Manifest `0.2.0` 的最小选中槽位、以及一个 action-reference
+MP4。v0.10 Alpha 的 Request/Plan 只允许 `privacy_profile=local-only`、
+`execution_profile=local-file-drop`、`cloud_upload_confirmed=false`；不授权 cloud、
+controller 或 API 路线，也不上传、不启动任何 provider。
+
+候选结果只能放在新的一级本地 result pack 中，且必须唯一命名为
+`temporal-replacement.mp4`，不得含继承或用户写入 metadata。本地 CLI 对 action
+reference 和 result 做严格 MP4/
+CFR/H.264 High/8-bit `yuv420p`/AAC-LC（如有音频）技术检查、全片 decode、联系表
+和帧差/冻结负向检查；然后人工完整播放确认动作、脸手肢体、服装/商品、时序、音频、
+权利、水印及条件 voice/lip。通过后只 byte-copy 结果为冻结交付，不能推断或证明
+外部 provider 的实际模型、处理、声音或口型能力。
+
 ## 5. 支持等级
 
 | 等级 | 视频特征 | 自动化承诺 | 失败策略 |
 |---|---|---|---|
 | S1 确定性结构 | 单主体、固定镜头、简单背景、规律硬切、2D 叠加；`motion_required=false` 且 `motion_mode=static/layout-only` | 当前仅限已授权的 fixed-subject-carousel；propose 可给出有界几何、slot_count 和时序候选 | 静态图的 2D 移动不能冒充人物动作；Proposal 永远需要人工/Codex Review |
 | S2 跟踪合成 | 单主体中等运动、缓慢运镜、可跟踪遮挡、动态背景 | 当前未实现；未来需动态蒙版和跟踪执行器 | 当前 fail closed；不能降级为动作已复刻的静态结果 |
-| S3 生成式动作/声音 | `pose-transfer`、`video-to-video`、快速运动、转身、复杂衣服动态、强运镜、重建音效、授权声线克隆或口型 | 当前未实现；需已审核外部 controller 和全片人工验收 | 当前 fail closed；未来分段生成、局部重试并明确实验性 |
+| S3 生成式动作/声音 | `pose-transfer`、`video-to-video`、快速运动、转身、复杂衣服动态、强运镜、重建音效、授权声线克隆或口型 | v0.10 仅可审核/冻结用户独立本地工具产生的单个 local-only file-drop 结果；无内置 controller 或 provider attestation | 静态 renderer 仍 fail closed；必须严格 profile、两次审核和全片人工验收，重试使用新 pack |
 | S4 不支持精确模式 | 多人紧密交互、镜面、透明物、严重遮挡、极快混剪、输入损坏 | 不承诺 | 输出分析报告并建议拆分、简化或人工模板 |
 
 分类必须保守：错误地拒绝精确模式优于静默输出错误商品、错误人物或残留平台标识。
@@ -306,6 +335,30 @@ Plan 互换。根对象仅允许合同字段，并必须含：`rights_confirmed:
 `metadata.strip_all: true`。文本清单是人工审核证据而非 OCR 输出；schema 可校验
 结构与范围，但不能证明审核者已经识别了所有可见文字。
 
+### 7.0.2 Temporal Replacement packets
+
+v0.10 的六种 JSON packet 均为 `0.10.0`，并且只服务于一个用户独立本地操作后
+落地的时序结果：Temporal Request、Temporal Plan、Temporal Plan Review、Temporal Results
+Proposal、Temporal Results Review 和 Temporal Delivery Report。它们不替代
+Proposal、Compiler Plan、Template IR、Asset Manifest 或 Faithful Plan。
+
+Request 是私有的，必须选择一个 Template `output_id`，只列出
+`input_slot_ids`，并固定 `local-only` + `local-file-drop` +
+`cloud_upload_confirmed=false`；Plan 从冻结 Manifest `0.2.0` 解析这些槽位，发布不透明的
+`input_assets`（`slot_id`、SHA-256、media type）及 canonical hash，而不是任意
+路径、提示词或外部请求。它还绑定一个 action-reference MP4 inventory、
+Template/Manifest/Request 哈希、受限执行声明和 requirements。只有
+`clone-authorized-voice` 时，Request 才带本地、范围受限的 authorization
+assertion；Plan/Plan Review 只绑定其 canonical SHA-256，不能把该哈希说成
+独立声音身份、同意或 provider 证明。
+
+Results Proposal 绑定 approved Plan/Plan Review、唯一 result inventory、音频
+检查、联系表和 `semantic_action_not_proven=true` 的技术负向证据；Results Review
+必须由人完成全片审核。Delivery Report 绑定全部 packet/输入/输出哈希，但固定
+`completion=temporal_replacement_reviewed`、`bitstream_faithful=false` 与
+`provider_provenance=unattested-local-file-drop`。这些 audit binding 不是签名、
+也不证明任何工具做了声明的动作/声音/口型处理。
+
 ### 7.1 Template IR
 
 Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合同。`slots` 只描述用户输入或生成输入，`layers` 才描述实际进入画面的渲染实例；这样可以阻止 renderer 把服装平铺图直接贴到人物层上。所有时间范围采用半开区间 `[start_frame, end_frame)`，所有坐标都以 clean canvas 左上角为原点，排序固定为 `(track.z_index, layer.z_offset, layer.id)`。
@@ -346,9 +399,10 @@ Template IR 是系统可扩展性的核心，也是 renderer 的冻结执行合�
 矛盾或当前执行器不支持的值一律 P0 fail，不得静默改成静态合成。
 
 当前 renderer 只能消费 0.3.0 中 `static`/`layout-only` 与受限音频的静态
-子集；`pose-transfer`、`video-to-video`、口型、重建音效和授权声线克隆仍没有
-已审核 controller，必须 fail closed。仅将旧 JSON 的版本号字符串改成 0.3.0
-不构成升级。完整规则见
+子集；它不会执行 `pose-transfer`、`video-to-video`、口型、重建音效或授权声线
+克隆。v0.10 只为用户独立本地工具产生、并固定为 local-only/local-file-drop 的结果
+提供独立审核/冻结，不是 renderer/controller 集成或 provider 能力证明。仅将旧 JSON 的版本号字符串
+改成 0.3.0 不构成升级。完整规则见
 `skills/reference-video-rebuilder/references/motion-audio-contract.md`。
 
 #### 7.1.2 旧 Template IR 0.2.0 示例
@@ -728,12 +782,13 @@ NEW
 
 ## 10. 命令行和工具接口
 
-当前 Skill/工作流与 `video_remix.py` 本地 CLI 版本均为 `0.9.1-alpha`。
-CLI 保留 v0.4–v0.8 的本地合同，并新增独立的 v0.9 Faithful Rebuild Plan；
+当前 Skill/工作流与 `video_remix.py` 本地 CLI 版本均为 `0.10.0-alpha`。
+CLI 保留 v0.4–v0.9 的本地合同，并新增独立的 v0.10 Temporal packets；
 Codex 不应依赖自然语言日志。参考 Proposal schema 为 `0.4.0`，Frozen
 Compiler Plan schema 保持 `0.3.0`，Template IR 同时支持 legacy `0.2.0`
-与严格 requirements 的 `0.3.0`。v0.9 Plan schema 为 `0.9.0`，不与上述
-工件互换。v0.5 的资产命令和 schema 版本见第 25 节：
+与严格 requirements 的 `0.3.0`。v0.9 Plan schema 为 `0.9.0`，v0.10 的
+Request/Plan/Reviews/Delivery Report 均为 `0.10.0`，不与上述工件互换。v0.5
+的资产命令和 schema 版本见第 25 节：
 
 ```text
 video-remix doctor [--ffmpeg <path>] [--ffprobe <path>] --json
@@ -760,6 +815,15 @@ python <skill-root>/scripts/video_remix.py faithful-rebuild <faithful-rebuild-pl
 python <skill-root>/scripts/video_remix.py faithful-evidence <faithful-rebuild-plan.json> --project-root <project-dir> [--output-dir faithful-evidence] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] [--max-panels <1..24>] --json
 python <skill-root>/scripts/video_remix.py jianying-export <source.mp4> --project-root <project-dir> --rights-confirmed [--output-dir jianying-delivery] [--profile jianying-compatible-v1] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
 python <skill-root>/scripts/video_remix.py jianying-verify <delivery.mp4> --project-root <project-dir> --rights-confirmed [--profile jianying-compatible-v1] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py validate-temporal-request <temporal-request.json> --json
+python <skill-root>/scripts/video_remix.py prepare-temporal-replacement <template.ir.json> <assets.json> <temporal-request.json> --project-root <project-dir> --reference-pack <direct-child> --temporal-rights-confirmed [--output-dir temporal-plan] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py validate-temporal-plan <temporal-replacement-plan.json> --json
+python <skill-root>/scripts/video_remix.py validate-temporal-plan-review <temporal-plan-review.json> --json
+python <skill-root>/scripts/video_remix.py propose-temporal-results <temporal-replacement-plan.json> <temporal-plan-review.json> --project-root <project-dir> --result-pack <direct-child> --temporal-results-rights-confirmed [--output-dir temporal-results-proposal] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py validate-temporal-results-proposal <temporal-results-proposal.json> --json
+python <skill-root>/scripts/video_remix.py validate-temporal-results-review <temporal-results-review.json> --json
+python <skill-root>/scripts/video_remix.py freeze-temporal-delivery <temporal-replacement-plan.json> <temporal-plan-review.json> <temporal-results-proposal.json> <temporal-results-review.json> --project-root <project-dir> [--output-dir temporal-delivery] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py verify-temporal-delivery <temporal-delivery-report.json> --project-root <project-dir> [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
 video-remix render <template.ir.json> <assets.json> --project-root <project-dir> [--frame-directory render/master-frames] [--debug-bounds] [--summary <root-contained.json>] [--ffmpeg <path>] --json
 video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
@@ -783,6 +847,36 @@ video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames
 `jianying-compatible-v1`。export 发布 `jianying-compatible-v1.mp4` 和
 `nle-delivery-report.json`；verify 只读复核。派生视频经过重新编码，报告必须
 是 `bitstream_faithful: false`，且不代表剪映官方认证或可编辑工程。
+
+v0.10 的 6 个 `validate-temporal-*` 命令只校验相应的本地 packet。
+`prepare-temporal-replacement` 的三个 positional 依次是 Template、冻结 Manifest
+和 private Request；它要求 `--temporal-rights-confirmed` 后才读取项目。它只接受
+Template IR `0.3.0` 的 dynamic requirements、Manifest `0.2.0` 的已选 input slots
+和一个 action-reference pack，发布 `temporal-replacement-plan.json`、
+`temporal-replacement-plan-review.template.json` 与
+`temporal-input-contact-sheet.png`。Request/Plan 必须固定 `local-only`、
+`local-file-drop`、`cloud_upload_confirmed=false`；adapter/capability 字段只是
+用户独立本地工具的声明，CLI 不调用、不上传也不证明任何工具。
+
+在人工批准 Plan Review 后，用户可独立操作本地工具，并在新的本地 result pack 放入唯一、
+无继承/用户 metadata 的 `temporal-replacement.mp4`。`propose-temporal-results` 需要单独的
+`--temporal-results-rights-confirmed`，发布 Results Proposal、待审 Results Review、
+比较 contact sheet 和 `temporal-technical-sanity.json`。这四项都只是技术负向
+证据；`semantic_action_not_proven=true` 固定存在。冻结前必须完成全片人工
+动作/脸手肢体/服装/时序/音频/权利审核，并在适用时确认 scope-bound voice
+authorization 和 lip sync。
+
+若 `clone-authorized-voice`，scope-bound local authorization 的 `expires_at` 必须在
+prepare、propose 和 freeze 当时仍有效；历史 `verify-temporal-delivery` 只复验冻结
+packet 的绑定，不把 verify 解释成续期、再次批准或复用授权。
+
+`freeze-temporal-delivery` 只 byte-copy 已审核结果，原子发布
+`temporal-replacement.mp4` 与 `temporal-delivery-report.json`。报告固定
+`completion=temporal_replacement_reviewed`、`bitstream_faithful=false`、
+`provider_provenance=unattested-local-file-drop`，不是 Faithful 或 provider
+证明。`verify-temporal-delivery` 只读重新绑定所有 packet、证据、输入/结果/最终
+bytes、严格 profile 和全片 decode，并允许历史授权已到期的已冻结交付复验。普通失败不发布 final target；可疑阶段目录
+`.rrv-temporal-*` 被忽略而不是交付。
 
 v0.7 的联网控制器是**独立脚本**，不是 `video-remix` 子命令：
 
@@ -993,9 +1087,12 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 - 把 `preserve-reference` 只记录为参考音轨保留；它不构成声音模仿、声线克隆、
   重建音效或口型同步；
 - 对 `pose-transfer`、`video-to-video`、`rebuild-sfx`、
-  `clone-authorized-voice` 或 lip sync，记录真正执行器/模型/版本、授权上传范围、
-  相应的肖像/音频/声线权利与全片人工复核证据；以及
-- 在执行器缺失、未集成、能力不匹配、证据不完整或值未知/矛盾时 fail closed。
+  `clone-authorized-voice` 或 lip sync，走 13.0.10 的 v0.10 file-drop
+  Request/Plan/双 Review：只允许 `local-only` + `local-file-drop` +
+  `cloud_upload_confirmed=false`，仅记录受限 adapter/capability 声明、最小 frozen input
+  set、相应肖像/音频/声线权利和全片人工复核；这些记录不是 provider/model 执行证明；以及
+- 在静态 renderer 路径、请求/审核缺失、能力声明不匹配、结果 profile/decode/drift
+  失败、证据不完整或值未知/矛盾时 fail closed。
 
 当前 portal-reveal 示例必须冻结为：
 
@@ -1010,9 +1107,9 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 ```
 
 现有静态门户成片只能通过结构、节奏、特效、平台元素清除和音轨保留审核，
-并标记 `structure_only_unclaimed`；在已审核的 video-to-video controller 产出
-新结果并完成全片验收前，它必须在本门失败。可能的 Runway 路线尚未接入，不能
-作为已满足该门的依据。
+并标记 `structure_only_unclaimed`；在一个经 v0.10 Plan/Results Review、严格技术
+检查和全片验收的 local-only video-to-video file-drop 结果出现前，它必须在本门失败。可能的
+Runway 路线尚未接入，不能作为已满足该门的依据。
 
 ### 13.0.9 Faithful 源保留门
 
@@ -1034,6 +1131,48 @@ v0.7 在 v0.6 Plan Review 之后增加以下 P0：
 
 若用户要求删除 UI、字幕、弹幕、水印、Logo、评论、人物、商品、背景或文字，或要求
 替换任意可见内容，必须拒绝走 Faithful 路径并转入单独审核的重建工作；不能静默降级。
+
+### 13.0.10 v0.10 Temporal file-drop 审核/冻结门
+
+Temporal 是动态 Template IR 的独立本地交接链，不是 static renderer 的扩展、
+provider adapter 或视频生成器。它只允许用户独立操作本地工具后的 `local-only` /
+`local-file-drop` / `cloud_upload_confirmed=false` file drop。任何交付可声明
+`temporal_replacement_reviewed` 前，必须同时满足：
+
+- Template 为已审核 `0.3.0`，`support.review_required=false`、
+  `motion_required=true` 且 `motion_mode=pose-transfer|video-to-video`；
+  `static`/`layout-only` 不能借该链升级；
+- Manifest 为冻结 local-only `0.2.0`；Request 的 `input_slot_ids` 仅选择已存在、
+  rights-confirmed、`cloud_upload_allowed=false` 的 frozen slots，Plan 发布不透明
+  `input_assets` 与 canonical hash；Request/Plan 必须固定 `local-only`、
+  `local-file-drop`、`cloud_upload_confirmed=false`，不能从 prompt/文件名/联系表扩大
+  上传或处理集，也不接受 controller/cloud/API 声明；
+- action reference pack 仅含一条安全 MP4，result pack 为不同的新一级目录，且只含
+  `temporal-replacement.mp4`；两者均必须 MP4、精确 CFR、零 rotation、H.264 High、
+  8-bit `yuv420p`、最长 60 秒和完整本地 decode；如有音频则恰一条 AAC-LC 48 kHz
+  stereo；reference 与 Template source、result 与 selected output 的尺寸/FPS/帧数
+  分别精确匹配；candidate result 还不得含继承或用户写入 metadata；
+- Plan Review 显式绑定 Plan，确认最小 input set、action-reference 联系表、执行/
+  隐私声明、动作、脸手肢体、服装/商品、时序、音频、权利和水印；任一 controller/
+  cloud/API 声明均拒绝，且没有声明能让 CLI 上传；
+- Results Review 显式绑定 Proposal，并在**完整播放**中确认连续动作、脸/手/肢体、
+  衣物/商品连续性、时序、音频、权利和水印缺失；若请求 voice clone，则 Plan/Plan
+  Review 还要绑定 scope-bound local authorization 的 canonical hash 并人工确认声线；
+  该 authorization 必须在 prepare/propose/freeze 当时未过期；若请求 lip sync，人工确认可见嘴部与音频同步；以及
+- `freeze-temporal-delivery` 对已审核结果做 byte-copy，原子发布唯一 MP4 和 report；
+  report 固定 `completion=temporal_replacement_reviewed`、
+  `bitstream_faithful=false`、
+  `provider_provenance=unattested-local-file-drop`，之后还要由
+  `verify-temporal-delivery` 重新校验 packet/evidence/bytes/profile/decode。
+
+contact sheet、帧差/冻结统计、audio stream、audio payload hash、全片 decode、哈希和
+adapter/model/version 字段都只能提供技术负向检查。它们可发现黑帧、静帧、profile
+错误或 drift，不能证明动作、声音、声线、口型、服装忠实度、权利或 provider 行为；
+`semantic_action_not_proven=true` 必须保留。任何缺失、未批准、drift、profile/decode
+失败均不得发布 final target；重试必须使用新的 result pack 和新的 Proposal/Review。
+`.rrv-temporal-*` staging 被忽略，绝不算交付。
+历史 `verify-temporal-delivery` 仍复验冻结绑定，即使 authorization 随后过期；它不
+更新、续期或扩大授权。
 
 ### 13.1 结构和媒体
 
@@ -1403,6 +1542,24 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
   但公共结果不回显工具绝对路径；
 - 增加独立固定 `jianying-compatible-v1` 转码与验证，强制标记为重编码派生；
 - 不生成剪映私有工程、时间线、字幕、特效或图层，不声称官方认证或跨版本保证。
+
+### Phase 3.10：Temporal file-drop 审核/冻结（v0.10，已实现）
+
+- 增加独立的 Request/Plan/Plan Review/Results Proposal/Results Review/Delivery
+  Report `0.10.0` 合同，不改变 Template IR `0.3.0`、Manifest `0.2.0`、static
+  renderer 或 Faithful 合同；
+- 只接受动态 Template 的 `pose-transfer|video-to-video` 请求，冻结 Manifest 最小
+  `input_slot_ids`，并固定 `local-only` + `local-file-drop` +
+  `cloud_upload_confirmed=false`、一条 action-reference MP4 和一条无继承/用户
+  metadata、固定文件名的 result MP4；
+- CLI 只做本地 guarded snapshot、技术负向检查、双重人工审核、byte-copy freeze 和
+  verify；不调用 provider、不读 key、不联网、不启动 CUDA/browser/shell、不生成视频；
+- 交付固定 `provider_provenance=unattested-local-file-drop` 和
+  `bitstream_faithful=false`；联系表、帧差、音频流和 hashes 不能升级为动作、声音、
+  口型、权利或 provider 证明；
+- 重试用新 result pack，失败零 final target，暂存 `.rrv-temporal-*` 被忽略；冻结
+  MP4 可另行走 Jianying export/verify，但不继承 Faithful 声明；voice authorization
+  只在 prepare/propose/freeze 的实时门检查 expiry，历史 verify 仍可复验冻结绑定。
 
 ### Phase 4：S1 通用模板族
 
@@ -2027,3 +2184,56 @@ controller_current 和人工审查身份、姿态、服装/商品/Logo、文字�
 32 张的输出基准约 $5.28 加输入成本。价格、配额和可用性会变化，批准 run 前必须查看
 官方 [pricing page](https://platform.openai.com/pricing)，不能把本文数字当成报价或费用
 上限。
+
+## 28. v0.10 Temporal file-drop 审核/冻结
+
+v0.10 是一条独立、provider-neutral 的本地 file-drop 审核/冻结链，而不是 Template
+IR 0.3、Manifest 0.2、静态 renderer、v0.6 静态素材桥或 Faithful 路径的升级。它不
+内置 pose-transfer、video-to-video、动作生成、voice clone、lip sync 或 provider
+adapter。`video_remix.py` 不联网、不读 API key、不上传、不调用 provider，也不启动
+browser、CUDA 或 shell；唯一允许的回接是用户独立操作本地工具后，一个新本地 result
+pack 中的 MP4。v0.10 Alpha 固定 `privacy_profile=local-only`、
+`execution_profile=local-file-drop`、`cloud_upload_confirmed=false`；不接受或授权
+controller、cloud、provider 或 API 路线。
+
+入口必须是已审核的 Template IR `0.3.0`，并要求
+`motion_required=true` 及 `motion_mode=pose-transfer|video-to-video`。Request 选择
+一个既有 `output_id`，并以 `input_slot_ids` 限定 frozen local-only Manifest `0.2.0`
+中已有、rights-confirmed、`cloud_upload_allowed=false` 的最小槽位；对这些输入，Plan 仅公开不透明
+`input_assets`（slot id、hash、media type）及其 canonical hash。不得从 prompt、文件
+名、联系表或任何外部声明扩大输入集。Plan/Proposal/Delivery Report 还必须以 canonical
+`requirements_sha256` 绑定已解析的动作、音频、声线和口型要求。若请求 `clone-authorized-voice`，还必须有与
+subject/purpose/adapter/output/expiry 绑定的本地授权断言；Plan/Review 只绑定其
+canonical hash，这不是独立的 consent、身份、provider 行为、声音或口型证明。
+该授权必须在 prepare、propose 和 freeze 当时未过期；历史 verify 只复验冻结绑定，
+不把 verify 当作续期或新授权。
+
+prepare 的 action-reference pack 必须是安全的一层目录、恰一条 MP4、无 sidecar；
+propose 的 result pack 必须是不同的新一层目录、恰一条名为
+`temporal-replacement.mp4` 的 MP4。两者均要求最长 60 秒、精确 CFR、零 rotation、
+H.264 High、8-bit `yuv420p`、完整本地 decode；若有音频，必须恰一条 AAC-LC 48 kHz
+stereo。action reference 精确匹配 Template source 的尺寸/时序；结果精确匹配所选
+output 的尺寸和 source 的 FPS/帧数。任何 profile、decode、路径、pack、rights 或
+drift 错误都 fail closed；candidate result 不得含继承或用户写入 metadata。
+
+运行顺序固定为：六个 `validate-temporal-*` packet validator，随后
+`prepare-temporal-replacement`、人工 Plan Review、用户独立操作本地工具并创建新本地
+result pack、`propose-temporal-results`、人工 Results Review、`freeze-temporal-delivery` 与
+`verify-temporal-delivery`。prepare 只发布 Plan、Plan Review template 和 input contact
+sheet；propose 只发布 Results Proposal、Results Review template、result contact sheet
+和 `temporal-technical-sanity.json`；freeze 只 byte-copy 发布
+`temporal-replacement.mp4` 和 Delivery Report。contact sheet、帧差/冻结统计、音频流、
+hash 和全片 decode 只能给出技术负向信号，必须保留
+`semantic_action_not_proven=true` 和固定 limitations 文案
+`Technical temporal metrics are negative checks only and do not prove semantic action or motion reproduction.`；它们不能自动证明动作、声音、声线、口型、服装/商品、
+rights、水印缺失或 provider provenance。
+
+Results Review 必须完整播放并人工确认连续动作、脸/手/肢体、服装/商品、时序、音频、
+rights 和水印；适用时另确认 scope-bound voice authorization/voice likeness 和可见
+lip-to-audio 同步。冻结报告固定
+`completion=temporal_replacement_reviewed`、`bitstream_faithful=false`、
+`provider_provenance=unattested-local-file-drop`。它不是 faithful archive、provider
+证明或 source-preservation。失败不得发布 final target；重试必须使用新 result pack 和
+新的 Proposal/Review，残留 `.rrv-temporal-*` staging 被忽略。冻结后的 MP4 可以再走
+独立的 `jianying-export`/`jianying-verify`，但生成的仅是 re-encoded
+`jianying-compatible-v1` flat file，不能继承 Faithful 或官方剪映工程声明。
