@@ -11,7 +11,7 @@ A separately gated faithful source-preservation path is the narrow exception:
 it preserves an authorized source rather than rebuilding it, so it cannot
 remove, replace, infer, or reconstruct any visible content.
 
-> Status: 0.10.0-alpha (faithful source preservation and temporal file-drop
+> Status: 0.10.1-alpha (faithful source preservation and temporal file-drop
 > review are separate from the static template renderer; the local template
 > executable remains static). The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
@@ -22,7 +22,10 @@ remove, replace, infer, or reconstruct any visible content.
 > delivery profiles to the deterministic renderer only. v0.10 adds a separate
 > provider-neutral local file-drop review/freeze chain for one user-operated
 > local temporal MP4; it accepts only `local-only` + `local-file-drop` with no
-> cloud upload, and neither invokes nor attests a provider. `video_remix.py`
+> cloud upload, and neither invokes nor attests a provider. v0.10.1 adds a
+> separate no-API-key, user-operated Higgsfield Motion Control handoff: the CLI
+> prepares exact local upload files and normalizes a manual download, but never
+> controls the browser, submits, retries, or attests provider output. `video_remix.py`
 > remains fully offline for this path: it never runs a model, shell command,
 > network request, browser, CUDA job, weight download, or automatic approval.
 > Automated new-reference work remains limited to authorized
@@ -31,6 +34,24 @@ remove, replace, infer, or reconstruct any visible content.
 > composites static images, 2D effects, and selected audio; it does not
 > reproduce a person's continuous action, imitate a voice, rebuild SFX, or
 > provide lip sync.
+
+## What 0.10.1 adds
+
+v0.10.1 layers an explicit Higgsfield web handoff above an approved v0.10
+Temporal Plan without changing the v0.10 local-only contracts. Two new,
+expiring, exact-byte authorizations may permit only the selected character image
+and action-reference video to be uploaded once to Higgsfield Motion Control.
+The CLI creates metadata-clean `character.png` and silent
+`motion-reference.mp4`; it neither opens the browser nor makes a provider call.
+
+Immediately before any upload or Generate click, the live model, 720p setting,
+cost, balance, exact files, prompt, and authorization must be rechecked and the
+user must confirm that exact billable action. A displayed cost above the Request
+cap fails closed. The local receipt is pre-submit and unattested, and its credit
+remainder is only a projection. A manually downloaded video is normalized into
+the existing one-file v0.10 result pack, then still requires full temporal
+Proposal, playback Review, freeze, and verify. See the
+[Higgsfield handoff contract](skills/reference-video-rebuilder/references/higgsfield-web-handoff-contract.md).
 
 ## What 0.10 adds
 
@@ -279,8 +300,8 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Skill and governed workflow | 0.10.0-alpha (provider-neutral temporal file-drop review/freeze) |
-| `video_remix.py` local CLI | 0.10.0-alpha |
+| Skill and governed workflow | 0.10.1-alpha (v0.10 temporal review plus no-API-key Higgsfield handoff) |
+| `video_remix.py` local CLI | 0.10.1-alpha |
 | `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
@@ -292,6 +313,7 @@ the canonical frozen Compiler Plan.
 | Faithful Evidence Report | 0.9.1 |
 | Jianying-compatible derivative report | 0.9.1 (`jianying-compatible-v1`) |
 | Temporal Request, Plan, Plan Review, Results Proposal/Review, Delivery Report | 0.10.0 |
+| Higgsfield Handoff Request, Plan, Browser Receipt | 0.10.1 |
 
 The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
 consumers remain compatible. Deterministic compilation, rendering, and
@@ -309,6 +331,10 @@ packets. They bind one reviewed, user-operated local result to Template IR 0.3
 and frozen Manifest 0.2, but do not change either contract, make the renderer
 temporal, authorize cloud/provider work, or prove any provider generated the
 result.
+
+The v0.10.1 Handoff packets do not modify or replace those v0.10 packets. They
+bind a private, exact upload derivative and an unattested manual browser action;
+the normalized output re-enters the ordinary v0.10 result-review chain.
 
 ## v0.9 faithful source-preservation quick start
 
@@ -468,6 +494,70 @@ be unexpired at prepare, propose, and freeze; historical verify rechecks its
 binding without renewing it. See the
 [temporal replacement contract](skills/reference-video-rebuilder/references/temporal-replacement-contract.md)
 for profile, artifact, and provenance details.
+
+## v0.10.1 Higgsfield no-API-key handoff quick start
+
+Start only after the v0.10 Plan Review is approved. Copy the
+[Handoff Request example](skills/reference-video-rebuilder/examples/higgsfield-web-handoff-request.example.json)
+into the private media project and replace both source hashes, output/slot IDs,
+prompt, expiry, and credit cap. Those two authorizations are new one-upload
+exceptions; they do not rewrite the frozen Manifest's local-only policy.
+
+```powershell
+$handoffRequest = 'higgsfield-web-handoff-request.private.json'
+$handoffPlan = 'higgsfield-web-handoff/higgsfield-web-handoff-plan.json'
+$browserReceipt = 'higgsfield-web-browser-receipt/higgsfield-web-browser-receipt.json'
+
+python $cli validate-higgsfield-web-handoff-request $handoffRequest --json
+python $cli prepare-higgsfield-web-handoff $plan $planReview $handoffRequest `
+  --project-root $project `
+  --reference-pack temporal-reference-pack `
+  --web-handoff-rights-confirmed `
+  --output-dir higgsfield-web-handoff `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --json
+python $cli validate-higgsfield-web-handoff-plan $handoffPlan --json
+
+# Immediately before the manual upload/Generate action, reread these values
+# from the live page. This command must fail if observed cost exceeds the cap.
+$approvedCap = [int](Read-Host 'Fresh user-approved maximum credits')
+$observedCost = [int](Read-Host 'Current displayed generation cost')
+$availableBefore = [int](Read-Host 'Current displayed available credits')
+python $cli record-higgsfield-web-action $handoffPlan `
+  --project-root $project `
+  --max-credits $approvedCap `
+  --observed-cost-credits $observedCost `
+  --available-credits-before $availableBefore `
+  --cloud-upload-confirmed `
+  --billable-action-confirmed `
+  --json
+
+# After the user manually downloads one result into a new direct-child pack:
+python $cli normalize-higgsfield-download $handoffPlan $browserReceipt `
+  --project-root $project `
+  --downloaded-pack higgsfield-download `
+  --reference-pack temporal-reference-pack `
+  --downloaded-result-rights-confirmed `
+  --output-result-pack higgsfield-temporal-result `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --json
+```
+
+The credit numbers above are placeholders, not current pricing. Always reread
+the live page and request a fresh, action-time user confirmation naming the
+exact two upload files, private prompt destination, and displayed cost. The CLI
+does not upload or click Generate. The normalized result pack must next replace
+`temporal-result-pack` in the ordinary v0.10 `propose-temporal-results` flow.
+
+Both transitions are terminal and single-use: one exact private Request can
+produce only one action receipt, even through copied/reprepared Plans, and one
+receipt can normalize only one result. The ignored
+`.rrv-higgsfield-web-*-use-*` directories are persistent private state, not
+disposable staging. A crash or later local failure keeps the relevant claim;
+do not delete it to retry—create a fresh Request, Plan, live confirmation,
+receipt, and result pack.
 
 ## Supported boundary
 

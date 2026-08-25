@@ -1,5 +1,67 @@
 # QA gates
 
+## 0.10.1-alpha no-API-key Higgsfield web handoff
+
+v0.10.1 is a separate, user-operated browser bridge above an already approved
+v0.10 Temporal Plan. The local CLI never opens or controls a browser, uploads,
+submits, polls, downloads, retries, uses cookies, or calls a provider API. Its
+packets remain local attestations with
+`provider_provenance: unattested-user-operated-web` and
+`browser_submission_attested: false`.
+
+P0 preparation requires all of the following:
+
+- an approved, unchanged v0.10 Temporal Plan and Plan Review whose requirements
+  are supported by this bridge: `pose-transfer|video-to-video`,
+  `mute|preserve-reference`, no lip sync, and no voice clone;
+- the fixed `higgsfield-web` / `motion-control` /
+  `kling-3.0-motion-control` / `720p` declaration;
+- two unexpired, exact-byte, single-purpose upload authorizations for only the
+  selected character image and action-reference MP4; and
+- the explicit `--web-handoff-rights-confirmed` gate before any private Request
+  or media is read.
+
+Preparation must publish exactly one guarded Handoff Plan and an `upload/`
+directory containing only metadata-free `character.png` and silent,
+metadata-clean `motion-reference.mp4`. The character and motion bytes, output
+ID, provider, purpose, authorizations, and complete private Request hash must
+all remain bound. A separate guessable prompt digest is forbidden. Under
+`preserve-reference`, the approved audio stays local and is added only during
+normalization.
+
+Immediately before upload, prompt entry, or a billable Generate click, P0
+requires a fresh live-page check of origin/surface, model, resolution, exact two
+files, reviewed prompt, displayed cost, and current balance. The displayed cost
+must be no greater than both the Request cap and available balance, and the user
+must explicitly confirm that exact upload and one billable action at that exact
+cost. A prior confirmation at a lower price is invalid. Unknown, failed, or
+timed-out submissions are never retried automatically.
+
+`record-higgsfield-web-action` writes only a pre-submit local receipt.
+`projected_remaining_credits_after` is arithmetic, not an observed post-charge
+balance, invoice, provider receipt, or proof that a submission occurred. The
+receipt must not contain a prompt, URL, job ID, cookie, account identifier,
+credential, screenshot, or provider response.
+
+P0 single-use state is terminal and private: the exact Handoff Request hash may
+claim only one action receipt across copied/reprepared Plans, and the exact
+receipt hash may claim only one normalization across sequential or concurrent
+commands. A crash or any later failure leaves the corresponding ignored
+`.rrv-higgsfield-web-*-use-*` marker in place. Deleting that state to retry is
+outside the contract; use a fresh Request, Plan, live confirmation, receipt,
+and result pack.
+
+Normalization accepts exactly one newly downloaded ordinary video, snapshots
+and fully decodes it, strips inherited metadata, normalizes it to the approved
+v0.10 profile, and publishes a one-file result pack named
+`temporal-replacement.mp4`. For `preserve-reference`, its audio must come from
+the approved local action reference rather than the uploaded or downloaded
+browser media. Normalization is not final acceptance: the result must still
+pass `propose-temporal-results`, full-playback Results Review,
+`freeze-temporal-delivery`, and `verify-temporal-delivery`. No local hash or
+receipt proves provider provenance, semantic action fidelity, rights, voice
+likeness, or lip sync.
+
 ## 0.10.0-alpha temporal file-drop review and freeze
 
 v0.10 is a separate provider-neutral temporal replacement chain. It neither

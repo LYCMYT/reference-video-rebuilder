@@ -98,6 +98,16 @@ temporal-request.json
 temporal-request.private*.json
 .rrv-temporal-*/
 
+# Private v0.10.1 packets, upload/download packs, staging, and terminal single-use state
+higgsfield-web-handoff*/
+higgsfield-web-browser-receipt*/
+higgsfield-web-handoff-request*.json
+higgsfield-download*/
+higgsfield-temporal-result*/
+.rrv-higgsfield-web-*/
+!skills/reference-video-rebuilder/assets/schemas/higgsfield-web-handoff-request.schema.json
+!skills/reference-video-rebuilder/examples/higgsfield-web-handoff-request.example.json
+
 # Models and checkpoints
 models/
 checkpoints/

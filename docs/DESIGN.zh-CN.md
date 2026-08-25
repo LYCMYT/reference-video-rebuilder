@@ -1,6 +1,6 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.10.0-alpha（provider-neutral temporal file-drop 审核/冻结）
+版本：0.10.1-alpha（v0.10 temporal 审核/冻结 + 无 API Key 的 Higgsfield 网页交接）
 日期：2026-08-25
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
@@ -71,7 +71,13 @@ Faithful 都独立的 **provider-neutral temporal file-drop 审核/冻结链**�
 `provider_provenance=unattested-local-file-drop` 与
 `bitstream_faithful=false`，不能写成 provider 证明或 Faithful 源保留。
 
-> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。当前 renderer 只接受静态素材与音轨；没有内置人物动作复刻、pose-transfer、video-to-video、重建音效、授权声线克隆或口型同步执行器。v0.10 仅可对一个外部落地的 temporal MP4 做本地 file-drop 审核/byte-copy 冻结，绝不调用或证明 provider。Template IR 0.2.0 的旧输出必须标记为 `structure_only_unclaimed`；动态 Template IR 0.3.0 不能降级到静态 renderer，只有完整 v0.10 审核链才可接受对应外部结果。唯一的 0.9 例外是 faithful 源保留：它不理解、推断、重建或替换任何内容，而是在已审核计划下保留源画面/文字/动作及指定音频处理，并移除继承/用户 metadata。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
+0.10.1-alpha 在已批准 v0.10 Plan 之上新增一条**无 API Key、用户自行操作网页**的
+Higgsfield Motion Control 交接链。CLI 只在本地准备精确两文件上传包、记录付费动作前的
+本地确认卡、归一化用户手工下载的视频；它不打开或控制浏览器、不上传、不点击生成、
+不轮询、不下载、不重试，也不证明 Higgsfield 已提交或生成。上传前必须重新核对实时
+模型、分辨率、文件、prompt、费用和余额，并由用户确认该次精确上传与一次付费动作。
+
+> **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。v0.10.1 的 Higgsfield 路径只是用户自行网页操作前后的本地文件交接，不是 CLI 联网控制器，也不证明网页提交、计费或 provider 来源。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。当前 renderer 只接受静态素材与音轨；没有内置人物动作复刻、pose-transfer、video-to-video、重建音效、授权声线克隆或口型同步执行器。v0.10 仅可对一个外部落地的 temporal MP4 做本地 file-drop 审核/byte-copy 冻结，绝不调用或证明 provider。Template IR 0.2.0 的旧输出必须标记为 `structure_only_unclaimed`；动态 Template IR 0.3.0 不能降级到静态 renderer，只有完整 v0.10 审核链才可接受对应外部结果。唯一的 0.9 例外是 faithful 源保留：它不理解、推断、重建或替换任何内容，而是在已审核计划下保留源画面/文字/动作及指定音频处理，并移除继承/用户 metadata。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
 ## 目录
 
@@ -103,6 +109,7 @@ Faithful 都独立的 **provider-neutral temporal file-drop 审核/冻结链**�
 26. [v0.6 外部生成资产桥](#26-v06-外部生成资产桥)
 27. [v0.7 OpenAI GPT Image 2 独立控制器](#27-v07-openai-gpt-image-2-独立控制器)
 28. [v0.10 Temporal file-drop 审核/冻结](#28-v010-temporal-file-drop-审核冻结)
+29. [v0.10.1 Higgsfield 网页交接](#29-v0101-higgsfield-网页交接)
 
 ## 1. 执行摘要
 
@@ -782,8 +789,9 @@ NEW
 
 ## 10. 命令行和工具接口
 
-当前 Skill/工作流与 `video_remix.py` 本地 CLI 版本均为 `0.10.0-alpha`。
-CLI 保留 v0.4–v0.9 的本地合同，并新增独立的 v0.10 Temporal packets；
+当前 Skill/工作流与 `video_remix.py` 本地 CLI 版本均为 `0.10.1-alpha`。
+CLI 保留 v0.4–v0.9 的本地合同，并新增独立的 v0.10 Temporal packets 与
+v0.10.1 Higgsfield 网页交接 packets；
 Codex 不应依赖自然语言日志。参考 Proposal schema 为 `0.4.0`，Frozen
 Compiler Plan schema 保持 `0.3.0`，Template IR 同时支持 legacy `0.2.0`
 与严格 requirements 的 `0.3.0`。v0.9 Plan schema 为 `0.9.0`，v0.10 的
@@ -824,6 +832,12 @@ python <skill-root>/scripts/video_remix.py validate-temporal-results-proposal <t
 python <skill-root>/scripts/video_remix.py validate-temporal-results-review <temporal-results-review.json> --json
 python <skill-root>/scripts/video_remix.py freeze-temporal-delivery <temporal-replacement-plan.json> <temporal-plan-review.json> <temporal-results-proposal.json> <temporal-results-review.json> --project-root <project-dir> [--output-dir temporal-delivery] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
 python <skill-root>/scripts/video_remix.py verify-temporal-delivery <temporal-delivery-report.json> --project-root <project-dir> [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py validate-higgsfield-web-handoff-request <handoff-request.json> --json
+python <skill-root>/scripts/video_remix.py prepare-higgsfield-web-handoff <temporal-plan.json> <approved-temporal-plan-review.json> <handoff-request.json> --project-root <project-dir> --reference-pack <direct-child> --web-handoff-rights-confirmed [--output-dir higgsfield-web-handoff] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py validate-higgsfield-web-handoff-plan <handoff-plan.json> --json
+python <skill-root>/scripts/video_remix.py record-higgsfield-web-action <handoff-plan.json> --project-root <project-dir> --max-credits <cap> --observed-cost-credits <live-cost> --available-credits-before <live-balance> --cloud-upload-confirmed --billable-action-confirmed [--output-dir higgsfield-web-browser-receipt] --json
+python <skill-root>/scripts/video_remix.py validate-higgsfield-web-browser-receipt <browser-receipt.json> --json
+python <skill-root>/scripts/video_remix.py normalize-higgsfield-download <handoff-plan.json> <browser-receipt.json> --project-root <project-dir> --downloaded-pack <new-direct-child> --reference-pack <approved-direct-child> --downloaded-result-rights-confirmed [--output-result-pack higgsfield-temporal-result] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
 video-remix render <template.ir.json> <assets.json> --project-root <project-dir> [--frame-directory render/master-frames] [--debug-bounds] [--summary <root-contained.json>] [--ffmpeg <path>] --json
 video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
@@ -877,6 +891,27 @@ packet 的绑定，不把 verify 解释成续期、再次批准或复用授权�
 证明。`verify-temporal-delivery` 只读重新绑定所有 packet、证据、输入/结果/最终
 bytes、严格 profile 和全片 decode，并允许历史授权已到期的已冻结交付复验。普通失败不发布 final target；可疑阶段目录
 `.rrv-temporal-*` 被忽略而不是交付。
+
+v0.10.1 的三个 `validate-higgsfield-*` 命令只校验 Handoff Request、Handoff
+Plan 和本地 Browser Receipt。`prepare-higgsfield-web-handoff` 只接受已批准且
+未漂移的 v0.10 Temporal Plan/Plan Review，并在显式权利门后发布固定 Handoff Plan
+以及仅含 `character.png`、`motion-reference.mp4` 的 `upload/`。字符图会重建像素并
+清除 metadata；动作参考会去除音轨和继承 metadata。`preserve-reference` 的批准音频
+始终留在本地，只在下载归一化时加入。
+
+本地 CLI 不操作网页。上传、prompt 输入或点击 Generate 前必须重新读取 Higgsfield
+Motion Control 页面，核对固定 model/resolution、精确两文件、reviewed prompt、当前
+费用和余额，并由用户确认该次精确云上传及一次付费动作。费用必须同时不超过 Request
+上限和当前余额；旧的较低费用确认不得复用。`record-higgsfield-web-action` 只写
+pre-submit 本地确认卡，`projected_remaining_credits_after` 是算术预测，不是 provider
+回执或已扣费证明；未知、失败、超时均不自动重试。
+
+`normalize-higgsfield-download` 只接受新的一级 downloaded pack 中唯一普通视频，完整
+snapshot/decode、清除 metadata、归一化到批准的 v0.10 profile，并只发布
+`temporal-replacement.mp4`。其 provenance 固定为
+`unattested-user-operated-web`，`browser_submission_attested=false`。该文件仍必须经过
+v0.10 的 `propose-temporal-results`、全片人工 Results Review、freeze 与 verify；本地
+hash/receipt 不能证明 provider 来源、动作语义、权利、声线或口型。
 
 v0.7 的联网控制器是**独立脚本**，不是 `video-remix` 子命令：
 
@@ -1561,6 +1596,17 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
   MP4 可另行走 Jianying export/verify，但不继承 Faithful 声明；voice authorization
   只在 prepare/propose/freeze 的实时门检查 expiry，历史 verify 仍可复验冻结绑定。
 
+### Phase 3.10.1：Higgsfield 用户网页交接（v0.10.1，已实现）
+
+- 在已批准 v0.10 Temporal Plan 上新增三个严格本地 packet：private Handoff
+  Request、公开 Handoff Plan、pre-submit Browser Receipt；
+- 只准备固定 `character.png` 与 silent `motion-reference.mp4`，两项均 metadata-clean
+  且用单次、精确字节、provider/purpose/output/expiry 重新授权绑定；
+- CLI 不操作浏览器或网络；用户必须在上传/prompt/Generate 前重新核对实时页面并确认
+  精确文件、prompt、费用、余额和一次付费动作，旧费用批准不可复用；
+- receipt 的余额字段只是本地算术预测，provenance 始终 unattested；下载结果归一化后仍
+  必须经过完整 v0.10 Proposal/Results Review/freeze/verify，失败和重试不得覆盖旧包。
+
 ### Phase 4：S1 通用模板族
 
 - 商品展示、图片卡片、固定口播、简单字幕和2D动效；
@@ -2237,3 +2283,55 @@ lip-to-audio 同步。冻结报告固定
 新的 Proposal/Review，残留 `.rrv-temporal-*` staging 被忽略。冻结后的 MP4 可以再走
 独立的 `jianying-export`/`jianying-verify`，但生成的仅是 re-encoded
 `jianying-compatible-v1` flat file，不能继承 Faithful 或官方剪映工程声明。
+
+## 29. v0.10.1 Higgsfield 网页交接
+
+v0.10.1 不改变 v0.10 的六种 packet、local-only Temporal Plan 或最终审核语义；它只
+增加一座位于已批准 Plan 与新的本地 result pack 之间的用户网页交接桥。固定声明为
+`higgsfield-web`、Motion Control、`kling-3.0-motion-control`、`720p`。这些字符串只
+约束本地路由，不能证明网页实际模型、执行、计费或输出来源。所有 Handoff Plan、Browser
+Receipt 和归一化结果都必须保持 `provider_provenance=unattested-user-operated-web`，
+Receipt 还固定 `browser_submission_attested=false`。
+
+private Handoff Request 必须为 selected character image 和 action-reference MP4 分别
+记录当前 SHA-256、provider、purpose、output ID、expiry、rights 与 cloud-upload
+confirmation。Manifest 中的 `cloud_upload_allowed=false` 不被改写；新授权仅允许这两个
+派生字节在这一次 Motion Control 操作中上传。它不授权音频、其他槽位、packet、URL、
+cookie、credential、provider request ID、未来重试或其他用途。原 prompt 只存在于
+private Request；公开 Plan 只绑定完整 private Request SHA-256，不另存可被字典猜测的
+prompt 摘要。
+
+prepare 原子发布固定目录：
+
+```text
+higgsfield-web-handoff/
+├── higgsfield-web-handoff-plan.json
+└── upload/
+    ├── character.png
+    └── motion-reference.mp4
+```
+
+图片必须 orientation-correct、像素重建且无 metadata；动作 MP4 必须是 silent、
+metadata-clean 的批准动作视频。若目标为 `preserve-reference`，批准音频不上传，而是在
+下载结果 snapshot、完整 decode 和归一化后从本地 action reference 加回。
+
+网页动作是独立的用户操作。任何上传、prompt 输入或 Generate 前必须重新读取当前页面，
+同时核对 origin/surface、model、720p、精确两文件、reviewed prompt、显示费用与余额；
+只有费用不高于 Request cap 和余额、且用户明确确认该次上传与一次付费动作时才可继续。
+旧的低价确认、过期授权或不一致页面均立即停止。未知、失败或超时不自动重试；重试必须
+建立新的 Request/Plan、实时确认、result pack 和 v0.10 Proposal/Review。
+
+`record-higgsfield-web-action` 仅生成付费动作前的本地确认卡，其中
+`projected_remaining_credits_after` 是算术预测，不是 provider 发票、实时扣费余额或提交
+回执。`normalize-higgsfield-download` 只接受新的一级 pack 中唯一普通视频，并发布仅含
+`temporal-replacement.mp4` 的 v0.10 result pack。归一化不会自动接受结果；仍需完整播放
+并执行 `propose-temporal-results`、Results Review、`freeze-temporal-delivery` 与
+`verify-temporal-delivery`。本地 hash、contact sheet、receipt 或正常 decode 都不能单独
+证明动作语义、人物/服装连续性、权利、provider 来源、声线或口型。
+
+Request→action receipt 与 receipt→normalized result 都是原子、终态的单次转换。前者以
+完整 private Request SHA 为 key，因此同一 Request 派生或复制出的多个 Plan 也只能签发
+一张 receipt；后者以 receipt SHA 为 key，并发或顺序调用只能有一个进入结果处理。私有
+`.rrv-higgsfield-web-*-use-*` 目录只含 hashes/timestamp，不进入公开结果；崩溃或后续失败
+也不释放。删除该状态绕过门禁不在合同内，必须新建 Request、Plan、实时确认、receipt 和
+result pack。

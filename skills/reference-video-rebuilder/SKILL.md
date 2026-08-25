@@ -1,6 +1,6 @@
 ---
 name: reference-video-rebuilder
-description: "Use for authorized reference-video rebuild workflows: bounded S1 static template/asset review and render, external still-image handoffs, v0.9 faithful source preservation and Jianying derivatives, or v0.10 local-only temporal file-drop planning, review, byte-copy freeze, and verification. Never claim built-in motion/pose/video-to-video generation, voice cloning, lip sync, provider attestation, OCR, automatic semantic approval, or an editable/official Jianying project."
+description: "Use for authorized reference-video rebuild workflows: bounded S1 static review/render, external still-image handoffs, v0.9 faithful/Jianying derivatives, v0.10 local temporal review/freeze, or the v0.10.1 no-API-key user-operated Higgsfield web handoff. Never claim built-in motion generation, voice cloning, lip sync, provider attestation, OCR, automatic semantic approval, or an editable/official Jianying project."
 ---
 
 # reference-video-rebuilder
@@ -35,6 +35,10 @@ command or the current working directory.
   `pose-transfer` or `video-to-video`. v0.10 accepts only a user-operated,
   local-only file drop and freezes approved bytes; it does not invoke, prove,
   or attest a provider.
+- Use [higgsfield-web-handoff-contract.md](references/higgsfield-web-handoff-contract.md)
+  only for the no-API-key v0.10.1 bridge above an already approved v0.10 Plan.
+  The CLI prepares exact local files and normalizes a manual download; it never
+  controls the browser or attests Higgsfield submission/output.
 
 ## Enforce the v0.10 temporal boundary
 
@@ -60,6 +64,25 @@ command or the current working directory.
    faithful archive or provider certificate.
 6. Retry only with a new result pack and new proposal/review. Failed publication
    leaves no final target; ignored `.rrv-temporal-*` staging is never a result.
+
+## Enforce the v0.10.1 browser handoff boundary
+
+1. Keep the original v0.10 Plan/Manifest local-only. Require two fresh,
+   expiring, exact-byte authorizations scoped to one Higgsfield Motion Control
+   upload before creating `character.png` and silent `motion-reference.mp4`.
+2. Immediately before upload/prompt entry/Generate, recheck the live origin,
+   surface, model, 720p setting, exact two files, current displayed cost and
+   balance. Ask the user to confirm that exact upload and billable action.
+3. Stop if the live cost exceeds the Request cap. An older approval at a lower
+   cost does not carry forward. Never auto-retry an unknown or failed action.
+4. Treat the browser receipt and normalized video as
+   `unattested-user-operated-web`. A manual download must still pass the full
+   v0.10 Proposal, playback review, freeze, and verify chain.
+5. Treat both single-use transitions as terminal: one private Handoff Request
+   can issue only one action receipt, and one receipt can normalize only one
+   result. A local failure after either private claim requires a fresh Request/
+   Plan/confirmation; never delete ignored `.rrv-higgsfield-web-*-use-*`
+   directories to bypass that gate.
 
 ## Shared non-negotiables
 
@@ -90,6 +113,9 @@ command or the current working directory.
   temporal-result review.
 - [temporal-replacement-contract.md](references/temporal-replacement-contract.md)
   - v0.10 commands, artifacts, profile, review, freeze, and verification.
+- [higgsfield-web-handoff-contract.md](references/higgsfield-web-handoff-contract.md)
+  - v0.10.1 exact upload preparation, action-time cost gate, and manual-result
+    normalization.
 - [qa-gates.md](references/qa-gates.md) - P0 checks and what technical evidence
   cannot prove.
 - [support-levels.md](references/support-levels.md) - conservative S1-S4

@@ -1796,7 +1796,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
             parser.parse_args(["--version"])
         self.assertEqual(exited.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "video-remix 0.10.0-alpha")
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.10.1-alpha")
 
         with mock.patch.object(
             video_remix,
@@ -3429,6 +3429,185 @@ class PublicCliIntegrationTests(unittest.TestCase):
             "temporal_result_review",
             "temporal_delivery_freeze",
             "temporal_delivery_verify",
+        ):
+            self.assertFalse(capabilities[name], name)
+
+    def test_v101_browser_handoff_compacts_and_delegates_without_private_text(self):
+        digest = "b" * 64
+        provenance = "unattested-user-operated-web"
+        core = SimpleNamespace(
+            prepare_higgsfield_web_handoff=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.1",
+                    "operation": "prepare-higgsfield-web-handoff",
+                    "review_required": True,
+                    "provider_provenance": provenance,
+                    "counts": {"upload_assets": 2},
+                    "artifacts": {
+                        "handoff_plan": {
+                            "path": "higgsfield-web-handoff/higgsfield-web-handoff-plan.json",
+                            "sha256": digest,
+                            "private": "C:/PRIVATE/prompt",
+                        },
+                        "upload_pack": {
+                            "path": "higgsfield-web-handoff/upload",
+                            "upload_inventory_sha256": digest,
+                            "private": "C:/PRIVATE/source",
+                        },
+                    },
+                    "private": "C:/PRIVATE/prompt",
+                }
+            ),
+            record_higgsfield_web_action=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.1",
+                    "operation": "record-higgsfield-web-action",
+                    "provider_provenance": provenance,
+                    "browser_submission_attested": False,
+                    "projected_remaining_credits_after": 1,
+                    "artifacts": {
+                        "browser_receipt": {
+                            "path": "higgsfield-web-browser-receipt/higgsfield-web-browser-receipt.json",
+                            "sha256": digest,
+                        }
+                    },
+                }
+            ),
+            normalize_higgsfield_download=mock.Mock(
+                return_value={
+                    "schema_version": "0.10.1",
+                    "operation": "normalize-higgsfield-download",
+                    "provider_provenance": provenance,
+                    "browser_submission_attested": False,
+                    "counts": {"result_assets": 1},
+                    "artifacts": {
+                        "temporal_result": {
+                            "path": "higgsfield-temporal-result/temporal-replacement.mp4",
+                            "sha256": digest,
+                        }
+                    },
+                }
+            ),
+        )
+        with mock.patch.object(
+            video_remix, "_browser_handoff_module", return_value=core
+        ), mock.patch.object(video_remix, "_runtime_module", return_value=rrv_runtime):
+            prepared, prepared_status = video_remix.run_prepare_higgsfield_web_handoff(
+                argparse.Namespace(
+                    temporal_plan=Path("temporal-plan.json"),
+                    temporal_plan_review=Path("temporal-plan-review.json"),
+                    handoff_request=Path("private-handoff-request.json"),
+                    project_root=Path("project"),
+                    reference_pack=Path("reference-pack"),
+                    web_handoff_rights_confirmed=True,
+                    output_dir=Path("higgsfield-web-handoff"),
+                    ffmpeg=Path("ffmpeg"),
+                    ffprobe=Path("ffprobe"),
+                    timeout_seconds=60.0,
+                )
+            )
+            recorded, recorded_status = video_remix.run_record_higgsfield_web_action(
+                argparse.Namespace(
+                    handoff_plan=Path("higgsfield-web-handoff/higgsfield-web-handoff-plan.json"),
+                    project_root=Path("project"),
+                    max_credits=9,
+                    observed_cost_credits=9,
+                    available_credits_before=10,
+                    cloud_upload_confirmed=True,
+                    billable_action_confirmed=True,
+                    output_dir=Path("higgsfield-web-browser-receipt"),
+                )
+            )
+            normalized, normalized_status = video_remix.run_normalize_higgsfield_download(
+                argparse.Namespace(
+                    handoff_plan=Path("higgsfield-web-handoff/higgsfield-web-handoff-plan.json"),
+                    browser_receipt=Path("higgsfield-web-browser-receipt/higgsfield-web-browser-receipt.json"),
+                    project_root=Path("project"),
+                    downloaded_pack=Path("downloaded-pack"),
+                    reference_pack=Path("reference-pack"),
+                    downloaded_result_rights_confirmed=True,
+                    output_result_pack=Path("higgsfield-temporal-result"),
+                    ffmpeg=Path("ffmpeg"),
+                    ffprobe=Path("ffprobe"),
+                    timeout_seconds=60.0,
+                )
+            )
+        self.assertEqual((prepared_status, recorded_status, normalized_status), (0, 0, 0))
+        public = json.dumps([prepared, recorded, normalized])
+        self.assertNotIn("PRIVATE", public)
+        self.assertFalse(recorded["result"]["browser_submission_attested"])
+        self.assertEqual(recorded["result"]["projected_remaining_credits_after"], 1)
+        self.assertEqual(
+            prepared["result"]["artifacts"]["upload_pack"]["upload_inventory_sha256"],
+            digest,
+        )
+        self.assertEqual(core.prepare_higgsfield_web_handoff.call_count, 1)
+        self.assertEqual(core.record_higgsfield_web_action.call_count, 1)
+        self.assertEqual(core.normalize_higgsfield_download.call_count, 1)
+
+    def test_v101_browser_handoff_confirmation_gates_are_lazy(self):
+        with mock.patch.object(
+            video_remix,
+            "_browser_handoff_module",
+            side_effect=AssertionError("core imported before confirmation"),
+        ):
+            prepared, prepared_status = video_remix.run_prepare_higgsfield_web_handoff(
+                argparse.Namespace(web_handoff_rights_confirmed=False)
+            )
+            recorded, recorded_status = video_remix.run_record_higgsfield_web_action(
+                argparse.Namespace(
+                    cloud_upload_confirmed=False, billable_action_confirmed=False
+                )
+            )
+            normalized, normalized_status = video_remix.run_normalize_higgsfield_download(
+                argparse.Namespace(downloaded_result_rights_confirmed=False)
+            )
+        self.assertEqual((prepared_status, recorded_status, normalized_status), (2, 2, 2))
+        self.assertNotEqual(prepared["status"], "ok")
+        self.assertNotEqual(recorded["status"], "ok")
+        self.assertNotEqual(normalized["status"], "ok")
+
+    def test_v101_browser_handoff_validator_and_doctor_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            duplicate = Path(directory) / "private-request.json"
+            duplicate.write_text(
+                '{"schema_version":"0.10.1","prompt":"PRIVATE",'
+                '"prompt":"PRIVATE-SECOND"}',
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = video_remix.main(
+                    [
+                        "validate-higgsfield-web-handoff-request",
+                        str(duplicate),
+                        "--json",
+                    ]
+                )
+            self.assertEqual(status, 2)
+            self.assertEqual(json.loads(output.getvalue())["errors"], ["$: json.duplicate_key"])
+            self.assertNotIn("PRIVATE", output.getvalue())
+
+        unavailable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", None, None, None),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=unavailable_tools))
+        with mock.patch.object(
+            video_remix, "_runtime_module", return_value=runtime
+        ), mock.patch.object(
+            video_remix,
+            "_browser_handoff_module",
+            side_effect=ImportError("synthetic unavailable browser handoff core"),
+        ):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        for name in (
+            "higgsfield_web_handoff_request_validation",
+            "higgsfield_web_handoff_plan_validation",
+            "higgsfield_web_browser_receipt_validation",
+            "higgsfield_web_handoff_preparation",
+            "higgsfield_web_action_receipt",
+            "higgsfield_web_download_normalization",
         ):
             self.assertFalse(capabilities[name], name)
 

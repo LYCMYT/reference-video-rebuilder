@@ -59,12 +59,24 @@ TEMPORAL_PLAN_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-replacement-plan
 TEMPORAL_RESULTS_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-results-proposal.schema.json"
 TEMPORAL_RESULTS_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-results-review.schema.json"
 TEMPORAL_DELIVERY_REPORT_SCHEMA_PATH = SCHEMA_DIRECTORY / "temporal-delivery-report.schema.json"
+# v0.10.1 adds a user-operated, no-API-key web handoff above the unchanged
+# local-only v0.10 temporal packet chain.  The local CLI never controls a
+# browser or contacts Higgsfield; it only prepares/normalizes exact local files.
+HIGGSFIELD_WEB_HANDOFF_REQUEST_SCHEMA_PATH = (
+    SCHEMA_DIRECTORY / "higgsfield-web-handoff-request.schema.json"
+)
+HIGGSFIELD_WEB_HANDOFF_PLAN_SCHEMA_PATH = (
+    SCHEMA_DIRECTORY / "higgsfield-web-handoff-plan.schema.json"
+)
+HIGGSFIELD_WEB_BROWSER_RECEIPT_SCHEMA_PATH = (
+    SCHEMA_DIRECTORY / "higgsfield-web-browser-receipt.schema.json"
+)
 # Descriptive aliases remain public for callers that name the artifact type.
 COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
 ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
 ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.10.0-alpha"
+CLI_VERSION = "0.10.1-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 SUPPORTED_TEMPLATE_IR_SCHEMA_VERSIONS = ("0.2.0", "0.3.0")
 JIANYING_PROFILE = "jianying-compatible-v1"
@@ -194,6 +206,12 @@ def _temporal_module() -> Any:
     """Load the offline temporal file-drop review core only on demand."""
 
     return _lazy_module("rrv_temporal")
+
+
+def _browser_handoff_module() -> Any:
+    """Load the offline Higgsfield web-handoff bridge only on demand."""
+
+    return _lazy_module("rrv_browser_handoff")
 
 
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
@@ -595,6 +613,27 @@ def doctor_payload(
         )
         is not None
     )
+    higgsfield_request_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            HIGGSFIELD_WEB_HANDOFF_REQUEST_SCHEMA_PATH,
+            "Higgsfield web handoff request",
+        )
+        is not None
+    )
+    higgsfield_plan_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            HIGGSFIELD_WEB_HANDOFF_PLAN_SCHEMA_PATH,
+            "Higgsfield web handoff plan",
+        )
+        is not None
+    )
+    higgsfield_receipt_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            HIGGSFIELD_WEB_BROWSER_RECEIPT_SCHEMA_PATH,
+            "Higgsfield web browser receipt",
+        )
+        is not None
+    )
     # A discovered regular file is not evidence that it is the requested
     # executable.  Advertise media capabilities only after its own bounded
     # version probe identifies FFmpeg or FFprobe by the official prefix.
@@ -646,6 +685,24 @@ def doctor_payload(
     )
     temporal_delivery_report_validator_available = _temporal_module_available(
         "validate_temporal_delivery_report_data"
+    )
+    higgsfield_request_validator_available = _browser_handoff_module_available(
+        "validate_higgsfield_web_handoff_request_data"
+    )
+    higgsfield_plan_validator_available = _browser_handoff_module_available(
+        "validate_higgsfield_web_handoff_plan_data"
+    )
+    higgsfield_receipt_validator_available = _browser_handoff_module_available(
+        "validate_higgsfield_web_browser_receipt_data"
+    )
+    higgsfield_prepare_core_available = _browser_handoff_module_available(
+        "prepare_higgsfield_web_handoff"
+    )
+    higgsfield_record_core_available = _browser_handoff_module_available(
+        "record_higgsfield_web_action"
+    )
+    higgsfield_normalize_core_available = _browser_handoff_module_available(
+        "normalize_higgsfield_download"
     )
     jianying_export_encoders_available = (
         _ffmpeg_has_jianying_encoders(tools.ffmpeg)
@@ -785,6 +842,25 @@ def doctor_payload(
         and temporal_schemas_available
         and temporal_validators_available
     )
+    higgsfield_schemas_available = all(
+        (
+            higgsfield_request_schema_available,
+            higgsfield_plan_schema_available,
+            higgsfield_receipt_schema_available,
+        )
+    )
+    higgsfield_validators_available = all(
+        (
+            higgsfield_request_validator_available,
+            higgsfield_plan_validator_available,
+            higgsfield_receipt_validator_available,
+        )
+    )
+    higgsfield_common_prerequisites = (
+        temporal_common_prerequisites
+        and higgsfield_schemas_available
+        and higgsfield_validators_available
+    )
     public_ffmpeg = _public_doctor_tool(tools.ffmpeg)
     public_ffprobe = _public_doctor_tool(tools.ffprobe)
     return {
@@ -874,6 +950,29 @@ def doctor_payload(
             ),
             "temporal_delivery_verify": (
                 temporal_common_prerequisites and temporal_verify_core_available
+            ),
+            "higgsfield_web_handoff_request_validation": (
+                higgsfield_request_schema_available
+                and higgsfield_request_validator_available
+            ),
+            "higgsfield_web_handoff_plan_validation": (
+                higgsfield_plan_schema_available and higgsfield_plan_validator_available
+            ),
+            "higgsfield_web_browser_receipt_validation": (
+                higgsfield_receipt_schema_available
+                and higgsfield_receipt_validator_available
+            ),
+            "higgsfield_web_handoff_preparation": (
+                higgsfield_common_prerequisites and higgsfield_prepare_core_available
+            ),
+            "higgsfield_web_action_receipt": (
+                has_jsonschema
+                and higgsfield_schemas_available
+                and higgsfield_validators_available
+                and higgsfield_record_core_available
+            ),
+            "higgsfield_web_download_normalization": (
+                higgsfield_common_prerequisites and higgsfield_normalize_core_available
             ),
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
@@ -1037,6 +1136,15 @@ def _temporal_module_available(operation: str) -> bool:
 
     try:
         return callable(getattr(_temporal_module(), operation, None))
+    except Exception:
+        return False
+
+
+def _browser_handoff_module_available(operation: str) -> bool:
+    """Check one offline web-handoff entry point without import details."""
+
+    try:
+        return callable(getattr(_browser_handoff_module(), operation, None))
     except Exception:
         return False
 
@@ -2384,6 +2492,36 @@ def _validate_temporal_packet_file(path: Path, validator: Any) -> list[str]:
         return _generation_validation_errors(validator(data))
     except Exception:
         return ["$: validation.unavailable"]
+
+
+def _validate_browser_handoff_packet_data(operation: str, data: Any) -> list[str]:
+    """Run one pure v0.10.1 validator without exposing private packet values."""
+
+    try:
+        validator = getattr(_browser_handoff_module(), operation, None)
+        if not callable(validator):
+            return ["$: validation.unavailable"]
+        return _generation_validation_errors(validator(data))
+    except Exception:
+        return ["$: validation.unavailable"]
+
+
+def validate_higgsfield_web_handoff_request_data(data: Any) -> list[str]:
+    return _validate_browser_handoff_packet_data(
+        "validate_higgsfield_web_handoff_request_data", data
+    )
+
+
+def validate_higgsfield_web_handoff_plan_data(data: Any) -> list[str]:
+    return _validate_browser_handoff_packet_data(
+        "validate_higgsfield_web_handoff_plan_data", data
+    )
+
+
+def validate_higgsfield_web_browser_receipt_data(data: Any) -> list[str]:
+    return _validate_browser_handoff_packet_data(
+        "validate_higgsfield_web_browser_receipt_data", data
+    )
 
 
 def require_dict(value: Any, path: str, errors: list[str]) -> dict[str, Any]:
@@ -4157,6 +4295,195 @@ def run_verify_temporal_delivery(
         return _temporal_workflow_error_payload(operation, exc), 2
 
 
+_HIGGSFIELD_WEB_SCHEMA_VERSION = "0.10.1"
+_HIGGSFIELD_WEB_PROVENANCE = "unattested-user-operated-web"
+
+
+def _compact_higgsfield_upload_pack(value: Any) -> dict[str, str]:
+    if not isinstance(value, Mapping):
+        raise TypeError("browser handoff returned an invalid upload pack")
+    digest = value.get("upload_inventory_sha256")
+    if not isinstance(digest, str) or not _PUBLIC_SHA256_PATTERN.fullmatch(digest):
+        raise TypeError("browser handoff returned an invalid upload inventory digest")
+    return {
+        "path": _compact_workflow_relative_path(value.get("path"), "upload_pack.path"),
+        "upload_inventory_sha256": digest,
+    }
+
+
+def _require_higgsfield_result_header(
+    result: Mapping[str, Any], operation: str
+) -> None:
+    if (
+        result.get("schema_version") != _HIGGSFIELD_WEB_SCHEMA_VERSION
+        or result.get("operation") != operation
+        or result.get("provider_provenance") != _HIGGSFIELD_WEB_PROVENANCE
+    ):
+        raise TypeError("browser handoff returned invalid workflow facts")
+
+
+def _compact_higgsfield_prepare_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    operation = "prepare-higgsfield-web-handoff"
+    _require_higgsfield_result_header(result, operation)
+    if result.get("review_required") is not True:
+        raise TypeError("browser handoff preparation did not retain review_required")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != {
+        "handoff_plan",
+        "upload_pack",
+    }:
+        raise TypeError("browser handoff returned invalid artifacts")
+    return {
+        "schema_version": _HIGGSFIELD_WEB_SCHEMA_VERSION,
+        "operation": operation,
+        "review_required": True,
+        "provider_provenance": _HIGGSFIELD_WEB_PROVENANCE,
+        "counts": _compact_temporal_counts(result.get("counts"), ("upload_assets",)),
+        "artifacts": {
+            "handoff_plan": _compact_workflow_artifact(
+                artifacts.get("handoff_plan"), "artifacts.handoff_plan"
+            ),
+            "upload_pack": _compact_higgsfield_upload_pack(
+                artifacts.get("upload_pack")
+            ),
+        },
+    }
+
+
+def _compact_higgsfield_record_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    operation = "record-higgsfield-web-action"
+    _require_higgsfield_result_header(result, operation)
+    if result.get("browser_submission_attested") is not False:
+        raise TypeError("browser handoff receipt must remain unattested")
+    projected = result.get("projected_remaining_credits_after")
+    if not _is_int(projected) or not 0 <= projected <= 1_000_000:
+        raise TypeError("browser handoff returned invalid projected credits")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != {"browser_receipt"}:
+        raise TypeError("browser handoff returned invalid receipt artifacts")
+    return {
+        "schema_version": _HIGGSFIELD_WEB_SCHEMA_VERSION,
+        "operation": operation,
+        "provider_provenance": _HIGGSFIELD_WEB_PROVENANCE,
+        "browser_submission_attested": False,
+        "projected_remaining_credits_after": projected,
+        "artifacts": {
+            "browser_receipt": _compact_workflow_artifact(
+                artifacts.get("browser_receipt"), "artifacts.browser_receipt"
+            )
+        },
+    }
+
+
+def _compact_higgsfield_normalize_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    operation = "normalize-higgsfield-download"
+    _require_higgsfield_result_header(result, operation)
+    if result.get("browser_submission_attested") is not False:
+        raise TypeError("normalized browser result must remain unattested")
+    artifacts = result.get("artifacts")
+    if not isinstance(artifacts, Mapping) or set(artifacts) != {"temporal_result"}:
+        raise TypeError("browser normalization returned invalid artifacts")
+    return {
+        "schema_version": _HIGGSFIELD_WEB_SCHEMA_VERSION,
+        "operation": operation,
+        "provider_provenance": _HIGGSFIELD_WEB_PROVENANCE,
+        "browser_submission_attested": False,
+        "counts": _compact_temporal_counts(result.get("counts"), ("result_assets",)),
+        "artifacts": {
+            "temporal_result": _compact_workflow_artifact(
+                artifacts.get("temporal_result"), "artifacts.temporal_result"
+            )
+        },
+    }
+
+
+def run_prepare_higgsfield_web_handoff(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    operation = "Higgsfield web handoff preparation"
+    if getattr(args, "web_handoff_rights_confirmed", False) is not True:
+        return _temporal_rights_error(operation)
+    try:
+        result = _browser_handoff_module().prepare_higgsfield_web_handoff(
+            args.temporal_plan,
+            args.temporal_plan_review,
+            args.handoff_request,
+            project_root=args.project_root,
+            reference_pack=args.reference_pack,
+            web_handoff_rights_confirmed=True,
+            output_dir=args.output_dir,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("browser handoff preparation returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_higgsfield_prepare_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
+def run_record_higgsfield_web_action(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    operation = "Higgsfield browser action confirmation"
+    if (
+        getattr(args, "cloud_upload_confirmed", False) is not True
+        or getattr(args, "billable_action_confirmed", False) is not True
+    ):
+        return _temporal_workflow_error_payload(
+            operation, CliArgumentError("upload and billable action confirmations are required")
+        ), 2
+    try:
+        result = _browser_handoff_module().record_higgsfield_web_action(
+            args.handoff_plan,
+            project_root=args.project_root,
+            max_credits=args.max_credits,
+            observed_cost_credits=args.observed_cost_credits,
+            available_credits_before=args.available_credits_before,
+            cloud_upload_confirmed=True,
+            billable_action_confirmed=True,
+            output_dir=args.output_dir,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("browser action confirmation returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_higgsfield_record_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
+def run_normalize_higgsfield_download(
+    args: argparse.Namespace,
+) -> tuple[dict[str, Any], int]:
+    operation = "Higgsfield download normalization"
+    if getattr(args, "downloaded_result_rights_confirmed", False) is not True:
+        return _temporal_rights_error(operation)
+    try:
+        result = _browser_handoff_module().normalize_higgsfield_download(
+            args.handoff_plan,
+            args.browser_receipt,
+            project_root=args.project_root,
+            downloaded_pack=args.downloaded_pack,
+            reference_pack=args.reference_pack,
+            downloaded_result_rights_confirmed=True,
+            output_result_pack=args.output_result_pack,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("browser download normalization returned an invalid result")
+        return _runtime_module().success_payload(
+            _compact_higgsfield_normalize_result(result)
+        ), 0
+    except Exception as exc:
+        return _temporal_workflow_error_payload(operation, exc), 2
+
+
 _FAITHFUL_SAFE_ERROR_CODES = frozenset(
     {
         "invalid_argument",
@@ -4873,6 +5200,27 @@ def build_parser() -> argparse.ArgumentParser:
         command = subparsers.add_parser(command_name, help=command_help)
         command.add_argument(argument_name, type=Path)
         command.add_argument("--json", action="store_true", dest="as_json")
+    browser_handoff_validators = (
+        (
+            "validate-higgsfield-web-handoff-request",
+            "Validate a private v0.10.1 Higgsfield web handoff request",
+            "request",
+        ),
+        (
+            "validate-higgsfield-web-handoff-plan",
+            "Validate a v0.10.1 Higgsfield web handoff plan",
+            "plan",
+        ),
+        (
+            "validate-higgsfield-web-browser-receipt",
+            "Validate an unattested v0.10.1 browser action receipt",
+            "receipt",
+        ),
+    )
+    for command_name, command_help, argument_name in browser_handoff_validators:
+        command = subparsers.add_parser(command_name, help=command_help)
+        command.add_argument(argument_name, type=Path)
+        command.add_argument("--json", action="store_true", dest="as_json")
     validate_faithful_plan = subparsers.add_parser(
         "validate-faithful-plan",
         help="Validate a v0.9 local faithful rebuild plan",
@@ -5117,6 +5465,80 @@ def build_parser() -> argparse.ArgumentParser:
     verify_temporal.add_argument("--timeout-seconds", type=float, default=60.0)
     verify_temporal.add_argument("--json", action="store_true", dest="as_json")
 
+    prepare_higgsfield = subparsers.add_parser(
+        "prepare-higgsfield-web-handoff",
+        help="Prepare an exact private upload pack for one user-operated web action",
+    )
+    prepare_higgsfield.add_argument("temporal_plan", type=Path)
+    prepare_higgsfield.add_argument("temporal_plan_review", type=Path)
+    prepare_higgsfield.add_argument("handoff_request", type=Path)
+    prepare_higgsfield.add_argument("--project-root", type=Path, required=True)
+    prepare_higgsfield.add_argument("--reference-pack", type=Path, required=True)
+    prepare_higgsfield.add_argument(
+        "--web-handoff-rights-confirmed", action="store_true", required=True
+    )
+    prepare_higgsfield.add_argument(
+        "--output-dir", type=Path, default=Path("higgsfield-web-handoff")
+    )
+    prepare_higgsfield.add_argument("--ffmpeg", type=Path, default=Path("ffmpeg"))
+    prepare_higgsfield.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    prepare_higgsfield.add_argument("--timeout-seconds", type=float, default=60.0)
+    prepare_higgsfield.add_argument("--json", action="store_true", dest="as_json")
+
+    record_higgsfield = subparsers.add_parser(
+        "record-higgsfield-web-action",
+        help="Record a capped user confirmation immediately before a manual web action",
+    )
+    record_higgsfield.add_argument("handoff_plan", type=Path)
+    record_higgsfield.add_argument("--project-root", type=Path, required=True)
+    record_higgsfield.add_argument(
+        "--max-credits", type=_bounded_cli_integer(1, 100_000), required=True
+    )
+    record_higgsfield.add_argument(
+        "--observed-cost-credits",
+        type=_bounded_cli_integer(1, 100_000),
+        required=True,
+    )
+    record_higgsfield.add_argument(
+        "--available-credits-before",
+        type=_bounded_cli_integer(0, 1_000_000),
+        required=True,
+    )
+    record_higgsfield.add_argument(
+        "--cloud-upload-confirmed", action="store_true", required=True
+    )
+    record_higgsfield.add_argument(
+        "--billable-action-confirmed", action="store_true", required=True
+    )
+    record_higgsfield.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("higgsfield-web-browser-receipt"),
+    )
+    record_higgsfield.add_argument("--json", action="store_true", dest="as_json")
+
+    normalize_higgsfield = subparsers.add_parser(
+        "normalize-higgsfield-download",
+        help="Normalize one manual download into an exact v0.10 temporal result pack",
+    )
+    normalize_higgsfield.add_argument("handoff_plan", type=Path)
+    normalize_higgsfield.add_argument("browser_receipt", type=Path)
+    normalize_higgsfield.add_argument("--project-root", type=Path, required=True)
+    normalize_higgsfield.add_argument("--downloaded-pack", type=Path, required=True)
+    normalize_higgsfield.add_argument("--reference-pack", type=Path, required=True)
+    normalize_higgsfield.add_argument(
+        "--downloaded-result-rights-confirmed", action="store_true", required=True
+    )
+    normalize_higgsfield.add_argument(
+        "--output-result-pack",
+        type=Path,
+        default=Path("higgsfield-temporal-result"),
+    )
+    normalize_higgsfield.add_argument("--ffmpeg", type=Path, default=Path("ffmpeg"))
+    normalize_higgsfield.add_argument("--ffprobe", type=Path, default=Path("ffprobe"))
+    normalize_higgsfield.add_argument("--timeout-seconds", type=float, default=60.0)
+    normalize_higgsfield.add_argument("--json", action="store_true", dest="as_json")
+
     faithful_rebuild = subparsers.add_parser(
         "faithful-rebuild",
         help="Create a metadata-free faithful local source replica from an approved plan",
@@ -5260,6 +5682,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             payload, status = run_verify_temporal_delivery(args)
             _emit_stable_json(payload)
             return status
+        if args.command == "prepare-higgsfield-web-handoff":
+            payload, status = run_prepare_higgsfield_web_handoff(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "record-higgsfield-web-action":
+            payload, status = run_record_higgsfield_web_action(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "normalize-higgsfield-download":
+            payload, status = run_normalize_higgsfield_download(args)
+            _emit_stable_json(payload)
+            return status
         if args.command == "faithful-rebuild":
             payload, status = run_faithful_rebuild(args)
             _emit_stable_json(payload)
@@ -5355,6 +5789,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         elif args.command == "validate-temporal-delivery-report":
             errors = _validate_temporal_packet_file(
                 args.report, validate_temporal_delivery_report_data
+            )
+        elif args.command == "validate-higgsfield-web-handoff-request":
+            errors = _validate_temporal_packet_file(
+                args.request, validate_higgsfield_web_handoff_request_data
+            )
+        elif args.command == "validate-higgsfield-web-handoff-plan":
+            errors = _validate_temporal_packet_file(
+                args.plan, validate_higgsfield_web_handoff_plan_data
+            )
+        elif args.command == "validate-higgsfield-web-browser-receipt":
+            errors = _validate_temporal_packet_file(
+                args.receipt, validate_higgsfield_web_browser_receipt_data
             )
         elif args.command == "validate-faithful-plan":
             errors = _validate_faithful_plan_file(args.plan)

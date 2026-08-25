@@ -1,4 +1,4 @@
 interface:
   display_name: "reference-video-rebuilder"
-  short_description: "Review static, faithful, and temporal video workflows"
-  default_prompt: "Use $reference-video-rebuilder to prepare and review an authorized static, faithful, Jianying, or local-only temporal file-drop workflow without claiming built-in generation or provider attestation."
+  short_description: "Review faithful, temporal, and web-handoff video workflows"
+  default_prompt: "Use $reference-video-rebuilder for an authorized static, faithful, Jianying, local temporal, or no-API-key Higgsfield handoff workflow without claiming built-in generation or provider attestation."

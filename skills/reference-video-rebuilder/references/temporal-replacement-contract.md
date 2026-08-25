@@ -1,5 +1,11 @@
 # Temporal replacement contract (v0.10.0-alpha)
 
+v0.10.1 does not alter this local-only packet family. Its separate
+[Higgsfield web handoff](higgsfield-web-handoff-contract.md) may prepare an
+exact two-file upload pack only after new byte-scoped cloud authorizations, then
+normalizes a manual download back into the one-file v0.10 result-pack contract.
+The v0.10 Plan, Manifest, reviews, and delivery claims remain unchanged.
+
 ## Contents
 
 - [Scope and claim boundary](#scope-and-claim-boundary)

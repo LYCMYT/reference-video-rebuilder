@@ -51,6 +51,37 @@ class SkillMetadataTests(unittest.TestCase):
         ):
             self.assertIn(pattern, text)
 
+    def test_higgsfield_handoff_contract_and_public_fixtures_are_tracked(self):
+        skill_text = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("references/higgsfield-web-handoff-contract.md", skill_text)
+        for path in (
+            SKILL_ROOT / "references" / "higgsfield-web-handoff-contract.md",
+            SKILL_ROOT / "assets" / "schemas" / "higgsfield-web-handoff-request.schema.json",
+            SKILL_ROOT / "assets" / "schemas" / "higgsfield-web-handoff-plan.schema.json",
+            SKILL_ROOT / "assets" / "schemas" / "higgsfield-web-browser-receipt.schema.json",
+            SKILL_ROOT / "examples" / "higgsfield-web-handoff-request.example.json",
+        ):
+            self.assertTrue(path.is_file(), str(path))
+
+        ignore_text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+        for pattern in (
+            "higgsfield-web-handoff*/",
+            "higgsfield-web-browser-receipt*/",
+            "higgsfield-web-handoff-request*.json",
+            "higgsfield-download*/",
+            "higgsfield-temporal-result*/",
+            ".rrv-higgsfield-web-*/",
+        ):
+            self.assertIn(pattern, ignore_text)
+        self.assertIn(
+            "!skills/reference-video-rebuilder/assets/schemas/higgsfield-web-handoff-request.schema.json",
+            ignore_text,
+        )
+        self.assertIn(
+            "!skills/reference-video-rebuilder/examples/higgsfield-web-handoff-request.example.json",
+            ignore_text,
+        )
+
     def test_documented_skill_root_cli_invocation_works_from_an_arbitrary_cwd(self):
         for document in (
             SKILL_ROOT / "SKILL.md",
@@ -68,7 +99,7 @@ class SkillMetadataTests(unittest.TestCase):
                 timeout=15,
             )
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("0.10.0-alpha", result.stdout)
+        self.assertIn("0.10.1-alpha", result.stdout)
 
     def test_codex_builtin_imagegen_example_is_cloud_managed_and_keyless(self):
         example = SKILL_ROOT / "assets" / "project-template" / "generation.request.codex-builtin.example.json"

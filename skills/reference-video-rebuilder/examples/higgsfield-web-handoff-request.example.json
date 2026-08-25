@@ -1,0 +1,37 @@
+{
+  "schema_version": "0.10.1",
+  "provider_id": "higgsfield-web",
+  "surface": "motion-control",
+  "model": "kling-3.0-motion-control",
+  "resolution": "720p",
+  "output_id": "landscape-720",
+  "character_slot_id": "transform.scene",
+  "motion_mode": "video-to-video",
+  "audio_mode": "preserve-reference",
+  "lip_sync_requested": false,
+  "clone_authorized_voice_requested": false,
+  "max_credits": 7,
+  "cloud_upload_confirmed": true,
+  "prompt": "Follow the approved action reference while keeping the approved character identity and clothing. Exclude platform UI, watermarks, text, logos, and unapproved character designs.",
+  "upload_authorizations": {
+    "character_image": {
+      "source_slot_id": "transform.scene",
+      "source_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "provider_id": "higgsfield-web",
+      "purpose": "motion-control",
+      "output_id": "landscape-720",
+      "expires_at": "2099-01-01T00:00:00Z",
+      "rights_confirmed": true,
+      "cloud_upload_confirmed": true
+    },
+    "motion_reference": {
+      "source_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "provider_id": "higgsfield-web",
+      "purpose": "motion-control",
+      "output_id": "landscape-720",
+      "expires_at": "2099-01-01T00:00:00Z",
+      "rights_confirmed": true,
+      "cloud_upload_confirmed": true
+    }
+  }
+}

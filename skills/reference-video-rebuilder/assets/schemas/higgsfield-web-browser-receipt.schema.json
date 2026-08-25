@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/higgsfield-web-browser-receipt.schema.json",
+  "title": "Higgsfield Web Browser Action Receipt",
+  "description": "Local pre-submit user confirmation for one exact upload pack. It is not proof that a browser submission, charge, provider job, or download occurred.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event", "plan_path", "plan_sha256", "handoff_request_path", "handoff_request_sha256", "upload_inventory_sha256", "provider_id", "surface", "model", "resolution", "motion_mode", "audio_mode", "max_credits", "observed_cost_credits", "available_credits_before", "projected_remaining_credits_after", "cloud_upload_confirmed", "billable_action_confirmed", "new_cloud_reauthorization_confirmed", "recorded_at", "browser_submission_attested", "provider_provenance"],
+  "properties": {
+    "schema_version": {"const": "0.10.1"},
+    "event": {"const": "browser-action-confirmed"},
+    "plan_path": {"$ref": "#/$defs/relativePath"},
+    "plan_sha256": {"$ref": "#/$defs/sha256"},
+    "handoff_request_path": {"$ref": "#/$defs/relativePath"},
+    "handoff_request_sha256": {"$ref": "#/$defs/sha256"},
+    "upload_inventory_sha256": {"$ref": "#/$defs/sha256"},
+    "provider_id": {"const": "higgsfield-web"},
+    "surface": {"const": "motion-control"},
+    "model": {"const": "kling-3.0-motion-control"},
+    "resolution": {"const": "720p"},
+    "motion_mode": {"enum": ["pose-transfer", "video-to-video"]},
+    "audio_mode": {"enum": ["mute", "preserve-reference"]},
+    "max_credits": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "observed_cost_credits": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "available_credits_before": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "projected_remaining_credits_after": {"type": "integer", "minimum": 0, "maximum": 1000000},
+    "cloud_upload_confirmed": {"const": true},
+    "billable_action_confirmed": {"const": true},
+    "new_cloud_reauthorization_confirmed": {"const": true},
+    "recorded_at": {"$ref": "#/$defs/utc"},
+    "browser_submission_attested": {"const": false},
+    "provider_provenance": {"const": "unattested-user-operated-web"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "relativePath": {"type": "string", "minLength": 1, "maxLength": 512},
+    "utc": {"type": "string", "minLength": 20, "maxLength": 40, "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}
