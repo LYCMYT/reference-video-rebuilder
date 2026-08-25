@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/reference-video-rebuilder/faithful-evidence-report.schema.json",
+  "title": "Faithful Review Evidence Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "operation", "claim", "ocr_used", "output_dir", "plan", "source", "media_facts", "inventory_count", "inventory_covered_frame_count", "inventory", "sampling", "artifacts", "limitations"],
+  "properties": {
+    "schema_version": {"const": "0.9.1"},
+    "operation": {"const": "faithful-review-evidence"},
+    "claim": {"const": "human_review_support_only"},
+    "ocr_used": {"const": false},
+    "output_dir": {"$ref": "#/$defs/path"},
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["canonical_sha256"],
+      "properties": {"canonical_sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {"path": {"$ref": "#/$defs/path"}, "sha256": {"$ref": "#/$defs/sha256"}}
+    },
+    "media_facts": {"$ref": "#/$defs/mediaFacts"},
+    "inventory_count": {"type": "integer", "minimum": 0, "maximum": 256},
+    "inventory_covered_frame_count": {"type": "integer", "minimum": 0, "maximum": 7200},
+    "inventory": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/inventoryItem"}
+    },
+    "sampling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_panels", "selected_frames", "inventory_without_midpoint_panel", "truncated"],
+      "properties": {
+        "max_panels": {"type": "integer", "minimum": 1, "maximum": 24},
+        "selected_frames": {"type": "array", "minItems": 1, "maxItems": 24, "items": {"type": "integer", "minimum": 0}},
+        "inventory_without_midpoint_panel": {"type": "integer", "minimum": 0, "maximum": 256},
+        "truncated": {"type": "boolean"}
+      }
+    },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contact_sheet", "report"],
+      "properties": {
+        "contact_sheet": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path", "sha256", "panel_count"],
+          "properties": {
+            "path": {"$ref": "#/$defs/path"},
+            "sha256": {"$ref": "#/$defs/sha256"},
+            "panel_count": {"type": "integer", "minimum": 1, "maximum": 24}
+          }
+        },
+        "report": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {"path": {"$ref": "#/$defs/path"}}
+        }
+      }
+    },
+    "limitations": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 4,
+      "items": {"type": "string", "minLength": 1, "maxLength": 160}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?!.*\\\\)(?!.*:)(?!.*(?:^|/)\\.{1,2}(?:/|$)).+$"},
+    "rect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": {"type": "integer", "minimum": 0},
+        "y": {"type": "integer", "minimum": 0},
+        "width": {"type": "integer", "minimum": 1},
+        "height": {"type": "integer", "minimum": 1}
+      }
+    },
+    "inventoryItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "start_frame", "end_frame", "sample_frame", "panel_included", "lines", "region", "human_reviewed"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 64},
+        "start_frame": {"type": "integer", "minimum": 0},
+        "end_frame": {"type": "integer", "minimum": 1},
+        "sample_frame": {"type": "integer", "minimum": 0},
+        "panel_included": {"type": "boolean"},
+        "lines": {"type": "array", "minItems": 1, "maxItems": 8, "items": {"type": "string", "minLength": 1, "maxLength": 512}},
+        "region": {"$ref": "#/$defs/rect"},
+        "human_reviewed": {"const": true}
+      }
+    },
+    "mediaFacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "height", "fps", "frame_count", "duration_seconds", "has_audio", "audio_stream_count", "video_codec", "container"],
+      "properties": {
+        "width": {"type": "integer", "minimum": 1, "maximum": 1920},
+        "height": {"type": "integer", "minimum": 1, "maximum": 1920},
+        "fps": {"type": "number", "exclusiveMinimum": 0, "maximum": 120},
+        "frame_count": {"type": "integer", "minimum": 1, "maximum": 7200},
+        "duration_seconds": {"type": "number", "exclusiveMinimum": 0, "maximum": 60},
+        "has_audio": {"type": "boolean"},
+        "audio_stream_count": {"type": "integer", "minimum": 0, "maximum": 64},
+        "video_codec": {"const": "h264"},
+        "container": {"const": "mp4"}
+      }
+    }
+  }
+}

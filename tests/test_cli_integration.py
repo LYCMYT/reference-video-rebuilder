@@ -312,6 +312,46 @@ class PublicCliIntegrationTests(unittest.TestCase):
         values.update(overrides)
         return SimpleNamespace(**values)
 
+    def _faithful_evidence_args(self, root: Path, plan: Path, **overrides):
+        values = {
+            "plan": plan,
+            "project_root": root,
+            "output_dir": Path("faithful-evidence"),
+            "ffmpeg": Path("ffmpeg"),
+            "ffprobe": Path("ffprobe"),
+            "timeout_seconds": 60.0,
+            "max_panels": 24,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def _jianying_export_args(self, root: Path, **overrides):
+        values = {
+            "source": Path("source.mp4"),
+            "project_root": root,
+            "rights_confirmed": True,
+            "output_dir": Path("jianying-delivery"),
+            "profile": "jianying-compatible-v1",
+            "ffmpeg": Path("ffmpeg"),
+            "ffprobe": Path("ffprobe"),
+            "timeout_seconds": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
+    def _jianying_verify_args(self, root: Path, **overrides):
+        values = {
+            "delivery": Path("jianying-delivery/jianying-compatible-v1.mp4"),
+            "project_root": root,
+            "rights_confirmed": True,
+            "profile": "jianying-compatible-v1",
+            "ffmpeg": Path("ffmpeg"),
+            "ffprobe": Path("ffprobe"),
+            "timeout_seconds": 60.0,
+        }
+        values.update(overrides)
+        return SimpleNamespace(**values)
+
     def test_render_validates_template_and_assets_before_loading_renderer_or_writing(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -487,7 +527,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
             expected_manifest_sha256 = hashlib.sha256(manifest_bytes).hexdigest()
             args = self._render_args(root, template, manifest)
             tools = rrv_runtime.RuntimeTools(
-                ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "ffmpeg", "PATH", "ffmpeg 7"),
+                ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "ffmpeg", "PATH", "ffmpeg version 7"),
                 ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
             )
 
@@ -532,7 +572,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
             manifest.write_text("{}", encoding="utf-8")
             args = self._render_args(root, template, manifest)
             tools = rrv_runtime.RuntimeTools(
-                ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "ffmpeg", "PATH", "ffmpeg 7"),
+                ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "ffmpeg", "PATH", "ffmpeg version 7"),
                 ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
             )
             render_module = SimpleNamespace(
@@ -668,8 +708,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_doctor_uses_explicit_media_tool_paths_for_capabilities(self):
         tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "C:/portable/ffmpeg.exe", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "C:/portable/ffprobe.exe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "C:/portable/ffmpeg.exe", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "C:/portable/ffprobe.exe", "explicit", "ffprobe version 7"),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=tools))
         with mock.patch.object(video_remix, "_runtime_module", return_value=runtime):
@@ -684,10 +724,80 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertTrue(payload["capabilities"]["timeline_render"])
         self.assertTrue(payload["capabilities"]["video_qa"])
         self.assertEqual(payload["runtime"]["ffmpeg"]["source"], "explicit")
+        self.assertIsNone(payload["runtime"]["ffmpeg"]["path"])
+        self.assertIsNone(payload["runtime"]["ffprobe"]["path"])
+        self.assertNotIn("C:/portable", json.dumps(payload))
+
+    def test_doctor_rejects_impostor_versions_masks_paths_and_requires_jianying_encoders(self):
+        impostors = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo(
+                "ffmpeg", "C:/PRIVATE/java.exe", "explicit", "java version C:/PRIVATE/java"
+            ),
+            ffprobe=rrv_runtime.ToolInfo(
+                "ffprobe", "C:/PRIVATE/echo.exe", "explicit", "echo version 1"
+            ),
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=impostors))
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime):
+            payload = video_remix.doctor_payload()
+        capabilities = payload["capabilities"]
+        self.assertFalse(capabilities["media_probe"])
+        self.assertFalse(capabilities["reference_survey"])
+        self.assertFalse(capabilities["video_qa"])
+        self.assertFalse(capabilities["jianying_export"])
+        self.assertFalse(capabilities["jianying_verify"])
+        self.assertIsNone(payload["runtime"]["ffmpeg"]["path"])
+        self.assertIsNone(payload["runtime"]["ffprobe"]["path"])
+        self.assertIsNone(payload["runtime"]["ffmpeg"]["version"])
+        self.assertNotIn("PRIVATE", json.dumps(payload))
+
+        real_identity = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo(
+                "ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"
+            ),
+            ffprobe=rrv_runtime.ToolInfo(
+                "ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"
+            ),
+        )
+        nle = SimpleNamespace(export_nle_delivery=mock.Mock(), verify_nle_delivery=mock.Mock())
+        with mock.patch.object(
+            video_remix,
+            "_runtime_module",
+            return_value=SimpleNamespace(discover_tools=mock.Mock(return_value=real_identity)),
+        ), mock.patch.object(video_remix, "_nle_module", return_value=nle), mock.patch.object(
+            video_remix, "_ffmpeg_has_jianying_encoders", return_value=False
+        ) as encoders:
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertFalse(capabilities["jianying_export"])
+        self.assertTrue(capabilities["jianying_verify"])
+        encoders.assert_called_once_with(real_identity.ffmpeg)
+
+    def test_jianying_encoder_probe_uses_fixed_argv_and_needs_both_encoders(self):
+        ffmpeg = rrv_runtime.ToolInfo(
+            "ffmpeg", "C:/PRIVATE/ffmpeg.exe", "explicit", "ffmpeg version 7"
+        )
+        completed = SimpleNamespace(
+            returncode=0,
+            stdout=" V....D libx264 H.264\n A....D aac AAC\n",
+            stderr="",
+        )
+        with mock.patch.object(video_remix.subprocess, "run", return_value=completed) as run:
+            self.assertTrue(video_remix._ffmpeg_has_jianying_encoders(ffmpeg))
+        run.assert_called_once_with(
+            ["C:/PRIVATE/ffmpeg.exe", "-hide_banner", "-encoders"],
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        missing_aac = SimpleNamespace(returncode=0, stdout=" V....D libx264 H.264\n", stderr="")
+        with mock.patch.object(video_remix.subprocess, "run", return_value=missing_aac):
+            self.assertFalse(video_remix._ffmpeg_has_jianying_encoders(ffmpeg))
 
     def test_doctor_compiler_capability_requires_every_exact_prerequisite(self):
         tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
             ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=tools))
@@ -728,8 +838,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_missing_compiler_schema_disables_compiler_capabilities(self):
         tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=tools))
         compiler = SimpleNamespace(compile_reference=mock.Mock())
@@ -768,8 +878,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_compile_exit_statuses_use_compact_review_result(self):
         tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -852,8 +962,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_compile_rrv_error_exposes_only_safe_allowlisted_details(self):
         tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -1249,8 +1359,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_v04_doctor_has_exact_proposal_and_freeze_gates(self):
         tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=tools))
         proposal_core = SimpleNamespace(propose_reference=mock.Mock(), freeze_plan=mock.Mock())
@@ -1614,6 +1724,50 @@ class PublicCliIntegrationTests(unittest.TestCase):
         self.assertEqual(faithful_rebuild.timeout_seconds, 12.5)
         self.assertTrue(faithful_rebuild.as_json)
 
+        faithful_evidence = parser.parse_args(
+            [
+                "faithful-evidence",
+                "faithful-plan.json",
+                "--project-root",
+                "project",
+                "--max-panels",
+                "12",
+                "--json",
+            ]
+        )
+        self.assertEqual(faithful_evidence.output_dir, Path("faithful-evidence"))
+        self.assertEqual(faithful_evidence.timeout_seconds, 60.0)
+        self.assertEqual(faithful_evidence.max_panels, 12)
+        self.assertTrue(faithful_evidence.as_json)
+
+        jianying_export = parser.parse_args(
+            [
+                "jianying-export",
+                "source.mp4",
+                "--project-root",
+                "project",
+                "--rights-confirmed",
+            ]
+        )
+        self.assertEqual(jianying_export.output_dir, Path("jianying-delivery"))
+        self.assertEqual(jianying_export.profile, "jianying-compatible-v1")
+        self.assertEqual(jianying_export.timeout_seconds, 60.0)
+        self.assertTrue(jianying_export.rights_confirmed)
+
+        jianying_verify = parser.parse_args(
+            [
+                "jianying-verify",
+                "jianying-delivery/jianying-compatible-v1.mp4",
+                "--project-root",
+                "project",
+                "--rights-confirmed",
+                "--json",
+            ]
+        )
+        self.assertEqual(jianying_verify.profile, "jianying-compatible-v1")
+        self.assertTrue(jianying_verify.rights_confirmed)
+        self.assertTrue(jianying_verify.as_json)
+
         with self.assertRaises(video_remix.CliArgumentError):
             parser.parse_args(
                 [
@@ -1641,7 +1795,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exited:
             parser.parse_args(["--version"])
         self.assertEqual(exited.exception.code, 0)
-        self.assertEqual(output.getvalue().strip(), "video-remix 0.9.0-alpha")
+        self.assertEqual(output.getvalue().strip(), "video-remix 0.9.1-alpha")
 
         with mock.patch.object(
             video_remix,
@@ -2309,8 +2463,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_v05_doctor_gates_asset_capabilities_independently(self):
         executable_tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
         assets = SimpleNamespace(propose_asset_pack=mock.Mock(), freeze_assets=mock.Mock())
@@ -2422,6 +2576,22 @@ class PublicCliIntegrationTests(unittest.TestCase):
             plan_path = root / "faithful-plan.json"
             plan = self._faithful_plan()
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            plan_input_bytes = plan_path.read_bytes()
+            plan_input_sha256 = hashlib.sha256(plan_input_bytes).hexdigest()
+            result["provenance"] = {
+                "workflow_version": "0.9.1-alpha",
+                "core_sha256": "f" * 64,
+                "python_version": "3.12.0",
+                "plan": {
+                    "input_sha256": plan_input_sha256,
+                    "canonical_sha256": "c" * 64,
+                },
+                "invocation_policy_sha256": "0" * 64,
+                "runtime": {
+                    "ffmpeg": {"source": "explicit", "version": "C:/PRIVATE/ffmpeg version"},
+                    "ffprobe": {"source": "explicit", "version": "C:/PRIVATE/ffprobe version"},
+                },
+            }
             with mock.patch.object(video_remix, "_faithful_module", return_value=core), mock.patch.object(
                 video_remix, "_runtime_module", return_value=rrv_runtime
             ):
@@ -2461,6 +2631,15 @@ class PublicCliIntegrationTests(unittest.TestCase):
                 },
                 "text_inventory_count": 1,
                 "metadata": {"strip_all": True, "verified": True},
+                "provenance": {
+                    "workflow_version": "0.9.1-alpha",
+                    "core_sha256": "f" * 64,
+                    "plan": {
+                        "input_sha256": plan_input_sha256,
+                        "canonical_sha256": "c" * 64,
+                    },
+                    "invocation_policy_sha256": "0" * 64,
+                },
             },
         )
         self.assertNotIn("PRIVATE", json.dumps(payload))
@@ -2471,6 +2650,7 @@ class PublicCliIntegrationTests(unittest.TestCase):
             ffmpeg=Path("ffmpeg"),
             ffprobe=Path("ffprobe"),
             timeout_seconds=60.0,
+            plan_input_bytes=plan_input_bytes,
         )
 
     def test_v09_faithful_rebuild_rights_gate_and_errors_are_zero_touch_and_redacted(self):
@@ -2597,8 +2777,8 @@ class PublicCliIntegrationTests(unittest.TestCase):
 
     def test_v09_doctor_requires_all_faithful_rebuild_gates(self):
         executable_tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
         faithful = SimpleNamespace(
@@ -2633,10 +2813,291 @@ class PublicCliIntegrationTests(unittest.TestCase):
         ):
             self.assertFalse(video_remix.doctor_payload()["capabilities"]["faithful_rebuild"])
 
+    def test_v091_faithful_evidence_preflights_rights_and_compacts_result(self):
+        evidence_result = {
+            "schema_version": "0.9.1",
+            "operation": "faithful-review-evidence",
+            "claim": "human_review_support_only",
+            "ocr_used": False,
+            "output_dir": "faithful-evidence",
+            "plan": {"canonical_sha256": "a" * 64},
+            "source": {"path": "C:/PRIVATE/source.mp4", "sha256": "b" * 64},
+            "media_facts": {
+                "width": 1280,
+                "height": 720,
+                "fps": 30.0,
+                "frame_count": 30,
+                "duration_seconds": 1.0,
+                "has_audio": True,
+                "audio_stream_count": 1,
+                "video_codec": "C:/PRIVATE/ffprobe",
+            },
+            "inventory_count": 1,
+            "inventory_covered_frame_count": 30,
+            "inventory": [{"lines": ["PRIVATE text"]}],
+            "sampling": {
+                "max_panels": 24,
+                "selected_frames": [0, 15],
+                "inventory_without_midpoint_panel": 0,
+                "truncated": False,
+            },
+            "artifacts": {
+                "contact_sheet": {
+                    "path": "faithful-evidence/contact-sheet.png",
+                    "sha256": "c" * 64,
+                    "panel_count": 2,
+                },
+                "report": {"path": "faithful-evidence/faithful-evidence.json"},
+            },
+            "limitations": ["PRIVATE source contents"],
+        }
+        core = SimpleNamespace(build_faithful_evidence=mock.Mock(return_value=evidence_result))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan_path = root / "faithful-plan.json"
+            plan_path.write_text(json.dumps(self._faithful_plan()), encoding="utf-8")
+            with mock.patch.object(video_remix, "_faithful_evidence_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ):
+                payload, status = video_remix.run_faithful_evidence(
+                    self._faithful_evidence_args(root, plan_path)
+                )
+            self.assertEqual(status, 0)
+            self.assertEqual(payload["result"]["artifacts"]["contact_sheet"]["panel_count"], 2)
+            self.assertEqual(payload["result"]["provenance"]["source_sha256"], "b" * 64)
+            self.assertNotIn("PRIVATE", json.dumps(payload))
+            core.build_faithful_evidence.assert_called_once_with(
+                self._faithful_plan(),
+                root,
+                Path("faithful-evidence"),
+                ffmpeg=Path("ffmpeg"),
+                ffprobe=Path("ffprobe"),
+                timeout_seconds=60.0,
+                max_panels=24,
+            )
+
+            denied = self._faithful_plan(rights_confirmed=False)
+            denied["source"]["path"] = "C:/PRIVATE/denied.mp4"
+            plan_path.write_text(json.dumps(denied), encoding="utf-8")
+            with mock.patch.object(
+                video_remix,
+                "_faithful_evidence_module",
+                side_effect=AssertionError("rights gate must not import evidence core"),
+            ) as evidence:
+                payload, status = video_remix.run_faithful_evidence(
+                    self._faithful_evidence_args(root / "not-touched", plan_path)
+                )
+            self.assertEqual(status, 2)
+            self.assertNotIn("PRIVATE", json.dumps(payload))
+            evidence.assert_not_called()
+
+    def test_v091_jianying_workflows_gate_rights_and_compact_receipts(self):
+        facts = {
+            "width": 1280,
+            "height": 720,
+            "fps": 30.0,
+            "frame_count": 30,
+            "duration_seconds": 1.0,
+            "has_audio": True,
+            "audio_stream_count": 1,
+            "video_codec": "C:/PRIVATE/ffprobe output",
+        }
+        qa = {
+            "full_decode": {
+                "passed": True,
+                "completed": True,
+                "decoded_video_frames": 30,
+                "decoded_audio": True,
+                "audio_decode_applicable": True,
+                "returncode": 0,
+                "stderr": "C:/PRIVATE/ffmpeg stderr",
+            },
+            "profile_checks": {
+                "mp4": True,
+                "h264_high_8_bit_yuv420p": True,
+                "cfr": True,
+                "audio": {"passed": True, "mode": "aac-lc-48khz-stereo"},
+                "metadata_cleared": True,
+                "chapters_cleared": True,
+                "rotation_cleared": True,
+                "faststart": True,
+            },
+            "checks": [{"message": "PRIVATE"}],
+        }
+        export_result = {
+            "schema_version": "0.9.1",
+            "completion": "nle_compatible_derivative",
+            "bitstream_faithful": False,
+            "profile": "jianying-compatible-v1",
+            "output": {
+                "path": "jianying-delivery/jianying-compatible-v1.mp4",
+                "sha256": "d" * 64,
+            },
+            "output_dir": "jianying-delivery",
+            "delivery_path": "jianying-delivery/jianying-compatible-v1.mp4",
+            "report_path": "jianying-delivery/nle-delivery-report.json",
+            "input_sha256": "e" * 64,
+            "output_sha256": "d" * 64,
+            "input": {"path": "C:/PRIVATE/source.mp4", "sha256": "e" * 64},
+            "media_facts": {"input": facts, "output": facts},
+            "qa": qa,
+            "ffprobe_facts": {"output": "C:/PRIVATE/probe"},
+        }
+        verify_result = {
+            "schema_version": "0.9.1",
+            "completion": "nle_compatible_derivative",
+            "bitstream_faithful": False,
+            "profile": "jianying-compatible-v1",
+            "output": export_result["output"],
+            "media_facts": {"output": facts},
+            "qa": qa,
+            "verified": True,
+        }
+        core = SimpleNamespace(
+            export_nle_delivery=mock.Mock(return_value=export_result),
+            verify_nle_delivery=mock.Mock(return_value=verify_result),
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with mock.patch.object(video_remix, "_nle_module", return_value=core), mock.patch.object(
+                video_remix, "_runtime_module", return_value=rrv_runtime
+            ):
+                payload, status = video_remix.run_jianying_export(self._jianying_export_args(root))
+                verified, verify_status = video_remix.run_jianying_verify(
+                    self._jianying_verify_args(root)
+                )
+            self.assertEqual(status, 0)
+            self.assertEqual(verify_status, 0)
+            self.assertEqual(payload["result"]["profile"], "jianying-compatible-v1")
+            self.assertTrue(verified["result"]["verified"])
+            self.assertNotIn("PRIVATE", json.dumps(payload))
+            self.assertNotIn("PRIVATE", json.dumps(verified))
+            core.export_nle_delivery.assert_called_once_with(
+                Path("source.mp4"),
+                project_root=root,
+                rights_confirmed=True,
+                output_dir=Path("jianying-delivery"),
+                profile="jianying-compatible-v1",
+                ffmpeg=Path("ffmpeg"),
+                ffprobe=Path("ffprobe"),
+                timeout_seconds=60.0,
+            )
+            core.verify_nle_delivery.assert_called_once_with(
+                Path("jianying-delivery/jianying-compatible-v1.mp4"),
+                project_root=root,
+                rights_confirmed=True,
+                profile="jianying-compatible-v1",
+                ffmpeg=Path("ffmpeg"),
+                ffprobe=Path("ffprobe"),
+                timeout_seconds=60.0,
+            )
+
+            with mock.patch.object(
+                video_remix,
+                "_nle_module",
+                side_effect=AssertionError("rights gate must not import NLE core"),
+            ) as nle:
+                denied, denied_status = video_remix.run_jianying_export(
+                    self._jianying_export_args(root / "C:/PRIVATE", rights_confirmed=False)
+                )
+                denied_verify, denied_verify_status = video_remix.run_jianying_verify(
+                    self._jianying_verify_args(root / "C:/PRIVATE", rights_confirmed=False)
+                )
+            self.assertEqual((denied_status, denied_verify_status), (2, 2))
+            self.assertNotIn("PRIVATE", json.dumps(denied))
+            self.assertNotIn("PRIVATE", json.dumps(denied_verify))
+            nle.assert_not_called()
+
+    def test_v091_main_dispatches_new_workflows_and_legacy_stays_lazy(self):
+        ready = {"schema_version": "1.0", "status": "ok", "result": {}}
+        commands = (
+            ("faithful-evidence", "run_faithful_evidence", ["plan.json", "--project-root", "project"]),
+            (
+                "jianying-export",
+                "run_jianying_export",
+                ["source.mp4", "--project-root", "project", "--rights-confirmed"],
+            ),
+            (
+                "jianying-verify",
+                "run_jianying_verify",
+                ["delivery.mp4", "--project-root", "project", "--rights-confirmed"],
+            ),
+        )
+        for command, runner_name, arguments in commands:
+            with self.subTest(command=command), mock.patch.object(
+                video_remix, runner_name, return_value=(ready, 0)
+            ) as runner:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = video_remix.main([command, *arguments, "--json"])
+                self.assertEqual(status, 0)
+                self.assertEqual(json.loads(output.getvalue()), ready)
+                runner.assert_called_once()
+
+        with tempfile.TemporaryDirectory() as directory:
+            invalid_template = Path(directory) / "invalid-template.json"
+            invalid_template.write_text("{}", encoding="utf-8")
+            with mock.patch.object(
+                video_remix,
+                "_faithful_evidence_module",
+                side_effect=AssertionError("legacy validation must not import evidence core"),
+            ) as evidence, mock.patch.object(
+                video_remix,
+                "_nle_module",
+                side_effect=AssertionError("legacy validation must not import NLE core"),
+            ) as nle:
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    status = video_remix.main(["validate-template", str(invalid_template), "--json"])
+            self.assertEqual(status, 2)
+            evidence.assert_not_called()
+            nle.assert_not_called()
+
+    def test_v091_doctor_truthfully_gates_evidence_and_jianying_delivery(self):
+        executable_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
+        )
+        runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
+        faithful = SimpleNamespace(
+            validate_faithful_plan=mock.Mock(), execute_faithful_rebuild=mock.Mock()
+        )
+        evidence = SimpleNamespace(build_faithful_evidence=mock.Mock())
+        nle = SimpleNamespace(export_nle_delivery=mock.Mock(), verify_nle_delivery=mock.Mock())
+        with mock.patch.object(video_remix, "_runtime_module", return_value=runtime), mock.patch.object(
+            video_remix, "_pillow_available", return_value=True
+        ), mock.patch.object(video_remix, "_faithful_module", return_value=faithful), mock.patch.object(
+            video_remix, "_faithful_evidence_module", return_value=evidence
+        ), mock.patch.object(video_remix, "_nle_module", return_value=nle), mock.patch.object(
+            video_remix, "_ffmpeg_has_jianying_encoders", return_value=True
+        ):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertTrue(capabilities["faithful_evidence"])
+        self.assertTrue(capabilities["jianying_export"])
+        self.assertTrue(capabilities["jianying_verify"])
+
+        missing_tools = rrv_runtime.RuntimeTools(
+            ffmpeg=executable_tools.ffmpeg,
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", None, None, None),
+        )
+        with mock.patch.object(
+            video_remix,
+            "_runtime_module",
+            return_value=SimpleNamespace(discover_tools=mock.Mock(return_value=missing_tools)),
+        ), mock.patch.object(video_remix, "_pillow_available", return_value=True), mock.patch.object(
+            video_remix, "_faithful_module", return_value=faithful
+        ), mock.patch.object(video_remix, "_faithful_evidence_module", return_value=evidence), mock.patch.object(
+            video_remix, "_nle_module", return_value=nle
+        ):
+            capabilities = video_remix.doctor_payload()["capabilities"]
+        self.assertFalse(capabilities["faithful_evidence"])
+        self.assertFalse(capabilities["jianying_export"])
+        self.assertFalse(capabilities["jianying_verify"])
+
     def test_v06_doctor_gates_generation_packet_capabilities_without_claiming_generation(self):
         executable_tools = rrv_runtime.RuntimeTools(
-            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg 7"),
-            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe 7"),
+            ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake-ffmpeg", "explicit", "ffmpeg version 7"),
+            ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake-ffprobe", "explicit", "ffprobe version 7"),
         )
         runtime = SimpleNamespace(discover_tools=mock.Mock(return_value=executable_tools))
         generation = SimpleNamespace(

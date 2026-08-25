@@ -50,14 +50,18 @@ GENERATION_PLAN_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-plan-review.
 GENERATION_RESULTS_PROPOSAL_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-proposal.schema.json"
 GENERATION_RESULTS_REVIEW_SCHEMA_PATH = SCHEMA_DIRECTORY / "generation-results-review.schema.json"
 FAITHFUL_REBUILD_PLAN_SCHEMA_PATH = SCHEMA_DIRECTORY / "faithful-rebuild-plan.schema.json"
+FAITHFUL_EVIDENCE_REPORT_SCHEMA_PATH = SCHEMA_DIRECTORY / "faithful-evidence-report.schema.json"
 # Descriptive aliases remain public for callers that name the artifact type.
 COMPILER_PLAN_PROPOSAL_SCHEMA_PATH = PROPOSAL_SCHEMA_PATH
 REVIEW_DECISION_SCHEMA_PATH = REVIEW_SCHEMA_PATH
 ASSET_PROPOSAL_SCHEMA_PATH = ASSET_PACK_PROPOSAL_SCHEMA_PATH
 ASSET_REVIEW_SCHEMA_PATH = ASSET_MAPPING_REVIEW_SCHEMA_PATH
-CLI_VERSION = "0.9.0-alpha"
+CLI_VERSION = "0.9.1-alpha"
 TEMPLATE_IR_SCHEMA_VERSION = "0.2.0"
 SUPPORTED_TEMPLATE_IR_SCHEMA_VERSIONS = ("0.2.0", "0.3.0")
+JIANYING_PROFILE = "jianying-compatible-v1"
+FAITHFUL_EVIDENCE_SCHEMA_VERSION = "0.9.1"
+NLE_SCHEMA_VERSION = "0.9.1"
 __version__ = CLI_VERSION
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 SCHEMA_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
@@ -166,6 +170,18 @@ def _faithful_module() -> Any:
     return _lazy_module("rrv_faithful")
 
 
+def _faithful_evidence_module() -> Any:
+    """Load the v0.9.1 faithful-evidence core only when it is requested."""
+
+    return _lazy_module("rrv_faithful_evidence")
+
+
+def _nle_module() -> Any:
+    """Load the Jianying-compatible local delivery core only on demand."""
+
+    return _lazy_module("rrv_nle")
+
+
 def _compact_error_text(value: object, *, limit: int = 480) -> str:
     text = " ".join(str(value).strip().split())
     if not text:
@@ -245,8 +261,8 @@ def _contains_nonfinite_json_number(value: Any) -> bool:
     return False
 
 
-def _load_public_json_snapshot(path: Path) -> tuple[Any, str]:
-    """Strict-load a public JSON input and return the exact bytes' digest.
+def _load_public_json_snapshot_bytes(path: Path) -> tuple[Any, bytes, str]:
+    """Strict-load a public JSON input and return the exact bytes and digest.
 
     Template IR and Asset Manifest documents affect rendering decisions.  The
     parser must therefore reject duplicate members at every nesting level and
@@ -269,7 +285,12 @@ def _load_public_json_snapshot(path: Path) -> tuple[Any, str]:
         # Do not expose the path, parser location, invalid value, or decoder
         # text through a public validation/render surface.
         raise _PublicJsonInvalidError() from exc
-    return value, hashlib.sha256(raw).hexdigest()
+    return value, raw, hashlib.sha256(raw).hexdigest()
+
+
+def _load_public_json_snapshot(path: Path) -> tuple[Any, str]:
+    value, _raw, digest = _load_public_json_snapshot_bytes(path)
+    return value, digest
 
 
 def _public_json_error(error: BaseException) -> str:
@@ -522,11 +543,17 @@ def doctor_payload(
         )
         is not None
     )
-    # A discovered regular file is not evidence that it is an executable
-    # media tool.  Advertise every operational capability only after the
-    # bounded version probe succeeds.
-    has_ffmpeg = _tool_version_confirmed(tools.ffmpeg)
-    has_ffprobe = _tool_version_confirmed(tools.ffprobe)
+    faithful_evidence_report_schema_available = has_jsonschema and (
+        _get_schema_validator(
+            FAITHFUL_EVIDENCE_REPORT_SCHEMA_PATH, "faithful evidence report"
+        )
+        is not None
+    )
+    # A discovered regular file is not evidence that it is the requested
+    # executable.  Advertise media capabilities only after its own bounded
+    # version probe identifies FFmpeg or FFprobe by the official prefix.
+    has_ffmpeg = _tool_version_confirmed(tools.ffmpeg, "ffmpeg")
+    has_ffprobe = _tool_version_confirmed(tools.ffprobe, "ffprobe")
     has_pillow = _pillow_available()
     compiler_core_available = _compiler_module_available()
     proposal_core_available = _propose_module_available("propose_reference")
@@ -541,6 +568,14 @@ def doctor_payload(
         "assemble_generation_pack"
     )
     faithful_core_available = _faithful_module_available()
+    faithful_evidence_core_available = _faithful_evidence_module_available()
+    jianying_export_core_available = _nle_module_available("export_nle_delivery")
+    jianying_verify_core_available = _nle_module_available("verify_nle_delivery")
+    jianying_export_encoders_available = (
+        _ffmpeg_has_jianying_encoders(tools.ffmpeg)
+        if has_ffmpeg and has_ffprobe and jianying_export_core_available
+        else False
+    )
     asset_bound_render_core_available = _asset_bound_render_available()
     compiler_prerequisites = (
         has_ffmpeg
@@ -625,6 +660,27 @@ def doctor_payload(
         and faithful_rebuild_plan_schema_available
         and faithful_core_available
     )
+    faithful_evidence_prerequisites = (
+        has_jsonschema
+        and has_ffmpeg
+        and has_ffprobe
+        and has_pillow
+        and faithful_rebuild_plan_schema_available
+        and faithful_evidence_report_schema_available
+        and faithful_core_available
+        and faithful_evidence_core_available
+    )
+    jianying_export_prerequisites = (
+        has_ffmpeg
+        and has_ffprobe
+        and jianying_export_encoders_available
+        and jianying_export_core_available
+    )
+    jianying_verify_prerequisites = (
+        has_ffmpeg and has_ffprobe and jianying_verify_core_available
+    )
+    public_ffmpeg = _public_doctor_tool(tools.ffmpeg)
+    public_ffprobe = _public_doctor_tool(tools.ffprobe)
     return {
         "status": "ok",
         "stage": "alpha",
@@ -638,9 +694,9 @@ def doctor_payload(
             "python": platform.python_version(),
         },
         "runtime": {
-            "media_tools": tools.to_dict(),
-            "ffmpeg": tools.ffmpeg.to_dict(),
-            "ffprobe": tools.ffprobe.to_dict(),
+            "media_tools": {"ffmpeg": public_ffmpeg, "ffprobe": public_ffprobe},
+            "ffmpeg": public_ffmpeg,
+            "ffprobe": public_ffprobe,
             "node": command_version("node", ["--version"]),
             "npx": command_version("npx", ["--version"]),
             "nvidia_gpu": command_version(
@@ -676,6 +732,9 @@ def doctor_payload(
             "generation_result_review": generation_result_review_prerequisites,
             "generation_pack_assembly": generation_pack_assembly_prerequisites,
             "faithful_rebuild": faithful_rebuild_prerequisites,
+            "faithful_evidence": faithful_evidence_prerequisites,
+            "jianying_export": jianying_export_prerequisites,
+            "jianying_verify": jianying_verify_prerequisites,
             "media_probe": has_ffprobe or has_ffmpeg,
             "reference_survey": has_ffmpeg,
             "reference_analysis": compiler_prerequisites,
@@ -704,6 +763,8 @@ def doctor_payload(
             "Asset-pack proposal and freeze require local Pillow, FFprobe, both asset packet schemas, and their guarded local core.",
             "Generation planning and result review prepare and validate local review packets only; this Skill does not include or automatically call an asset generator, network service, or cloud provider.",
             "Faithful rebuild is available only with a valid reviewed plan, local FFmpeg and FFprobe version probes, the faithful-plan schema, and its guarded local core.",
+            "Faithful evidence requires an approved faithful plan plus local FFmpeg, FFprobe, Pillow, both faithful schemas, and its guarded local core; it performs no OCR or semantic inference.",
+            "Jianying-compatible delivery export and verification require explicit rights confirmation, local FFmpeg and FFprobe version probes, and their guarded local core.",
             "Semantic slot analysis and asset generation remain unavailable; render-ready replacement looks must be supplied before this CLI renders.",
             "Timeline render is static/2D compositing only; it does not provide subject-motion replication, voice cloning, audio rebuild, or lip sync.",
             "This alpha does not promise pixel-perfect replacement for arbitrary videos or recovery of pixels obscured by overlays.",
@@ -812,6 +873,24 @@ def _faithful_module_available() -> bool:
         return False
 
 
+def _faithful_evidence_module_available() -> bool:
+    """Check the guarded faithful-evidence entry point without import details."""
+
+    try:
+        return callable(getattr(_faithful_evidence_module(), "build_faithful_evidence", None))
+    except Exception:
+        return False
+
+
+def _nle_module_available(operation: str) -> bool:
+    """Check one Jianying delivery entry point without exposing import failures."""
+
+    try:
+        return callable(getattr(_nle_module(), operation, None))
+    except Exception:
+        return False
+
+
 def _asset_bound_render_available() -> bool:
     """Return whether the renderer exposes the frozen-byte snapshot surface.
 
@@ -832,15 +911,69 @@ def _asset_bound_render_available() -> bool:
         return False
 
 
-def _tool_version_confirmed(tool: Any) -> bool:
-    """Require a successful executable version probe for compiler claims."""
+def _tool_version_confirmed(tool: Any, expected_tool: str) -> bool:
+    """Require the tool's own official version prefix, not merely any output."""
 
+    path = getattr(tool, "path", None)
     version = getattr(tool, "version", None)
-    return (
-        bool(getattr(tool, "path", None))
-        and isinstance(version, str)
-        and bool(version.strip())
-        and version != "detected (version unavailable)"
+    if not isinstance(path, str) or not path or not isinstance(version, str):
+        return False
+    prefix = f"{expected_tool} version "
+    return version.strip().startswith(prefix)
+
+
+_SAFE_DOCTOR_TOOL_SOURCE = re.compile(r"^(?:PATH|explicit|env:[A-Z][A-Z0-9_]*)$")
+
+
+def _public_doctor_tool(tool: Any) -> dict[str, Any]:
+    """Return inspectable tool facts without disclosing configured locations."""
+
+    source = getattr(tool, "source", None)
+    if not isinstance(source, str) or not _SAFE_DOCTOR_TOOL_SOURCE.fullmatch(source):
+        source = None
+    version = getattr(tool, "version", None)
+    if isinstance(version, str):
+        version = _compact_error_text(version, limit=240)
+        # A first-line FFmpeg/FFprobe version never needs a filesystem
+        # separator.  Drop surprising tool output rather than risk exposing a
+        # build/install path through doctor.
+        if _contains_absolute_path(version) or "/" in version or "\\" in version:
+            version = None
+    else:
+        version = None
+    return {
+        "available": bool(getattr(tool, "path", None)),
+        "path": None,
+        "source": source,
+        "version": version,
+    }
+
+
+def _ffmpeg_has_jianying_encoders(tool: Any) -> bool:
+    """Confirm the two fixed-profile encoders through a bounded argv probe."""
+
+    if not _tool_version_confirmed(tool, "ffmpeg"):
+        return False
+    executable = getattr(tool, "path", None)
+    if not isinstance(executable, str) or not executable:
+        return False
+    try:
+        result = subprocess.run(
+            [executable, "-hide_banner", "-encoders"],
+            check=False,
+            shell=False,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if result.returncode != 0:
+        return False
+    output = f"{result.stdout or ''}\n{result.stderr or ''}"
+    return bool(
+        re.search(r"(?m)^\s*[A-Z.]+\s+libx264(?:\s|$)", output)
+        and re.search(r"(?m)^\s*[A-Z.]+\s+aac(?:\s|$)", output)
     )
 
 
@@ -3703,6 +3836,46 @@ def _compact_faithful_media_facts(value: Any) -> dict[str, Any]:
     }
 
 
+def _compact_faithful_provenance(value: Any, plan_sha256: str) -> dict[str, Any]:
+    """Keep auditable hashes while dropping tool paths and version output."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("faithful rebuild returned invalid provenance")
+    workflow_version = value.get("workflow_version")
+    core_sha256 = value.get("core_sha256")
+    invocation_policy_sha256 = value.get("invocation_policy_sha256")
+    plan = value.get("plan")
+    if (
+        not isinstance(workflow_version, str)
+        or len(workflow_version) > 64
+        or not SCHEMA_VERSION_PATTERN.fullmatch(workflow_version)
+        or not isinstance(core_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(core_sha256)
+        or not isinstance(invocation_policy_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(invocation_policy_sha256)
+        or not isinstance(plan, Mapping)
+    ):
+        raise TypeError("faithful rebuild returned invalid provenance")
+    input_sha256 = plan.get("input_sha256")
+    canonical_sha256 = plan.get("canonical_sha256")
+    if (
+        not isinstance(input_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(input_sha256)
+        or not isinstance(canonical_sha256, str)
+        or canonical_sha256 != plan_sha256
+    ):
+        raise TypeError("faithful rebuild returned invalid provenance.plan")
+    return {
+        "workflow_version": workflow_version,
+        "core_sha256": core_sha256,
+        "plan": {
+            "input_sha256": input_sha256,
+            "canonical_sha256": canonical_sha256,
+        },
+        "invocation_policy_sha256": invocation_policy_sha256,
+    }
+
+
 def _compact_faithful_result(result: Mapping[str, Any]) -> dict[str, Any]:
     """Return the safe handoff facts from a successful faithful rebuild."""
 
@@ -3777,6 +3950,9 @@ def _compact_faithful_result(result: Mapping[str, Any]) -> dict[str, Any]:
         },
         "text_inventory_count": text_inventory_count,
         "metadata": {"strip_all": True, "verified": True},
+        "provenance": _compact_faithful_provenance(
+            result.get("provenance"), plan_sha256
+        ),
     }
 
 
@@ -3790,7 +3966,7 @@ def run_faithful_rebuild(args: argparse.Namespace) -> tuple[dict[str, Any], int]
     """
 
     try:
-        plan, _plan_sha256 = _load_public_json_snapshot(args.plan)
+        plan, plan_input_bytes, plan_input_sha256 = _load_public_json_snapshot_bytes(args.plan)
     except Exception:
         return _faithful_workflow_error_payload(
             "faithful rebuild", CliArgumentError("invalid faithful plan")
@@ -3807,12 +3983,317 @@ def run_faithful_rebuild(args: argparse.Namespace) -> tuple[dict[str, Any], int]
             ffmpeg=args.ffmpeg,
             ffprobe=args.ffprobe,
             timeout_seconds=args.timeout_seconds,
+            plan_input_bytes=plan_input_bytes,
         )
         if not isinstance(result, Mapping):
             raise TypeError("faithful rebuild returned an invalid result")
-        return _runtime_module().success_payload(_compact_faithful_result(result)), 0
+        compact_result = _compact_faithful_result(result)
+        if compact_result["provenance"]["plan"]["input_sha256"] != plan_input_sha256:
+            raise TypeError("faithful rebuild returned mismatched plan input provenance")
+        return _runtime_module().success_payload(compact_result), 0
     except Exception as exc:
         return _faithful_workflow_error_payload("faithful rebuild", exc), 2
+
+
+def _compact_faithful_evidence_result(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Return only the non-semantic, bounded faithful-evidence handoff facts."""
+
+    if result.get("schema_version") != FAITHFUL_EVIDENCE_SCHEMA_VERSION:
+        raise TypeError("faithful evidence returned an invalid schema_version")
+    if result.get("operation") != "faithful-review-evidence":
+        raise TypeError("faithful evidence returned an invalid operation")
+    if result.get("claim") != "human_review_support_only" or result.get("ocr_used") is not False:
+        raise TypeError("faithful evidence returned invalid claim facts")
+    plan = result.get("plan")
+    source = result.get("source")
+    artifacts = result.get("artifacts")
+    sampling = result.get("sampling")
+    if not isinstance(plan, Mapping) or not isinstance(source, Mapping):
+        raise TypeError("faithful evidence returned invalid provenance")
+    plan_sha256 = plan.get("canonical_sha256")
+    source_sha256 = source.get("sha256")
+    if (
+        not isinstance(plan_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(plan_sha256)
+        or not isinstance(source_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(source_sha256)
+        or not isinstance(artifacts, Mapping)
+        or not isinstance(sampling, Mapping)
+    ):
+        raise TypeError("faithful evidence returned invalid provenance")
+    inventory_count = result.get("inventory_count")
+    covered_frame_count = result.get("inventory_covered_frame_count")
+    max_panels = sampling.get("max_panels")
+    selected_frames = sampling.get("selected_frames")
+    inventory_without_panel = sampling.get("inventory_without_midpoint_panel")
+    truncated = sampling.get("truncated")
+    if (
+        not _is_int(inventory_count)
+        or not 0 <= inventory_count <= 256
+        or not _is_int(covered_frame_count)
+        or not 0 <= covered_frame_count <= 7200
+        or not _is_int(max_panels)
+        or not 1 <= max_panels <= 24
+        or not isinstance(selected_frames, list)
+        or not 1 <= len(selected_frames) <= max_panels
+        or not all(_is_int(frame) and 0 <= frame < 7200 for frame in selected_frames)
+        or not _is_int(inventory_without_panel)
+        or not 0 <= inventory_without_panel <= inventory_count
+        or not isinstance(truncated, bool)
+    ):
+        raise TypeError("faithful evidence returned invalid sampling facts")
+    raw_contact_sheet = artifacts.get("contact_sheet")
+    contact_sheet = _compact_workflow_artifact(
+        raw_contact_sheet, "artifacts.contact_sheet"
+    )
+    report = artifacts.get("report")
+    if not isinstance(report, Mapping):
+        raise TypeError("faithful evidence returned invalid artifacts.report")
+    report_path = _compact_workflow_relative_path(
+        report.get("path"), "artifacts.report.path"
+    )
+    panel_count = raw_contact_sheet.get("panel_count") if isinstance(raw_contact_sheet, Mapping) else None
+    if not _is_int(panel_count) or panel_count != len(selected_frames):
+        raise TypeError("faithful evidence returned invalid contact-sheet count")
+    contact_sheet["panel_count"] = panel_count
+    return {
+        "schema_version": FAITHFUL_EVIDENCE_SCHEMA_VERSION,
+        "operation": "faithful-review-evidence",
+        "claim": "human_review_support_only",
+        "ocr_used": False,
+        "output_dir": _compact_workflow_relative_path(result.get("output_dir"), "output_dir"),
+        "provenance": {
+            "plan": {"canonical_sha256": plan_sha256},
+            "source_sha256": source_sha256,
+        },
+        "media_facts": _compact_faithful_media_facts(result.get("media_facts")),
+        "inventory_count": inventory_count,
+        "inventory_covered_frame_count": covered_frame_count,
+        "sampling": {
+            "max_panels": max_panels,
+            "panel_count": panel_count,
+            "inventory_without_midpoint_panel": inventory_without_panel,
+            "truncated": truncated,
+        },
+        "artifacts": {
+            "contact_sheet": contact_sheet,
+            "report": {"path": report_path},
+        },
+    }
+
+
+def _compact_nle_qa(value: Any) -> dict[str, Any]:
+    """Expose only mechanical NLE QA facts, never FFmpeg messages or traces."""
+
+    if not isinstance(value, Mapping):
+        raise TypeError("Jianying delivery returned invalid QA")
+    full_decode = value.get("full_decode")
+    profile_checks = value.get("profile_checks")
+    if not isinstance(full_decode, Mapping) or not isinstance(profile_checks, Mapping):
+        raise TypeError("Jianying delivery returned invalid QA")
+    decoded_video_frames = full_decode.get("decoded_video_frames")
+    decoded_audio = full_decode.get("decoded_audio")
+    audio_decode_applicable = full_decode.get("audio_decode_applicable")
+    if (
+        full_decode.get("passed") is not True
+        or full_decode.get("completed") is not True
+        or not _is_int(decoded_video_frames)
+        or not 1 <= decoded_video_frames <= 7200
+        or not isinstance(decoded_audio, bool)
+        or not isinstance(audio_decode_applicable, bool)
+        or full_decode.get("returncode") != 0
+    ):
+        raise TypeError("Jianying delivery returned invalid full-decode QA")
+    audio = profile_checks.get("audio")
+    if (
+        profile_checks.get("mp4") is not True
+        or profile_checks.get("h264_high_8_bit_yuv420p") is not True
+        or profile_checks.get("cfr") is not True
+        or profile_checks.get("metadata_cleared") is not True
+        or profile_checks.get("chapters_cleared") is not True
+        or profile_checks.get("rotation_cleared") is not True
+        or profile_checks.get("faststart") is not True
+        or not isinstance(audio, Mapping)
+        or audio.get("passed") is not True
+        or audio.get("mode") not in {"aac-lc-48khz-stereo", "no-audio-preserved"}
+    ):
+        raise TypeError("Jianying delivery returned invalid profile QA")
+    return {
+        "full_decode": {
+            "passed": True,
+            "completed": True,
+            "decoded_video_frames": decoded_video_frames,
+            "decoded_audio": decoded_audio,
+            "audio_decode_applicable": audio_decode_applicable,
+            "returncode": 0,
+        },
+        "profile_checks": {
+            "mp4": True,
+            "h264_high_8_bit_yuv420p": True,
+            "cfr": True,
+            "audio": {"passed": True, "mode": audio["mode"]},
+            "metadata_cleared": True,
+            "chapters_cleared": True,
+            "rotation_cleared": True,
+            "faststart": True,
+        },
+    }
+
+
+def _compact_nle_result(result: Mapping[str, Any], *, exported: bool) -> dict[str, Any]:
+    """Return a fixed-profile NLE receipt without source or probe internals."""
+
+    if (
+        result.get("schema_version") != NLE_SCHEMA_VERSION
+        or result.get("completion") != "nle_compatible_derivative"
+        or result.get("bitstream_faithful") is not False
+        or result.get("profile") != JIANYING_PROFILE
+    ):
+        raise TypeError("Jianying delivery returned invalid fixed-profile facts")
+    output = _compact_workflow_artifact(result.get("output"), "output")
+    media_facts = result.get("media_facts")
+    if not isinstance(media_facts, Mapping):
+        raise TypeError("Jianying delivery returned invalid media_facts")
+    compact: dict[str, Any] = {
+        "schema_version": NLE_SCHEMA_VERSION,
+        "completion": "nle_compatible_derivative",
+        "bitstream_faithful": False,
+        "profile": JIANYING_PROFILE,
+        "output": output,
+        "media_facts": {
+            "output": _compact_faithful_media_facts(media_facts.get("output")),
+        },
+        "qa": _compact_nle_qa(result.get("qa")),
+    }
+    if not exported:
+        if result.get("verified") is not True:
+            raise TypeError("Jianying verification returned an invalid receipt")
+        compact["verified"] = True
+        return compact
+
+    input_sha256 = result.get("input_sha256")
+    output_sha256 = result.get("output_sha256")
+    if (
+        not isinstance(input_sha256, str)
+        or not _PUBLIC_SHA256_PATTERN.fullmatch(input_sha256)
+        or not isinstance(output_sha256, str)
+        or output_sha256 != output["sha256"]
+        or not isinstance(result.get("delivery_path"), str)
+        or _compact_workflow_relative_path(result["delivery_path"], "delivery_path")
+        != output["path"]
+    ):
+        raise TypeError("Jianying export returned invalid output hashes")
+    report_path = _compact_workflow_relative_path(result.get("report_path"), "report_path")
+    compact.update(
+        {
+            "output_dir": _compact_workflow_relative_path(result.get("output_dir"), "output_dir"),
+            "delivery_path": output["path"],
+            "report_path": report_path,
+            "input_sha256": input_sha256,
+            "output_sha256": output_sha256,
+        }
+    )
+    compact["media_facts"]["input"] = _compact_faithful_media_facts(
+        media_facts.get("input")
+    )
+    return compact
+
+
+def run_faithful_evidence(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Build bounded review evidence after a no-core rights preflight."""
+
+    try:
+        plan, _plan_input_sha256 = _load_public_json_snapshot(args.plan)
+    except Exception:
+        return _faithful_workflow_error_payload(
+            "faithful evidence", CliArgumentError("invalid faithful plan")
+        ), 2
+    if not isinstance(plan, Mapping) or plan.get("rights_confirmed") is not True:
+        return _faithful_workflow_error_payload(
+            "faithful evidence", CliArgumentError("rights confirmation is required")
+        ), 2
+    try:
+        result = _faithful_evidence_module().build_faithful_evidence(
+            plan,
+            args.project_root,
+            args.output_dir,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+            max_panels=args.max_panels,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("faithful evidence returned an invalid result")
+        return _runtime_module().success_payload(_compact_faithful_evidence_result(result)), 0
+    except Exception as exc:
+        return _faithful_workflow_error_payload("faithful evidence", exc), 2
+
+
+def _jianying_rights_error(operation: str) -> tuple[dict[str, Any], int]:
+    """Reject an unconfirmed delivery before importing its core or touching tools."""
+
+    return _faithful_workflow_error_payload(
+        operation, CliArgumentError("rights confirmation is required")
+    ), 2
+
+
+def _jianying_profile_error(operation: str) -> tuple[dict[str, Any], int]:
+    """Keep the public CLI pinned to the one audited delivery profile."""
+
+    return _faithful_workflow_error_payload(
+        operation, CliArgumentError("unsupported Jianying delivery profile")
+    ), 2
+
+
+def run_jianying_export(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Create a rights-confirmed fixed-profile NLE derivative delivery."""
+
+    operation = "Jianying export"
+    if getattr(args, "rights_confirmed", False) is not True:
+        return _jianying_rights_error(operation)
+    if getattr(args, "profile", JIANYING_PROFILE) != JIANYING_PROFILE:
+        return _jianying_profile_error(operation)
+    try:
+        result = _nle_module().export_nle_delivery(
+            args.source,
+            project_root=args.project_root,
+            rights_confirmed=True,
+            output_dir=args.output_dir,
+            profile=JIANYING_PROFILE,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("Jianying export returned an invalid result")
+        return _runtime_module().success_payload(_compact_nle_result(result, exported=True)), 0
+    except Exception as exc:
+        return _faithful_workflow_error_payload(operation, exc), 2
+
+
+def run_jianying_verify(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
+    """Read-only verify a rights-confirmed fixed-profile NLE delivery."""
+
+    operation = "Jianying verification"
+    if getattr(args, "rights_confirmed", False) is not True:
+        return _jianying_rights_error(operation)
+    if getattr(args, "profile", JIANYING_PROFILE) != JIANYING_PROFILE:
+        return _jianying_profile_error(operation)
+    try:
+        result = _nle_module().verify_nle_delivery(
+            args.delivery,
+            project_root=args.project_root,
+            rights_confirmed=True,
+            profile=JIANYING_PROFILE,
+            ffmpeg=args.ffmpeg,
+            ffprobe=args.ffprobe,
+            timeout_seconds=args.timeout_seconds,
+        )
+        if not isinstance(result, Mapping):
+            raise TypeError("Jianying verification returned an invalid result")
+        return _runtime_module().success_payload(_compact_nle_result(result, exported=False)), 0
+    except Exception as exc:
+        return _faithful_workflow_error_payload(operation, exc), 2
 
 
 def _add_runtime_arguments(
@@ -4111,6 +4592,46 @@ def build_parser() -> argparse.ArgumentParser:
     faithful_rebuild.add_argument("--timeout-seconds", type=float, default=60.0)
     faithful_rebuild.add_argument("--json", action="store_true", dest="as_json")
 
+    faithful_evidence = subparsers.add_parser(
+        "faithful-evidence",
+        help="Create bounded no-OCR local review evidence for an approved faithful plan",
+    )
+    faithful_evidence.add_argument("plan", type=Path)
+    faithful_evidence.add_argument("--project-root", type=Path, required=True)
+    faithful_evidence.add_argument("--output-dir", type=Path, default=Path("faithful-evidence"))
+    faithful_evidence.add_argument("--ffmpeg", type=Path)
+    faithful_evidence.add_argument("--ffprobe", type=Path)
+    faithful_evidence.add_argument("--timeout-seconds", type=float, default=60.0)
+    faithful_evidence.add_argument("--max-panels", type=_bounded_cli_integer(1, 24), default=24)
+    faithful_evidence.add_argument("--json", action="store_true", dest="as_json")
+
+    jianying_export = subparsers.add_parser(
+        "jianying-export",
+        help="Export an explicitly authorized fixed-profile Jianying-compatible MP4",
+    )
+    jianying_export.add_argument("source", type=Path)
+    jianying_export.add_argument("--project-root", type=Path, required=True)
+    jianying_export.add_argument("--rights-confirmed", action="store_true", required=True)
+    jianying_export.add_argument("--output-dir", type=Path, default=Path("jianying-delivery"))
+    jianying_export.add_argument("--profile", default=JIANYING_PROFILE)
+    jianying_export.add_argument("--ffmpeg", type=Path)
+    jianying_export.add_argument("--ffprobe", type=Path)
+    jianying_export.add_argument("--timeout-seconds", type=float, default=60.0)
+    jianying_export.add_argument("--json", action="store_true", dest="as_json")
+
+    jianying_verify = subparsers.add_parser(
+        "jianying-verify",
+        help="Read-only verify an explicitly authorized fixed-profile Jianying delivery",
+    )
+    jianying_verify.add_argument("delivery", type=Path)
+    jianying_verify.add_argument("--project-root", type=Path, required=True)
+    jianying_verify.add_argument("--rights-confirmed", action="store_true", required=True)
+    jianying_verify.add_argument("--profile", default=JIANYING_PROFILE)
+    jianying_verify.add_argument("--ffmpeg", type=Path)
+    jianying_verify.add_argument("--ffprobe", type=Path)
+    jianying_verify.add_argument("--timeout-seconds", type=float, default=60.0)
+    jianying_verify.add_argument("--json", action="store_true", dest="as_json")
+
     render = subparsers.add_parser("render", help="Render and technically verify an S1 local template")
     render.add_argument("template", type=Path)
     render.add_argument("manifest", type=Path)
@@ -4188,6 +4709,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             return status
         if args.command == "faithful-rebuild":
             payload, status = run_faithful_rebuild(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "faithful-evidence":
+            payload, status = run_faithful_evidence(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "jianying-export":
+            payload, status = run_jianying_export(args)
+            _emit_stable_json(payload)
+            return status
+        if args.command == "jianying-verify":
+            payload, status = run_jianying_verify(args)
             _emit_stable_json(payload)
             return status
         if args.command == "render":

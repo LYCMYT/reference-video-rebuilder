@@ -1,4 +1,4 @@
 interface:
   display_name: "reference-video-rebuilder"
-  short_description: "Review static S1 rebuilds or faithfully preserve an authorized source"
-  default_prompt: "Use $reference-video-rebuilder to either prepare and review an authorized static S1 reference-video template, or—only when visible content must remain unchanged—follow the faithful source-preservation contract with a manually reviewed text inventory. Enforce motion/audio requirements, use approved still-image controllers only when applicable, then assemble, freeze, render or preserve, and QA it."
+  short_description: "Review S1 rebuilds, faithful archives, evidence, and NLE derivatives"
+  default_prompt: "Use $reference-video-rebuilder to prepare and review an authorized static S1 template, or follow the faithful source-preservation contract when visible content must remain unchanged. Keep the faithful archive, no-OCR review evidence, and re-encoded Jianying-compatible derivative as separate claims; verify each applicable output and never describe the derivative as an editable or officially certified Jianying project."

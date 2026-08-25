@@ -1,5 +1,8 @@
 import json
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -35,6 +38,37 @@ class SkillMetadataTests(unittest.TestCase):
             ".rrv-openai-generation-*/",
         ):
             self.assertIn(pattern, text)
+
+    def test_faithful_evidence_and_nle_outputs_are_ignored(self):
+        text = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
+        for pattern in (
+            "faithful-rebuild*/",
+            "faithful-evidence*/",
+            "jianying-delivery*/",
+            ".rrv-faithful-*/",
+            ".rrv-faithful-evidence-*/",
+            ".rrv-nle-*/",
+        ):
+            self.assertIn(pattern, text)
+
+    def test_documented_skill_root_cli_invocation_works_from_an_arbitrary_cwd(self):
+        for document in (
+            SKILL_ROOT / "SKILL.md",
+            SKILL_ROOT / "references" / "faithful-rebuild-contract.md",
+            SKILL_ROOT / "references" / "nle-delivery-contract.md",
+        ):
+            self.assertIn("<skill-root>/scripts/video_remix.py", document.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run(
+                [sys.executable, str(SKILL_ROOT / "scripts" / "video_remix.py"), "--version"],
+                cwd=directory,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("0.9.1-alpha", result.stdout)
 
     def test_codex_builtin_imagegen_example_is_cloud_managed_and_keyless(self):
         example = SKILL_ROOT / "assets" / "project-template" / "generation.request.codex-builtin.example.json"

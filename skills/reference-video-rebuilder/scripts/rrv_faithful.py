@@ -14,11 +14,13 @@ executor, and handle :class:`rrv_runtime.RRVError` in its own interface.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import platform
 import re
 import stat
 from typing import Any, Callable, Mapping, Sequence
@@ -31,6 +33,7 @@ except ImportError:  # pragma: no cover - package-style imports.
 
 
 FAITHFUL_SCHEMA_VERSION = "0.9.0"
+FAITHFUL_WORKFLOW_VERSION = "0.9.1-alpha"
 MAX_DURATION_SECONDS = 60.0
 DEFAULT_TIMEOUT_SECONDS = 60.0
 SHA256_CHUNK_SIZE = 1024 * 1024
@@ -145,8 +148,8 @@ def load_plan_json(raw: str | bytes | bytearray) -> dict[str, Any]:
     """Parse one plan while rejecting duplicate object keys and NaN/Infinity.
 
     A Python mapping cannot retain duplicate JSON keys.  Call this boundary
-    when a plan originates as JSON text, then pass the returned mapping to
-    :func:`execute_faithful_rebuild`.
+    when a plan originates as JSON text, then pass both the returned mapping
+    and the same exact raw bytes to :func:`execute_faithful_rebuild`.
     """
 
     if isinstance(raw, bytearray):
@@ -451,6 +454,128 @@ def _sha256_bound_file(root: Path, expected: _FileIdentity, label: str) -> str:
     return digest.hexdigest()
 
 
+@contextmanager
+def _hold_bound_file(root: Path, expected: _FileIdentity, label: str):
+    """Keep one checked file immutable while a pathname consumer reads it.
+
+    Windows is the audited release platform.  There a native read handle is
+    opened without write/delete sharing, so FFmpeg may open the same file for
+    reading while a concurrent replacement or in-place writer is denied.  On
+    other platforms the descriptor still binds identity and the caller must
+    perform its normal post-read hash check.
+    """
+
+    _assert_file_identity(root, expected, label)
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            create_file = kernel32.CreateFileW
+            create_file.argtypes = [
+                ctypes.c_wchar_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+                ctypes.c_uint32,
+                ctypes.c_uint32,
+                ctypes.c_void_p,
+            ]
+            create_file.restype = ctypes.c_void_p
+            handle = create_file(
+                str(expected.path),
+                0x80000000,  # GENERIC_READ
+                0x00000001,  # FILE_SHARE_READ only; deny write and delete.
+                None,
+                3,  # OPEN_EXISTING
+                0x00200000,  # FILE_FLAG_OPEN_REPARSE_POINT
+                None,
+            )
+            invalid_handle = ctypes.c_void_p(-1).value
+            if handle in (None, invalid_handle):
+                raise OSError(ctypes.get_last_error(), "CreateFileW failed")
+        except OSError as exc:
+            raise _invalid(f"{label} could not be guarded for a stable read") from exc
+        try:
+            _assert_file_identity(root, expected, label)
+            yield
+            _assert_file_identity(root, expected, label)
+        finally:
+            kernel32.CloseHandle(ctypes.c_void_p(handle))
+        return
+
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(expected.path, flags)
+    except OSError as exc:
+        raise _invalid(f"{label} could not be guarded for a stable read") from exc
+    try:
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_nlink != 1
+            or opened.st_dev != expected.device
+            or opened.st_ino != expected.inode
+        ):
+            raise _invalid(f"{label} changed while preparing a stable read")
+        yield
+    finally:
+        os.close(descriptor)
+    _assert_file_identity(root, expected, label)
+
+
+def _snapshot_bound_file_to_stage(
+    root: Path,
+    expected: _FileIdentity,
+    stage: Any,
+    name: str,
+    *,
+    label: str,
+    expected_sha256: str,
+) -> tuple[Path, _FileIdentity, str]:
+    """Copy one identity-bound input into a new private staged snapshot."""
+
+    if not _SHA256_RE.fullmatch(expected_sha256):
+        raise _invalid(f"{label} expected SHA-256 is invalid")
+    _assert_file_identity(root, expected, label)
+    destination = rrv_propose._stage_path(root, stage, name)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(expected.path, flags)
+    except OSError as exc:
+        raise _invalid(f"{label} could not be opened for a stable snapshot") from exc
+    digest = hashlib.sha256()
+    try:
+        with os.fdopen(descriptor, "rb", closefd=True) as source_handle:
+            opened = os.fstat(source_handle.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened.st_dev != expected.device
+                or opened.st_ino != expected.inode
+            ):
+                raise _invalid(f"{label} changed while preparing its snapshot")
+            with rrv_propose._open_stage_output_file(
+                stage, destination, f"{label} private snapshot"
+            ) as output_handle:
+                while chunk := source_handle.read(SHA256_CHUNK_SIZE):
+                    digest.update(chunk)
+                    output_handle.write(chunk)
+    except rrv_runtime.RRVError:
+        raise
+    except OSError as exc:
+        raise _invalid(f"{label} could not be copied into a stable snapshot") from exc
+    actual_sha256 = digest.hexdigest()
+    if actual_sha256 != expected_sha256:
+        raise _invalid(f"{label} hash changed while preparing its snapshot")
+    _assert_file_identity(root, expected, label)
+    rrv_propose._assert_stage_regular_file(stage, destination, f"{label} private snapshot")
+    snapshot_identity = _safe_regular_file(root, destination, f"{label} private snapshot")
+    if _sha256_bound_file(root, snapshot_identity, f"{label} private snapshot") != actual_sha256:
+        raise _invalid(f"{label} private snapshot did not remain stable")
+    return destination, snapshot_identity, actual_sha256
+
+
 def _canonical_plan_sha256(plan: Mapping[str, Any]) -> str:
     try:
         encoded = rrv_runtime.stable_json_dumps(plan, indent=None).encode("utf-8")
@@ -459,13 +584,65 @@ def _canonical_plan_sha256(plan: Mapping[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _module_sha256() -> str:
+    """Hash this executor without recording its installation path."""
+
+    digest = hashlib.sha256()
+    try:
+        with Path(__file__).open("rb") as handle:
+            while chunk := handle.read(SHA256_CHUNK_SIZE):
+                digest.update(chunk)
+    except OSError as exc:  # A mutable or unreadable executor is not auditable.
+        raise _tool_error("faithful executor could not be fingerprinted") from exc
+    return digest.hexdigest()
+
+
+def _tool_provenance(tool: rrv_runtime.ToolInfo) -> dict[str, Any]:
+    """Return bounded tool facts without exposing an executable path."""
+
+    source = tool.source if tool.source in {"explicit", "PATH"} else None
+    if isinstance(tool.source, str) and re.fullmatch(r"env:[A-Z][A-Z0-9_]*", tool.source):
+        source = tool.source
+    version = None
+    if isinstance(tool.version, str):
+        expected_name = tool.name if tool.name in {"ffmpeg", "ffprobe"} else None
+        match = re.fullmatch(
+            r"(ffmpeg|ffprobe) version ([A-Za-z0-9][A-Za-z0-9._+~-]{0,79})",
+            tool.version.strip().splitlines()[0].split(" Copyright", 1)[0],
+        )
+        if match and expected_name == match.group(1):
+            version = f"{match.group(1)} version {match.group(2)}"
+    return {"source": source, "version": version}
+
+
+def _invocation_policy_sha256(plan: Mapping[str, Any]) -> str:
+    """Bind the small set of approved execution choices, not local paths."""
+
+    policy = {
+        "operation": plan.get("operation"),
+        "video_mode": plan.get("video_mode"),
+        "audio_mode": plan.get("audio_mode"),
+        "metadata_strip_all": bool(
+            isinstance(plan.get("metadata"), Mapping)
+            and plan["metadata"].get("strip_all") is True
+        ),
+    }
+    return hashlib.sha256(
+        rrv_runtime.stable_json_dumps(policy, indent=None).encode("utf-8")
+    ).hexdigest()
+
+
 def _require_runtime_tools(
     tools: rrv_runtime.RuntimeTools | None,
     *,
     ffmpeg: str | os.PathLike[str] | None,
     ffprobe: str | os.PathLike[str] | None,
 ) -> tuple[rrv_runtime.RuntimeTools, str, str]:
-    runtime_tools = tools or rrv_runtime.discover_tools(ffmpeg=ffmpeg, ffprobe=ffprobe)
+    runtime_tools = tools or rrv_runtime.discover_tools(
+        ffmpeg=ffmpeg,
+        ffprobe=ffprobe,
+        probe_versions=True,
+    )
     if not isinstance(runtime_tools, rrv_runtime.RuntimeTools):
         raise _invalid("tools must be an rrv_runtime.RuntimeTools instance")
     if not runtime_tools.ffmpeg.path:
@@ -950,17 +1127,37 @@ def execute_faithful_rebuild(
     exact_timing_fn: Callable[..., Mapping[str, Any]] | None = None,
     payload_hash_fn: Callable[..., PayloadHash] | None = None,
     metadata_probe_fn: Callable[..., Mapping[str, Any]] | None = None,
+    plan_input_bytes: bytes | bytearray | None = None,
 ) -> dict[str, Any]:
     """Atomically publish a metadata-free bitstream copy of one approved source.
 
     The authorization gate is deliberately first.  When it is absent or
     false, this function does not resolve a root, touch a source path, inspect
     tools, create a stage, or create a visible output directory.
+
+    ``plan_input_bytes`` is mandatory for approved execution.  The core parses
+    those strict JSON bytes again, verifies that they equal ``plan``, and
+    computes the provenance digest itself; callers cannot attest an arbitrary
+    raw-plan hash.
     """
 
     if not isinstance(plan, Mapping) or plan.get("rights_confirmed") is not True:
         raise _invalid("rights_confirmed must be true before touching a faithful rebuild input")
     validate_faithful_plan(plan)
+    if isinstance(plan_input_bytes, bytearray):
+        plan_input_bytes = bytes(plan_input_bytes)
+    if not isinstance(plan_input_bytes, bytes):
+        raise _invalid("plan_input_bytes must contain the exact approved UTF-8 JSON bytes")
+    parsed_input = load_plan_json(plan_input_bytes)
+    if _canonical_plan_sha256(parsed_input) != _canonical_plan_sha256(plan):
+        raise _invalid("plan_input_bytes do not describe the supplied faithful rebuild plan")
+    # The strict raw snapshot is the only plan used after this point.  Python
+    # equality treats JSON numbers such as 24 and 24.0 as equal even though
+    # their canonical JSON hashes differ, so the caller's Mapping must never
+    # remain the execution/provenance authority.
+    plan = parsed_input
+    plan_input_sha256 = hashlib.sha256(plan_input_bytes).hexdigest()
+    core_sha256 = _module_sha256()
     timeout = rrv_runtime.validate_timeout(timeout_seconds)
     root = _safe_project_root(project_root)
     source_relative = str(plan["source"]["path"])
@@ -979,51 +1176,63 @@ def execute_faithful_rebuild(
     source_sha256 = _sha256_bound_file(root, source_identity, "plan.source.path")
     if source_sha256 != plan["source"]["sha256"]:
         raise _invalid("plan.source.sha256 does not match the checked local source")
-    source_facts = _probe_facts(
-        source_path,
-        runtime_tools=runtime_tools,
-        ffprobe=ffprobe_path,
-        timeout_seconds=timeout,
-        probe_media_fn=probe_media_fn,
-        exact_timing_fn=exact_timing_fn,
-    )
-    _assert_plan_media_facts(plan, source_facts)
-    # Rebind and rehash after external media inspection to catch in-place
-    # content changes as well as pathname/reparse replacement.
-    if _sha256_bound_file(root, source_identity, "plan.source.path") != source_sha256:
-        raise _invalid("source hash changed during faithful rebuild preflight")
-
-    source_video_payload = _payload_hash(
-        source_path,
-        "v:0",
-        ffprobe=ffprobe_path,
-        timeout_seconds=timeout,
-        runner=runner,
-        payload_hash_fn=payload_hash_fn,
-    )
-    source_audio_payload = (
-        _payload_hash(
-            source_path,
-            "a",
-            ffprobe=ffprobe_path,
-            timeout_seconds=timeout,
-            runner=runner,
-            payload_hash_fn=payload_hash_fn,
-        )
-        if source_facts.has_audio
-        else None
-    )
-    if _sha256_bound_file(root, source_identity, "plan.source.path") != source_sha256:
-        raise _invalid("source hash changed during faithful rebuild preflight")
-
     stage: Any | None = None
     try:
         stage = rrv_propose._new_staging_directory(root, "faithful")
-        replica_path = rrv_propose._stage_path(root, stage, "replica.mp4")
-        command = build_faithful_remux_command(
-            source_path, replica_path, ffmpeg_path, audio_mode=plan["audio_mode"]
+        snapshot_path, snapshot_identity, snapshot_sha256 = _snapshot_bound_file_to_stage(
+            root,
+            source_identity,
+            stage,
+            "source-snapshot.mp4",
+            label="faithful rebuild source",
+            expected_sha256=source_sha256,
         )
-        _run_command(command, timeout_seconds=timeout, runner=runner)
+        replica_path = rrv_propose._stage_path(root, stage, "replica.mp4")
+        with _hold_bound_file(root, snapshot_identity, "faithful rebuild source snapshot"):
+            source_facts = _probe_facts(
+                snapshot_path,
+                runtime_tools=runtime_tools,
+                ffprobe=ffprobe_path,
+                timeout_seconds=timeout,
+                probe_media_fn=probe_media_fn,
+                exact_timing_fn=exact_timing_fn,
+            )
+            _assert_plan_media_facts(plan, source_facts)
+            source_video_payload = _payload_hash(
+                snapshot_path,
+                "v:0",
+                ffprobe=ffprobe_path,
+                timeout_seconds=timeout,
+                runner=runner,
+                payload_hash_fn=payload_hash_fn,
+            )
+            source_audio_payload = (
+                _payload_hash(
+                    snapshot_path,
+                    "a",
+                    ffprobe=ffprobe_path,
+                    timeout_seconds=timeout,
+                    runner=runner,
+                    payload_hash_fn=payload_hash_fn,
+                )
+                if source_facts.has_audio
+                else None
+            )
+            command = build_faithful_remux_command(
+                snapshot_path,
+                replica_path,
+                ffmpeg_path,
+                audio_mode=plan["audio_mode"],
+            )
+            _run_command(command, timeout_seconds=timeout, runner=runner)
+            if (
+                _sha256_bound_file(
+                    root, snapshot_identity, "faithful rebuild source snapshot"
+                )
+                != snapshot_sha256
+            ):
+                raise _invalid("faithful rebuild source snapshot changed during execution")
+        rrv_propose._remove_stage_file(stage, snapshot_path)
         rrv_propose._assert_stage_regular_file(stage, replica_path, "faithful replica")
         if _sha256_bound_file(root, source_identity, "plan.source.path") != source_sha256:
             raise _invalid("source hash changed during faithful rebuild execution")
@@ -1075,6 +1284,8 @@ def execute_faithful_rebuild(
             )
         if not metadata_is_stripped(metadata):
             raise _tool_error("replica metadata was not fully stripped")
+        if _module_sha256() != core_sha256:
+            raise _invalid("faithful executor changed while the rebuild was running")
 
         replica_sha256 = _sha256_bound_file(
             root,
@@ -1113,6 +1324,20 @@ def execute_faithful_rebuild(
             "text_inventory_count": len(plan["text_inventory"]),
             "visible_text_policy": "preserve-exact",
             "metadata": {"strip_all": True, "verified": True},
+            "provenance": {
+                "workflow_version": FAITHFUL_WORKFLOW_VERSION,
+                "core_sha256": core_sha256,
+                "python_version": platform.python_version(),
+                "plan": {
+                    "input_sha256": plan_input_sha256,
+                    "canonical_sha256": _canonical_plan_sha256(plan),
+                },
+                "invocation_policy_sha256": _invocation_policy_sha256(plan),
+                "runtime": {
+                    "ffmpeg": _tool_provenance(runtime_tools.ffmpeg),
+                    "ffprobe": _tool_provenance(runtime_tools.ffprobe),
+                },
+            },
         }
         summary_path = rrv_propose._stage_path(root, stage, "rebuild-summary.json")
         rrv_propose._write_json_new(
@@ -1121,7 +1346,22 @@ def execute_faithful_rebuild(
             label="faithful rebuild summary",
             stage=stage,
         )
-        rrv_propose._publish_stage(root, stage, target, label="faithful rebuild")
+        summary_identity = _safe_regular_file(
+            root, summary_path, "faithful rebuild summary"
+        )
+        summary_sha256 = _sha256_bound_file(
+            root, summary_identity, "faithful rebuild summary"
+        )
+        rrv_propose._publish_stage(
+            root,
+            stage,
+            target,
+            label="faithful rebuild",
+            expected_files={
+                "replica.mp4": replica_sha256,
+                "rebuild-summary.json": summary_sha256,
+            },
+        )
         stage = None
         return summary
     except Exception:
@@ -1132,6 +1372,7 @@ def execute_faithful_rebuild(
 __all__ = [
     "DEFAULT_TIMEOUT_SECONDS",
     "FAITHFUL_SCHEMA_VERSION",
+    "FAITHFUL_WORKFLOW_VERSION",
     "MAX_DURATION_SECONDS",
     "MediaFacts",
     "PayloadHash",

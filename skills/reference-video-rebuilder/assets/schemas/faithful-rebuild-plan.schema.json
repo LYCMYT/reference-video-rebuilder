@@ -24,7 +24,7 @@
     "visible_text_policy": {"const": "preserve-exact"},
     "text_inventory": {
       "type": "array",
-      "minItems": 1,
+      "minItems": 0,
       "maxItems": 256,
       "items": {"$ref": "#/$defs/textInventoryItem"}
     },

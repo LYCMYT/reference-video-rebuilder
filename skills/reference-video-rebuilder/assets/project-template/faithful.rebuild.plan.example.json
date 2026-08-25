@@ -1,0 +1,38 @@
+{
+  "schema_version": "0.9.0",
+  "rights_confirmed": true,
+  "operation": "faithful-reference-rebuild",
+  "source": {
+    "path": "source/reference.mp4",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "width": 1280,
+    "height": 720,
+    "fps": 30,
+    "frame_count": 300,
+    "duration_seconds": 10,
+    "has_audio": true
+  },
+  "visible_text_policy": "preserve-exact",
+  "text_inventory": [
+    {
+      "id": "text.example",
+      "start_frame": 0,
+      "end_frame": 300,
+      "lines": [
+        "Replace this example with every reviewed visible text line"
+      ],
+      "region": {
+        "x": 100,
+        "y": 100,
+        "width": 1080,
+        "height": 120
+      },
+      "human_reviewed": true
+    }
+  ],
+  "video_mode": "preserve-bitstream",
+  "audio_mode": "preserve-bitstream",
+  "metadata": {
+    "strip_all": true
+  }
+}

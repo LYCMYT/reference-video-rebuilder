@@ -1,7 +1,7 @@
 # Codex Reference Video Rebuilder 完整设计方案
 
-版本：0.9.0-alpha（faithful 源保留；非静态执行器未集成）
-日期：2026-08-24
+版本：0.9.1-alpha（faithful 证据/provenance 与独立 NLE 派生交付）
+日期：2026-08-25
 目标仓库：`LYCMYT/reference-video-rebuilder`
 Skill 名称：`reference-video-rebuilder`
 
@@ -52,6 +52,13 @@ file-drop，也不等同于 v0.7 的 API controller。
 clean-room 重建、可替换模板、OCR、语义理解或内容编辑器；原有画面、可见文字、时序
 和人物动作都必须保持，不得删除/替换平台 UI、弹幕、水印、Logo、人物、商品、背景
 或文字。该路径的成功状态只能是 `faithful_source_preservation`，不能声称“完整重建”。
+
+0.9.1-alpha 不改变 Faithful Rebuild Plan 的 `0.9.0` schema，而是补上三项
+受限能力：为人工文字盘点生成无 OCR 的确定性联系表和 `0.9.1` 证据报告；在
+faithful summary 中绑定原始/规范计划、执行器、调用策略和本地工具 provenance；
+把剪映兼容交付分离为固定 `jianying-compatible-v1` 重编码派生品。该派生品只能
+声明 `nle_compatible_derivative` 和 `bitstream_faithful: false`，不是剪映官方
+认证、私有工程文件、可编辑时间线或图层包，不能继承 faithful 声明。
 
 > **当前可执行边界（而非未来路线图）**：没有 OCR、没有任意视频的语义理解或自动 family 发现。`video_remix.py` 没有云端执行或素材/换装生成；propose 不能猜测身份、服装、商品、文字、平台 UI、水印或隐藏像素，它只能提出有界**竖版 9:16** S1 候选，且 Proposal 永远 review_required=true。v0.6 可记录 `local-file-drop` 或 `controller-managed` 的外部执行声明；后者可标记为 `local-only` 或经双重显式确认的 `controller-cloud`，但 `video_remix.py` 从不上传。联网生成只允许两条分离路线：v0.7 独立 OpenAI API controller，或 v0.7.1 经批准的 Codex 内置 ImageGen 人工控制器；两者都只上传任务批准的参考**图片**并继续进入相同的人工审核/冻结门。0.7.2 的横版仅限人工编写/审核 Template IR 的固定 16:9 交付，不能解释为横版自动 proposal、分类或 compiler。当前 renderer 只接受静态素材与音轨；没有人物动作复刻、pose-transfer、video-to-video、重建音效、授权声线克隆或口型同步能力。Template IR 0.2.0 的旧输出必须标记为 `structure_only_unclaimed`；任何 0.3.0 的动作/声音要求若没有匹配的已审核执行器，必须 fail closed。唯一的 0.9 例外是 faithful 源保留：它不理解、推断、重建或替换任何内容，而是在已审核计划下保留源画面/文字/动作及指定音频处理，并移除继承/用户 metadata。本文后文出现的 OCR、检测、其他生成模型或 S2/S3 内容均为历史设计或未来设想，不能解释为当前 CLI 能力。
 
@@ -192,6 +199,11 @@ Remix 模式的验收要求是：更换第二组完整素材时不修改程序�
 商品、背景或文字。源指纹、视频包负载、选定音频处理、metadata 和全片回放均须复核；
 成功结论只能写作 `faithful_source_preservation`，不能写作完整重建。详细合同见
 `skills/reference-video-rebuilder/references/faithful-rebuild-contract.md`。
+
+v0.9.1 的 review evidence 只把已声明的区域画到确定性联系表上，不执行 OCR，
+也不能证明人工清单没有漏项。另一个 NLE delivery 模式会把授权 MP4 重编码成
+固定 H.264 High/yuv420p/CFR/AAC-LC 48 kHz stereo/faststart 配置；它是平面视频，
+与本节的 faithful archive 是两个独立产品和验收结论。
 
 ## 5. 支持等级
 
@@ -716,7 +728,7 @@ NEW
 
 ## 10. 命令行和工具接口
 
-当前 Skill/工作流与 `video_remix.py` 本地 CLI 版本均为 `0.9.0-alpha`。
+当前 Skill/工作流与 `video_remix.py` 本地 CLI 版本均为 `0.9.1-alpha`。
 CLI 保留 v0.4–v0.8 的本地合同，并新增独立的 v0.9 Faithful Rebuild Plan；
 Codex 不应依赖自然语言日志。参考 Proposal schema 为 `0.4.0`，Frozen
 Compiler Plan schema 保持 `0.3.0`，Template IR 同时支持 legacy `0.2.0`
@@ -742,12 +754,21 @@ video-remix validate-generation-plan-review <generation-plan-review.json> --json
 video-remix propose-generation-results <generation-plan.json> <generation-plan-review.json> --project-root <project-dir> --result-pack <direct-child> --output-dir <direct-child> --generation-results-rights-confirmed --ffprobe <path> --timeout <seconds> --json
 video-remix validate-generation-results-proposal <generation-results-proposal.json> --json
 video-remix validate-generation-results-review <generation-results-review.json> --json
-video-remix validate-faithful-plan <faithful-rebuild-plan.json> --json
+python <skill-root>/scripts/video_remix.py validate-faithful-plan <faithful-rebuild-plan.json> --json
 video-remix assemble-generation-pack <generation-plan.json> <generation-plan-review.json> <generation-results-proposal.json> <generation-results-review.json> --project-root <project-dir> --output-dir <direct-child> --ffprobe <path> --timeout <seconds> --json
-video-remix faithful-rebuild <faithful-rebuild-plan.json> --project-root <project-dir> [--output-dir faithful-rebuild] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py faithful-rebuild <faithful-rebuild-plan.json> --project-root <project-dir> [--output-dir faithful-rebuild] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py faithful-evidence <faithful-rebuild-plan.json> --project-root <project-dir> [--output-dir faithful-evidence] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] [--max-panels <1..24>] --json
+python <skill-root>/scripts/video_remix.py jianying-export <source.mp4> --project-root <project-dir> --rights-confirmed [--output-dir jianying-delivery] [--profile jianying-compatible-v1] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
+python <skill-root>/scripts/video_remix.py jianying-verify <delivery.mp4> --project-root <project-dir> --rights-confirmed [--profile jianying-compatible-v1] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <seconds>] --json
 video-remix render <template.ir.json> <assets.json> --project-root <project-dir> [--frame-directory render/master-frames] [--debug-bounds] [--summary <root-contained.json>] [--ffmpeg <path>] --json
 video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames <n>] [--expect-audio|--expect-no-audio] [--ffmpeg <path>] --json
 ```
+
+`<skill-root>` 表示已安装 `reference-video-rebuilder` Skill 的绝对目录；它不是
+裸命令，也不依赖当前工作目录。v0.9/v0.9.1 Faithful 入口只接受 MP4、单 H.264
+视频流、零旋转、精确 CFR、最长 60 秒、四种审计尺寸且无非音视频侧流。NLE
+入口另外限制为至多一条音轨及 24/25/30/50/60 fps；其他源应先走独立审核的
+规范化流程，不能直接附加 faithful 声明。
 
 `validate-faithful-plan` 只校验 v0.9 Plan；应在运行前先执行。`faithful-rebuild`
 只从该计划读取 `rights_confirmed: true`，没有也不接受额外的 rights CLI flag。
@@ -755,6 +776,13 @@ video-remix qa <delivery.mp4> [--width <n>] [--height <n>] [--fps <n>] [--frames
 安全一级子目录；成功时只发布其中的 `replica.mp4` 与 `rebuild-summary.json`，其
 `completion` 固定为 `faithful_source_preservation`。`--timeout-seconds` 是该命令
 独有的超时参数，不应误写成其他命令的 `--timeout`。
+
+`faithful-evidence` 同样从已审核计划读取权利确认，只发布无 OCR 的
+`contact-sheet.png` 与 `faithful-evidence.json`，不能自动接受清单完整性。
+`jianying-export`/`jianying-verify` 则各自要求 `--rights-confirmed`，只接受固定
+`jianying-compatible-v1`。export 发布 `jianying-compatible-v1.mp4` 和
+`nle-delivery-report.json`；verify 只读复核。派生视频经过重新编码，报告必须
+是 `bitstream_faithful: false`，且不代表剪映官方认证或可编辑工程。
 
 v0.7 的联网控制器是**独立脚本**，不是 `video-remix` 子命令：
 
@@ -1366,6 +1394,15 @@ OCR、OpenCV 分析和 Remotion/Node 渲染属于后续可选能力，当前 Alp
 - 要求人工可见文字 inventory，明确禁止 OCR、语义推断、替换、删除、平台元素清除
   与完整重建表述；
 - 不新增动作生成、声音克隆、口型同步、内容替换或任意视频语义分析能力。
+
+### Phase 3.9.1：Faithful 证据、provenance 与 NLE 派生（v0.9.1，已实现）
+
+- 用最多 24 个确定性采样面板把人工 `text_inventory` 区域可视化；明确
+  `ocr_used: false`，并保留“不能证明无漏项”的限制；
+- faithful summary 绑定原始/规范计划、执行器、调用策略、工作流与运行时版本，
+  但公共结果不回显工具绝对路径；
+- 增加独立固定 `jianying-compatible-v1` 转码与验证，强制标记为重编码派生；
+- 不生成剪映私有工程、时间线、字幕、特效或图层，不声称官方认证或跨版本保证。
 
 ### Phase 4：S1 通用模板族
 

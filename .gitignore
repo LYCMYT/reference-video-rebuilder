@@ -80,6 +80,14 @@ generation-request.private*.json
 .rrv-openai-generation-*/
 openai-generation-result-pack*/
 
+# Private v0.9/v0.9.1 faithful archives, review evidence, and NLE derivatives
+faithful-rebuild*/
+faithful-evidence*/
+jianying-delivery*/
+.rrv-faithful-*/
+.rrv-faithful-evidence-*/
+.rrv-nle-*/
+
 # Models and checkpoints
 models/
 checkpoints/

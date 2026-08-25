@@ -1,6 +1,6 @@
 ---
 name: reference-video-rebuilder
-description: Use for authorized fixed-subject-carousel S1 template rebuilds, strict local proposal/assets/review/QA workflow, approved still-image generation handoffs, or v0.9 faithful source preservation of an authorized human-reviewed source. Only four audited delivery profiles are supported; proposal/compiler automation remains portrait S1. Never claim OCR, semantic inference, cloud/CUDA execution, generated motion/voice/lip sync, visible-content replacement, or full reconstruction through faithful preservation.
+description: Use for authorized fixed-subject-carousel S1 template rebuilds, strict local proposal/assets/review/QA workflow, approved still-image generation handoffs, or v0.9 faithful source preservation with v0.9.1 review evidence and a separate Jianying-compatible derivative. Never confuse faithful preservation with a re-encoded NLE delivery, claim OCR completeness, generated motion/voice/lip sync, visible-content replacement, or an official Jianying project/certification.
 ---
 
 # reference-video-rebuilder
@@ -16,6 +16,12 @@ The distinct v0.9 faithful source-preservation path is only for an authorized
 source whose visible picture, text, timing, and action must remain unchanged.
 It is source preservation, not a template rebuild or a way to remove platform
 elements, replace assets, or recover hidden pixels.
+
+v0.9.1 can generate local human-review evidence for that plan and a separate
+flat Jianying-compatible MP4 derivative. Evidence performs no OCR and cannot
+prove inventory completeness. The NLE derivative is re-encoded and always
+`bitstream_faithful: false`; it is not an editable Jianying project or official
+compatibility certification.
 
 ```text
 propose -> review -> freeze-plan -> compile
@@ -44,10 +50,27 @@ character-motion replication, voice imitation, or lip sync.
   full-reconstruction claim. Read
   [faithful-rebuild-contract.md](references/faithful-rebuild-contract.md)
   before preparing or accepting this path.
-  Validate first with `video-remix validate-faithful-plan <plan> --json`, then
-  run `video-remix faithful-rebuild <plan> --project-root <dir> [--output-dir
+  This Alpha accepts only MP4 with exactly one zero-rotation H.264 video,
+  exact CFR, at most 60 seconds, no subtitle/data/attachment streams, and one
+  of `720x1280`, `1080x1920`, `1280x720`, or `1920x1080`.
+  Resolve `<skill-root>` to this installed Skill directory. Validate first with
+  `python <skill-root>/scripts/video_remix.py validate-faithful-plan
+  <plan> --json`, then run `python <skill-root>/scripts/video_remix.py faithful-rebuild
+  <plan> --project-root <dir> [--output-dir
   <new-child>] [--ffmpeg <path>] [--ffprobe <path>] [--timeout-seconds <n>]
   --json`. Rights confirmation is inside the approved plan, not a CLI flag.
+- Use `python <skill-root>/scripts/video_remix.py faithful-evidence <plan> --project-root <dir>
+  [--output-dir <new-child>] [--max-panels 24] --json` only to support human
+  review. Inspect the contact sheet yourself; never treat it as OCR or proof
+  that no visible text item was omitted.
+- Use `python <skill-root>/scripts/video_remix.py jianying-export <project-local-mp4> --project-root <dir>
+  --rights-confirmed [--output-dir <new-child>] --json`, followed by
+  `python <skill-root>/scripts/video_remix.py jianying-verify <delivery-mp4> --project-root <dir>
+  --rights-confirmed --json`, only for a separate flat NLE derivative. Keep the
+  faithful archive as the audit source and never attach its faithful claim to
+  the derivative. This Alpha accepts only the four dimensions above, exact CFR
+  at 24/25/30/50/60 fps, at most 60 seconds, exactly one video stream, at most
+  one audio stream, zero rotation, and no subtitle/data/attachment streams.
 - Use Propose, Review, and Freeze-plan only for a new authorized local S1
   reference.
 - Use Propose-assets for already render-ready local media against an existing
@@ -107,6 +130,10 @@ character-motion replication, voice imitation, or lip sync.
    visible content through faithful source preservation. It preserves approved
    source video/text/action exactly and either preserves the approved source
    audio bitstream or mutes it; it is never a full reconstruction claim.
+8. Keep faithful archive, review evidence, and NLE derivative as separate
+   output directories and claims. NLE verification does not prove actual
+   import in every Jianying release or create editable tracks, captions,
+   effects, or layers.
 
 ## Use Codex built-in ImageGen deliberately
 
@@ -171,6 +198,8 @@ Read [generation-contract.md](references/generation-contract.md) and
   or accepting a result that claims performance, voice, or lip sync.
 - Read [faithful-rebuild-contract.md](references/faithful-rebuild-contract.md)
   before preparing or accepting v0.9 faithful source preservation.
+- Read [nle-delivery-contract.md](references/nle-delivery-contract.md) before
+  creating, verifying, or describing a v0.9.1 Jianying-compatible derivative.
 - Read [support-levels.md](references/support-levels.md) only to assess S1
   suitability.
 - Read [model-routing.md](references/model-routing.md) before delegating work

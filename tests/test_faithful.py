@@ -21,13 +21,21 @@ import rrv_runtime  # noqa: E402
 
 def _tools() -> rrv_runtime.RuntimeTools:
     return rrv_runtime.RuntimeTools(
-        ffmpeg=rrv_runtime.ToolInfo("ffmpeg", "fake ffmpeg.exe", "explicit"),
-        ffprobe=rrv_runtime.ToolInfo("ffprobe", "fake ffprobe.exe", "explicit"),
+        ffmpeg=rrv_runtime.ToolInfo(
+            "ffmpeg", "fake ffmpeg.exe", "explicit", "ffmpeg version test"
+        ),
+        ffprobe=rrv_runtime.ToolInfo(
+            "ffprobe", "fake ffprobe.exe", "explicit", "ffprobe version test"
+        ),
     )
 
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _plan_bytes(plan: dict) -> bytes:
+    return json.dumps(plan, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
 
 def _plan(data: bytes, *, audio_mode: str = "preserve-bitstream") -> dict:
@@ -114,6 +122,21 @@ def _no_metadata(*_args, **_kwargs) -> dict:
 
 
 class FaithfulPlanContractTests(unittest.TestCase):
+    def test_example_is_schema_valid_and_empty_inventory_is_allowed_for_no_text(self):
+        example = json.loads(
+            (
+                REPO_ROOT
+                / "skills"
+                / "reference-video-rebuilder"
+                / "assets"
+                / "project-template"
+                / "faithful.rebuild.plan.example.json"
+            ).read_text(encoding="utf-8")
+        )
+        rrv_faithful.validate_faithful_plan(example)
+        example["text_inventory"] = []
+        rrv_faithful.validate_faithful_plan(example)
+
     def test_schema_rejects_unknown_nonfinite_and_duplicate_json_keys(self):
         plan = _plan(b"source")
         plan["unexpected"] = True
@@ -195,7 +218,9 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
             escaped = _plan(payload)
             escaped["source"]["path"] = "../source.mp4"
             with self.assertRaises(rrv_runtime.RRVError):
-                rrv_faithful.execute_faithful_rebuild(escaped, root)
+                rrv_faithful.execute_faithful_rebuild(
+                    escaped, root, plan_input_bytes=_plan_bytes(escaped)
+                )
             self.assertFalse((root / "faithful-rebuild").exists())
 
             # Exercise the same reparse-point branch deterministically even
@@ -206,7 +231,10 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
                 side_effect=lambda entry: stat.S_ISREG(entry.st_mode),
             ):
                 with self.assertRaises(rrv_runtime.RRVError):
-                    rrv_faithful.execute_faithful_rebuild(_plan(payload), root)
+                    plan = _plan(payload)
+                    rrv_faithful.execute_faithful_rebuild(
+                        plan, root, plan_input_bytes=_plan_bytes(plan)
+                    )
             self.assertFalse((root / "faithful-rebuild").exists())
 
     def test_hardlinked_source_is_rejected_before_output(self):
@@ -222,7 +250,10 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
             except OSError as exc:
                 self.skipTest(f"the test host cannot create a hardlink: {exc}")
             with self.assertRaises(rrv_runtime.RRVError):
-                rrv_faithful.execute_faithful_rebuild(_plan(payload), root)
+                plan = _plan(payload)
+                rrv_faithful.execute_faithful_rebuild(
+                    plan, root, plan_input_bytes=_plan_bytes(plan)
+                )
             self.assertFalse((root / "faithful-rebuild").exists())
 
     def test_existing_final_output_is_never_overwritten(self):
@@ -235,7 +266,10 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
             marker = target / "marker.txt"
             marker.write_text("keep", encoding="utf-8")
             with self.assertRaises(rrv_runtime.RRVError) as caught:
-                rrv_faithful.execute_faithful_rebuild(_plan(payload), root, "occupied")
+                plan = _plan(payload)
+                rrv_faithful.execute_faithful_rebuild(
+                    plan, root, "occupied", plan_input_bytes=_plan_bytes(plan)
+                )
             self.assertEqual(caught.exception.code, rrv_runtime.ERR_OUTPUT_EXISTS)
             self.assertEqual(marker.read_text(encoding="utf-8"), "keep")
 
@@ -255,12 +289,14 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
                 return _probe()
 
             with self.assertRaises(rrv_runtime.RRVError):
+                plan = _plan(original)
                 rrv_faithful.execute_faithful_rebuild(
-                    _plan(original),
+                    plan,
                     root,
                     tools=_tools(),
                     probe_media_fn=drifting_probe,
                     exact_timing_fn=_timing,
+                    plan_input_bytes=_plan_bytes(plan),
                 )
             self.assertFalse((root / "faithful-rebuild").exists())
 
@@ -270,12 +306,14 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
             payload = b"source bytes"
             (root / "source.mp4").write_bytes(payload)
             with self.assertRaises(rrv_runtime.RRVError):
+                plan = _plan(payload)
                 rrv_faithful.execute_faithful_rebuild(
-                    _plan(payload),
+                    plan,
                     root,
                     tools=_tools(),
                     probe_media_fn=lambda *_args, **_kwargs: _probe(width=720, height=1280),
                     exact_timing_fn=_timing,
+                    plan_input_bytes=_plan_bytes(plan),
                 )
             self.assertFalse((root / "faithful-rebuild").exists())
 
@@ -295,10 +333,23 @@ class FaithfulExecutionSafetyTests(unittest.TestCase):
         self.assertIn("-map_metadata", command)
         self.assertIn("-map_chapters", command)
         self.assertNotIn("shell", " ".join(command).lower())
+        private_version = rrv_runtime.ToolInfo(
+            "ffmpeg",
+            "C:/PRIVATE/ffmpeg.exe",
+            "explicit",
+            r"ffmpeg version C:\PRIVATE\install\ffmpeg.exe",
+        )
+        self.assertEqual(
+            rrv_faithful._tool_provenance(private_version),
+            {"source": "explicit", "version": None},
+        )
 
 
 class FaithfulEndToEndTests(unittest.TestCase):
-    def _run(self, plan, root, *, captured_command=None):
+    def _run(self, plan, root, *, captured_command=None, plan_input_bytes=None):
+        if plan_input_bytes is None:
+            plan_input_bytes = _plan_bytes(plan)
+
         def probe(path, **_kwargs):
             muted_replica = plan["audio_mode"] == "mute" and Path(path).name == "replica.mp4"
             return _probe(has_audio=not muted_replica)
@@ -320,6 +371,7 @@ class FaithfulEndToEndTests(unittest.TestCase):
             exact_timing_fn=_timing,
             payload_hash_fn=_payload,
             metadata_probe_fn=_no_metadata,
+            plan_input_bytes=plan_input_bytes,
         )
 
     def test_bitstream_payload_hashes_match_and_metadata_comment_is_rejected(self):
@@ -346,7 +398,15 @@ class FaithfulEndToEndTests(unittest.TestCase):
             payload = b"source bytes"
             (root / "source.mp4").write_bytes(payload)
             command: list[str] = []
-            summary = self._run(_plan(payload), root, captured_command=command)
+            plan = _plan(payload)
+            raw_plan_bytes = json.dumps(plan, ensure_ascii=False, indent=2).encode("utf-8")
+            raw_plan_sha256 = _sha(raw_plan_bytes)
+            summary = self._run(
+                plan,
+                root,
+                captured_command=command,
+                plan_input_bytes=raw_plan_bytes,
+            )
             self.assertEqual(summary["completion"], "faithful_source_preservation")
             self.assertEqual(
                 summary["payload_hashes"]["video"]["source"],
@@ -361,6 +421,103 @@ class FaithfulEndToEndTests(unittest.TestCase):
             self.assertEqual((root / "delivery" / "replica.mp4").read_bytes(), payload)
             self.assertIn("-map_metadata", command)
             self.assertIn("-map_chapters", command)
+            self.assertEqual(
+                Path(command[command.index("-i") + 1]).name,
+                "source-snapshot.mp4",
+            )
+            provenance = summary["provenance"]
+            self.assertEqual(provenance["workflow_version"], "0.9.1-alpha")
+            self.assertEqual(provenance["plan"]["input_sha256"], raw_plan_sha256)
+            self.assertEqual(provenance["plan"]["canonical_sha256"], summary["plan_sha256"])
+            self.assertRegex(provenance["core_sha256"], r"^[0-9a-f]{64}$")
+            self.assertRegex(provenance["invocation_policy_sha256"], r"^[0-9a-f]{64}$")
+            self.assertEqual(
+                provenance["runtime"]["ffmpeg"],
+                {"source": "explicit", "version": "ffmpeg version test"},
+            )
+            self.assertEqual(
+                provenance["runtime"]["ffprobe"],
+                {"source": "explicit", "version": "ffprobe version test"},
+            )
+            self.assertNotIn("fake ffmpeg.exe", json.dumps(provenance))
+
+    def test_missing_or_mismatched_raw_plan_bytes_are_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = b"source bytes"
+            (root / "source.mp4").write_bytes(payload)
+            plan = _plan(payload)
+            with self.assertRaises(rrv_runtime.RRVError):
+                rrv_faithful.execute_faithful_rebuild(
+                    plan,
+                    root,
+                    tools=_tools(),
+                )
+            different = _plan(payload)
+            different["audio_mode"] = "mute"
+            with self.assertRaises(rrv_runtime.RRVError):
+                rrv_faithful.execute_faithful_rebuild(
+                    plan,
+                    root,
+                    tools=_tools(),
+                    plan_input_bytes=_plan_bytes(different),
+                )
+            numerically_equal_but_canonically_different = copy.deepcopy(plan)
+            numerically_equal_but_canonically_different["source"]["fps"] = 30
+            self.assertEqual(numerically_equal_but_canonically_different, plan)
+            with self.assertRaises(rrv_runtime.RRVError):
+                rrv_faithful.execute_faithful_rebuild(
+                    numerically_equal_but_canonically_different,
+                    root,
+                    tools=_tools(),
+                    plan_input_bytes=_plan_bytes(plan),
+                )
+            self.assertFalse((root / "faithful-rebuild").exists())
+
+    def test_executor_drift_prevents_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = b"source bytes"
+            (root / "source.mp4").write_bytes(payload)
+            with mock.patch.object(
+                rrv_faithful,
+                "_module_sha256",
+                side_effect=["1" * 64, "2" * 64],
+            ):
+                with self.assertRaises(rrv_runtime.RRVError):
+                    self._run(_plan(payload), root)
+            self.assertFalse((root / "delivery").exists())
+
+    def test_replica_replacement_after_summary_write_prevents_publication(self):
+        """The final artifact set remains bound after its summary is written."""
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payload = b"approved source bytes"
+            (root / "source.mp4").write_bytes(payload)
+            original_write = rrv_faithful.rrv_propose._write_json_new
+            tampered = False
+
+            def write_summary_then_replace_replica(path, summary, *, label, stage=None):
+                nonlocal tampered
+                original_write(path, summary, label=label, stage=stage)
+                if label == "faithful rebuild summary":
+                    replica = path.parent / "replica.mp4"
+                    attacker_copy = path.parent / "attacker-replica.mp4"
+                    attacker_copy.write_bytes(b"attacker replacement")
+                    os.replace(attacker_copy, replica)
+                    tampered = True
+
+            with mock.patch.object(
+                rrv_faithful.rrv_propose,
+                "_write_json_new",
+                side_effect=write_summary_then_replace_replica,
+            ):
+                with self.assertRaises(rrv_runtime.RRVError):
+                    self._run(_plan(payload), root)
+
+            self.assertTrue(tampered)
+            self.assertFalse((root / "delivery").exists())
 
     def test_metadata_comment_prevents_atomic_publication(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -390,6 +547,7 @@ class FaithfulEndToEndTests(unittest.TestCase):
                         "format": {"tags": {"comment": "still present"}},
                         "streams": [],
                     },
+                    plan_input_bytes=_plan_bytes(plan),
                 )
             self.assertFalse((root / "bad-metadata").exists())
 

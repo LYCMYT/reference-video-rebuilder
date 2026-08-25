@@ -829,7 +829,12 @@ def _assert_stage_regular_file(stage: _StageDirectory, path: Path, label: str) -
         if entry is None or _is_link_or_reparse(entry) or not stat.S_ISDIR(entry.st_mode):
             raise _tool_error(f"{label} is not inside a safe local staging directory")
     entry = _lstat_or_none(current / parts[-1])
-    if entry is None or _is_link_or_reparse(entry) or not stat.S_ISREG(entry.st_mode):
+    if (
+        entry is None
+        or _is_link_or_reparse(entry)
+        or not stat.S_ISREG(entry.st_mode)
+        or entry.st_nlink != 1
+    ):
         raise _tool_error(f"{label} is not a safe local file")
     _assert_stage_live(stage)
 
@@ -859,6 +864,8 @@ def _stage_tree_is_safe(stage: _StageDirectory, path: Path) -> bool:
             if stat.S_ISDIR(entry.st_mode):
                 with os.scandir(current) as children:
                     pending.extend(Path(child.path) for child in children)
+            elif not stat.S_ISREG(entry.st_mode) or entry.st_nlink != 1:
+                return False
         _assert_stage_live(stage)
         return True
     except (OSError, rrv_runtime.RRVError):
@@ -1268,7 +1275,72 @@ def _rollback_publish(stage: _StageDirectory, target: Path, parents: Sequence[_D
         return
 
 
-def _publish_stage(root: Path, stage: _StageDirectory, target: Path, *, label: str) -> None:
+def _hash_regular_file_no_follow(path: Path, label: str) -> str:
+    """Hash one non-linked regular file while binding its lexical identity."""
+
+    try:
+        before = os.lstat(path)
+    except OSError as exc:
+        raise _tool_error(f"{label} is unavailable") from exc
+    if _is_link_or_reparse(before) or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise _tool_error(f"{label} is not a safe local file")
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as exc:
+        raise _tool_error(f"{label} could not be opened safely") from exc
+    digest = hashlib.sha256()
+    try:
+        with os.fdopen(descriptor, "rb", closefd=True) as handle:
+            opened = os.fstat(handle.fileno())
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened.st_dev != before.st_dev
+                or opened.st_ino != before.st_ino
+            ):
+                raise _tool_error(f"{label} changed while it was being read")
+            while chunk := handle.read(1024 * 1024):
+                digest.update(chunk)
+    except rrv_runtime.RRVError:
+        raise
+    except OSError as exc:
+        raise _tool_error(f"{label} could not be read safely") from exc
+    try:
+        after = os.lstat(path)
+    except OSError as exc:
+        raise _tool_error(f"{label} changed while it was being read") from exc
+    if (
+        _is_link_or_reparse(after)
+        or not stat.S_ISREG(after.st_mode)
+        or after.st_nlink != 1
+        or after.st_dev != before.st_dev
+        or after.st_ino != before.st_ino
+    ):
+        raise _tool_error(f"{label} changed while it was being read")
+    return digest.hexdigest()
+
+
+def _assert_expected_files(base: Path, expected_files: Mapping[str, str], label: str) -> None:
+    """Bind the final publish set to caller-supplied content digests."""
+
+    for relative, expected_sha256 in sorted(expected_files.items()):
+        parts = _relative_parts(relative, f"{label} expected artifact")
+        if not isinstance(expected_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+            raise _tool_error(f"{label} expected artifact digest is invalid")
+        actual = _hash_regular_file_no_follow(base.joinpath(*parts), f"{label} artifact")
+        if actual != expected_sha256:
+            raise _tool_error(f"{label} artifact changed before publication")
+
+
+def _publish_stage(
+    root: Path,
+    stage: _StageDirectory,
+    target: Path,
+    *,
+    label: str,
+    expected_files: Mapping[str, str] | None = None,
+) -> None:
     """Publish one complete directory without following reparse-point parents."""
 
     if root != stage.root.path:
@@ -1290,11 +1362,15 @@ def _publish_stage(root: Path, stage: _StageDirectory, target: Path, *, label: s
         _assert_directory_chain(parents, "local output parent")
         if not _stage_tree_is_safe(stage, stage.path):
             raise _tool_error("local staging directory changed while preparing publication")
+        if expected_files:
+            _assert_expected_files(stage.path, expected_files, label)
         _rename_bound_stage(stage, target, label=label)
         _assert_directory_chain(parents, "local output parent")
         moved = _capture_directory_identity(target, "published local output")
         if moved.device != stage.directory.device or moved.inode != stage.directory.inode:
             raise _tool_error("published local output changed during atomic publication")
+        if expected_files:
+            _assert_expected_files(target, expected_files, label)
         _release_stage_guards(stage)
     except rrv_runtime.RRVError:
         _rollback_publish(stage, target, parents)

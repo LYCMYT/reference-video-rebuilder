@@ -11,7 +11,7 @@ A separately gated faithful source-preservation path is the narrow exception:
 it preserves an authorized source rather than rebuilding it, so it cannot
 remove, replace, infer, or reconstruct any visible content.
 
-> Status: 0.9.0-alpha (faithful source preservation is separate from the
+> Status: 0.9.1-alpha (faithful source preservation is separate from the
 > static template renderer; the local template executable remains
 > static). The local, bounded new-reference path remains
 > propose -> review -> freeze-plan -> compile. v0.6 adds the reviewed local
@@ -27,6 +27,30 @@ remove, replace, infer, or reconstruct any visible content.
 > renderer composites static images, 2D effects, and selected audio; it does
 > not reproduce a person's continuous action, imitate a voice, rebuild SFX, or
 > provide lip sync.
+
+## What 0.9.1 adds
+
+v0.9.1 keeps three outputs deliberately separate:
+
+- **Faithful archive** preserves approved source video packet payload and
+  timing, preserves approved source audio or mutes it, and strips inherited or
+  user-authored metadata. Its summary now binds the raw and canonical plan
+  hashes, executor hash, invocation-policy hash, and bounded runtime versions.
+- **Faithful review evidence** creates a deterministic, hash-bound contact
+  sheet and JSON report from the manually reviewed text inventory. It uses no
+  OCR or semantic inference and cannot prove that the reviewer omitted no
+  visible text.
+- **Jianying-compatible derivative** transcodes a local authorized MP4 to one
+  fixed profile: H.264 High, 8-bit `yuv420p`, supported CFR, AAC-LC 48 kHz
+  stereo when audio exists, `+faststart`, and cleared inherited metadata and
+  rotation. This output is a re-encoded flat video with
+  `bitstream_faithful: false`; it is not a Jianying project, editable layer
+  package, official certification, or guarantee for every Jianying version.
+
+The faithful archive remains the audit source of truth. The NLE derivative is
+for practical import compatibility and must never replace or inherit the
+faithful claim. See the
+[NLE delivery contract](skills/reference-video-rebuilder/references/nle-delivery-contract.md).
 
 ## What 0.9 adds
 
@@ -227,8 +251,8 @@ the canonical frozen Compiler Plan.
 
 | Artifact or surface | Version |
 | --- | --- |
-| Skill and governed workflow | 0.9.0-alpha (faithful source preservation, separate from template rebuild) |
-| `video_remix.py` local CLI | 0.9.0-alpha |
+| Skill and governed workflow | 0.9.1-alpha (evidence, provenance, and a separate NLE derivative) |
+| `video_remix.py` local CLI | 0.9.1-alpha |
 | `openai_image_controller.py` | 0.7.0-alpha |
 | Proposal JSON | 0.4.0 |
 | Asset Pack Proposal and Review | 0.5.0 |
@@ -237,6 +261,8 @@ the canonical frozen Compiler Plan.
 | Template IR | 0.2.0 legacy static renderer; 0.3.0 static-subset contract, with non-static requirements fail closed until a controller matches |
 | Frozen Asset Manifest | 0.2.0 |
 | Faithful Rebuild Plan | 0.9.0 |
+| Faithful Evidence Report | 0.9.1 |
+| Jianying-compatible derivative report | 0.9.1 (`jianying-compatible-v1`) |
 
 The frozen Compiler Plan remains schema 0.3.0 so existing v0.3 Compiler Plan
 consumers remain compatible. Deterministic compilation, rendering, and
@@ -255,14 +281,38 @@ Prepare the `0.9.0` plan manually from the schema and contract; do not derive
 its visible-text inventory with OCR. Validate it before opening the source for
 the preservation run:
 
+- schema: `<skill-root>/assets/schemas/faithful-rebuild-plan.schema.json`;
+- example: `<skill-root>/assets/project-template/faithful.rebuild.plan.example.json`;
+- source path spelling: project-relative `/`, for example `source/reference.mp4`;
+- lowercase Windows SHA-256: `(Get-FileHash (Join-Path $project 'source\reference.mp4') -Algorithm SHA256).Hash.ToLowerInvariant()`.
+
+The Alpha source profile is MP4 with one zero-rotation H.264 video, exact CFR,
+no subtitle/data/attachment streams, at most 60 seconds/7,200 frames, and one
+of `720x1280`, `1080x1920`, `1280x720`, or `1920x1080`.
+
 ```powershell
-video-remix validate-faithful-plan .\faithful-rebuild-plan.json --json
-video-remix faithful-rebuild .\faithful-rebuild-plan.json `
-  --project-root . `
+$skillRoot = 'C:\absolute\path\to\reference-video-rebuilder'
+$project = 'D:\absolute\path\to\media-project'
+$cli = Join-Path $skillRoot 'scripts\video_remix.py'
+$plan = Join-Path $project 'faithful-rebuild-plan.json'
+$ffmpeg = 'C:\absolute\path\to\ffmpeg.exe'
+$ffprobe = 'C:\absolute\path\to\ffprobe.exe'
+
+python $cli validate-faithful-plan $plan --json
+python $cli faithful-rebuild $plan `
+  --project-root $project `
   --output-dir faithful-rebuild `
-  --ffmpeg <path-to-ffmpeg> `
-  --ffprobe <path-to-ffprobe> `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
   --timeout-seconds 60 `
+  --json
+
+python $cli faithful-evidence $plan `
+  --project-root $project `
+  --output-dir faithful-evidence `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --max-panels 24 `
   --json
 ```
 
@@ -271,6 +321,35 @@ command-line flag. `--output-dir` must be a new safe project-root child. On
 success it publishes `replica.mp4` and `rebuild-summary.json` under that
 directory with completion `faithful_source_preservation`; it does not produce
 a template or a content-rebuilt delivery.
+
+To make a separate flat MP4 for Jianying import, transcode an authorized
+project-local MP4 and then verify the derivative. Rights confirmation is an
+explicit CLI gate because this is not the plan-authorized faithful operation:
+
+The NLE Alpha input must use one of those four dimensions, exact CFR at
+24/25/30/50/60 fps, at most 60 seconds, exactly one video stream, at most one
+audio stream, zero rotation, and no subtitle/data/attachment streams.
+
+```powershell
+python $cli jianying-export (Join-Path $project 'faithful-rebuild\replica.mp4') `
+  --project-root $project `
+  --rights-confirmed `
+  --output-dir jianying-delivery `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --json
+
+python $cli jianying-verify (Join-Path $project 'jianying-delivery\jianying-compatible-v1.mp4') `
+  --project-root $project `
+  --rights-confirmed `
+  --ffmpeg $ffmpeg `
+  --ffprobe $ffprobe `
+  --json
+```
+
+The derivative is deliberately re-encoded and therefore never satisfies the
+faithful bitstream contract. Keep its `nle-delivery-report.json` beside it and
+retain the faithful archive and summary as the audit source.
 
 ## Supported boundary
 

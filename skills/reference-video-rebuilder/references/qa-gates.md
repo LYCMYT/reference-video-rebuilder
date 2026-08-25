@@ -1,5 +1,30 @@
 # QA gates
 
+## 0.9.1-alpha faithful evidence, provenance, and NLE derivative
+
+The faithful plan remains schema `0.9.0`; v0.9.1 adds evidence/report schema
+`0.9.1`, stronger run provenance, and a separate NLE derivative. Do not merge
+their claims.
+
+P0 evidence requires the source and canonical plan hashes to match, every
+declared text item to remain `human_reviewed: true`, deterministic sample
+frames to be recorded, contact-sheet bytes to match their SHA-256, and the
+report to state `ocr_used: false` and `claim: human_review_support_only`.
+Evidence cannot certify that the human reviewer omitted no visible text; full
+playback and contact-sheet review remain mandatory.
+
+P0 faithful provenance requires matching raw and canonical plan hashes,
+executor hash, invocation-policy hash, workflow version, and bounded local
+runtime provenance. Executor or source drift before publication fails closed.
+
+P0 NLE delivery requires explicit rights confirmation, the exact
+`jianying-compatible-v1` profile, a new atomic output, full video/audio decode,
+and a passing independent `jianying-verify`. Its report must state
+`completion: nle_compatible_derivative` and `bitstream_faithful: false`.
+Reject any claim that it is an original bitstream, Jianying project, editable
+timeline/layer package, official certification, or guaranteed import across
+all versions. Read [nle-delivery-contract.md](nle-delivery-contract.md).
+
 ## 0.9.0-alpha faithful source-preservation
 
 Faithful source preservation is a separate, exact-preservation route for an
